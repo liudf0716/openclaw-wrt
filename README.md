@@ -60,6 +60,25 @@ openclaw plugins inspect openclaw-wrt
 openclaw plugins remove openclaw-wrt
 ```
 
+## How it works
+
+```
+┌──────────────┐    WebSocket     ┌──────────────────┐    Tool calls    ┌──────────────────┐
+│  OpenWrt /   │ ──────────────>  │  OpenClaw WRT    │ ──────────────>  │  OpenClaw Agent  │
+│  APFree      │ <──────────────  │  Bridge Plugin   │ <──────────────  │  (LLM)           │
+│  Wifidog     │    JSON-RPC      │                  │                  │                  │
+│  Router      │                  │  · req_id correl. │                  │  Uses 30+ tools  │
+└──────────────┘                  │  · device mgmt   │                  │  to manage router│
+                                  │  · auth/token    │                  └──────────────────┘
+                                  │  · AWAS proxy    │
+                                  └──────────────────┘
+```
+
+1. **Router connects** — Each OpenWrt/APFree Wifidog router opens a WebSocket to the bridge (`ws://host:8866/ws`) and sends a connect message with its `device_id`.
+2. **Bridge manages sessions** — The plugin maintains a device registry with connection state, aliases, and optional token-based authentication.
+3. **Agent controls devices** — OpenClaw's LLM agent calls 30+ registered tools (e.g., `apfree_wifidog_get_clients`, `apfree_wifidog_set_wifi_info`, `apfree_wifidog_exec_shell`). Each tool call is correlated with the router's response via `req_id`.
+4. **AWAS proxy (optional)** — For cloud-mode devices, the plugin can forward authentication traffic to an AWAS (Auth Server) backend.
+
 ## Configuration
 
 | Setting | Description | Default |
