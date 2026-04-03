@@ -1,0 +1,55 @@
+{
+  "name": "@openclaw/openclaw-wrt",
+  "version": "2026.3.8",
+  "type": "module",
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "skills",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-wrt",
+    "openwrt",
+    "apfree-wifidog"
+  ],
+  "author": "",
+  "license": "MIT",
+  "description": "OpenClaw bridge for OpenClaw WRT device WebSocket control",
+  "dependencies": {
+    "@sinclair/typebox": "0.34.49",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "@types/ws": "^8.18.1",
+    "openclaw": ">=2026.3.13",
+    "rollup": "^4.9.6",
+    "rollup-plugin-dts": "^6.1.0",
+    "tslib": "^2.6.2",
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.2"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/esm/index.js"
+    ],
+    "install": {
+      "npmSpec": "@openclaw/openclaw-wrt",
+      "defaultChoice": "npm"
+    }
+  }
+}
