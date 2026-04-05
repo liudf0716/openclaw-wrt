@@ -7,7 +7,7 @@ import { dts } from "rollup-plugin-dts";
 // 外部依赖，不打包进 bundle
 const external = [
   /^openclaw\/plugin-sdk(\/|$)/,
-  "@sinclair/typebox",
+  /^@sinclair\/typebox(\/|$)/,
   "ws",
   /^node:/,
 ];
