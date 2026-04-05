@@ -2,6 +2,8 @@
 
 OpenClaw bridge plugin for OpenWrt / APFree Wifidog router device WebSocket control.
 
+**[中文文档](README_zh.md)**
+
 ## Features
 
 - WebSocket bridge server accepting router device connections
@@ -12,49 +14,49 @@ OpenClaw bridge plugin for OpenWrt / APFree Wifidog router device WebSocket cont
 
 ## Installation
 
-### 方式一：npm 安装（发布后）
+### Option 1: npm install (after published)
 
 ```bash
 openclaw plugins add @openclaw/openclaw-wrt
 ```
 
-### 方式二：本地目录安装（推荐开发调试）
+### Option 2: Local directory install (recommended for development)
 
-无需构建，直接将源码目录安装到 OpenClaw 中：
+Install the source directory directly into OpenClaw without building:
 
 ```bash
 openclaw plugins add /path/to/openclaw-wrt
 ```
 
-例如：
+Example:
 
 ```bash
 openclaw plugins add /home/user/work/openclaw-wrt
 ```
 
-> OpenClaw 会自动将插件链接到 `~/.openclaw/extensions/` 目录下，并通过 jiti 编译 TypeScript 源码加载。
+> OpenClaw automatically links the plugin into `~/.openclaw/extensions/` and loads it via jiti TypeScript compilation.
 
-### 方式三：构建后本地安装
+### Option 3: Build then install locally
 
 ```bash
-# 先构建
+# Build first
 pnpm build
 
-# 安装构建产物
+# Install the built artifacts
 openclaw plugins add /path/to/openclaw-wrt
 ```
 
-### 验证安装
+### Verify installation
 
 ```bash
-# 查看已安装插件列表
+# List installed plugins
 openclaw plugins list
 
-# 查看插件详情
+# Inspect plugin details
 openclaw plugins inspect openclaw-wrt
 ```
 
-### 卸载
+### Uninstall
 
 ```bash
 openclaw plugins remove openclaw-wrt

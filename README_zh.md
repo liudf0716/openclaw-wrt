@@ -1,0 +1,117 @@
+# OpenClaw WRT
+
+OpenClaw 路由器设备桥接插件，通过 WebSocket 控制 OpenWrt / APFree Wifidog 设备。
+
+**[English](README.md)**
+
+## 功能特性
+
+- WebSocket 桥接服务端，接收路由器设备连接
+- 通过 `req_id` 实现请求/响应关联
+- 设备会话管理（连接、认证、超时、别名）
+- AWAS 认证代理（将 cloud 模式设备的 connect/heartbeat 转发到 AWAS 服务器）
+- 30+ 细粒度工具，覆盖：WiFi 配置、客户端管理、BPF 流量监控、WireGuard VPN、Shell 执行、域名信任列表等
+
+## 安装
+
+### 方式一：npm 安装（发布后）
+
+```bash
+openclaw plugins add @openclaw/openclaw-wrt
+```
+
+### 方式二：本地目录安装（推荐开发调试）
+
+无需构建，直接将源码目录安装到 OpenClaw 中：
+
+```bash
+openclaw plugins add /path/to/openclaw-wrt
+```
+
+示例：
+
+```bash
+openclaw plugins add /home/user/work/openclaw-wrt
+```
+
+> OpenClaw 会自动将插件链接到 `~/.openclaw/extensions/` 目录下，并通过 jiti 编译 TypeScript 源码加载。
+
+### 方式三：构建后本地安装
+
+```bash
+# 先构建
+pnpm build
+
+# 安装构建产物
+openclaw plugins add /path/to/openclaw-wrt
+```
+
+### 验证安装
+
+```bash
+# 查看已安装插件列表
+openclaw plugins list
+
+# 查看插件详情
+openclaw plugins inspect openclaw-wrt
+```
+
+### 卸载
+
+```bash
+openclaw plugins remove openclaw-wrt
+```
+
+## 工作原理
+
+```
+┌──────────────┐    WebSocket     ┌──────────────────┐    Tool calls    ┌──────────────────┐
+│  OpenWrt /   │ ──────────────>  │  OpenClaw WRT    │ ──────────────>  │  OpenClaw Agent  │
+│  APFree      │ <──────────────  │  Bridge Plugin   │ <──────────────  │  (LLM)           │
+│  Wifidog     │    JSON-RPC      │                  │                  │                  │
+│  Router      │                  │  · req_id 关联   │                  │  通过 30+ 工具   │
+└──────────────┘                  │  · 设备管理      │                  │  管理路由器      │
+                                  │  · 认证/令牌     │                  └──────────────────┘
+                                  │  · AWAS 代理     │
+                                  └──────────────────┘
+```
+
+1. **路由器连接** — 每台 OpenWrt/APFree Wifidog 路由器通过 WebSocket 连接到桥接服务（`ws://host:8866/ws`），并发送包含 `device_id` 的连接消息。
+2. **桥接管理会话** — 插件维护一个设备注册表，记录连接状态、别名，并支持可选的令牌认证。
+3. **Agent 控制设备** — OpenClaw 的 LLM Agent 调用 30+ 已注册的工具（如 `apfree_wifidog_get_clients`、`apfree_wifidog_set_wifi_info`、`apfree_wifidog_exec_shell`）。每次工具调用通过 `req_id` 与路由器的响应关联。
+4. **AWAS 代理（可选）** — 对于 cloud 模式设备，插件可以将认证流量转发到 AWAS（认证服务器）后端。
+
+## 配置项
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `enabled` | 启用桥接 | `true` |
+| `bind` | 绑定地址 | `0.0.0.0` |
+| `port` | 桥接端口 | `8866` |
+| `path` | WebSocket 路径 | `/ws` |
+| `allowDeviceIds` | 允许的设备 ID（白名单） | *(任意)* |
+| `requestTimeoutMs` | 默认请求超时（毫秒） | `15000` |
+| `maxPayloadBytes` | 最大负载字节数 | `262144` |
+| `token` | 设备认证令牌 | *(无)* |
+| `awasEnabled` | 启用 AWAS 认证代理 | `false` |
+| `awasHost` | AWAS 服务器主机名 | `127.0.0.1` |
+| `awasPort` | AWAS 服务器端口 | `8088` |
+| `awasPath` | AWAS WebSocket 路径 | `/ws` |
+| `awasSsl` | 使用 TLS (wss://) | `false` |
+
+## 开发
+
+```bash
+# 安装依赖
+pnpm install
+
+# 构建
+pnpm build
+
+# 监听模式
+pnpm dev
+```
+
+## 许可证
+
+MIT
