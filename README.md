@@ -99,6 +99,37 @@ openclaw plugins remove openclaw-wrt
 | `awasPath` | AWAS WebSocket path | `/ws` |
 | `awasSsl` | Use TLS (wss://) | `false` |
 
+### Tool allowlist note
+
+If your OpenClaw config uses a restrictive tool profile such as:
+
+```json
+{
+  "tools": {
+    "profile": "coding"
+  }
+}
+```
+
+then the built-in `coding` profile only allows core coding tools by default. Plugin tools from `openclaw-wrt` are loaded, but they may not be callable by the agent unless you explicitly re-allow them.
+
+Recommended configuration:
+
+```json
+{
+  "tools": {
+    "profile": "coding",
+    "alsoAllow": ["openclaw-wrt"]
+  }
+}
+```
+
+Why this matters:
+
+- `coding` is a core-tool allowlist, not a plugin-tool allowlist
+- `alsoAllow: ["openclaw-wrt"]` expands to the tools registered by this plugin
+- without it, the agent may recognize the plugin conceptually but fail to call tools such as `apfree_wifidog_list_devices`, `apfree_wifidog_get_status`, or `apfree_wifidog_get_clients`
+
 ## Development
 
 ```bash

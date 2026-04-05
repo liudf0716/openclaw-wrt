@@ -99,6 +99,37 @@ openclaw plugins remove openclaw-wrt
 | `awasPath` | AWAS WebSocket 路径 | `/ws` |
 | `awasSsl` | 使用 TLS (wss://) | `false` |
 
+### 工具白名单说明
+
+如果你的 OpenClaw 配置使用了较严格的工具配置，例如：
+
+```json
+{
+  "tools": {
+    "profile": "coding"
+  }
+}
+```
+
+那么内置的 `coding` profile 默认只允许核心 coding 工具，不会自动放行 `openclaw-wrt` 这样的插件工具。插件虽然已经加载，但 Agent 可能无法真正调用这些工具。
+
+建议配置为：
+
+```json
+{
+  "tools": {
+    "profile": "coding",
+    "alsoAllow": ["openclaw-wrt"]
+  }
+}
+```
+
+原因如下：
+
+- `coding` 是核心工具白名单，不是插件工具白名单
+- `alsoAllow: ["openclaw-wrt"]` 会展开并放行本插件注册的工具
+- 如果不加这项，Agent 可能“知道有这个插件”，但无法实际调用 `apfree_wifidog_list_devices`、`apfree_wifidog_get_status`、`apfree_wifidog_get_clients` 等工具
+
 ## 开发
 
 ```bash
