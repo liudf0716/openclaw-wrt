@@ -2,6 +2,29 @@ import { describe, expect, it } from "vitest";
 import { createClawWRTTools } from "./tool.js";
 
 describe("openclaw-wrt intent tools", () => {
+  it("router discovery and detail tools mention online and wireless router wording", () => {
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+    };
+
+    const tools = createClawWRTTools({ bridge: bridge as never });
+    const listTool = tools.find((entry) => entry.name === "apfree_wifidog_list_devices");
+    const getDeviceTool = tools.find((entry) => entry.name === "apfree_wifidog_get_device");
+    const getStatusTool = tools.find((entry) => entry.name === "apfree_wifidog_get_status");
+
+    expect(listTool?.description).toContain("online routers");
+    expect(listTool?.description).toContain("wireless routers");
+    expect(getDeviceTool?.description).toContain("connection snapshot");
+    expect(getDeviceTool?.description).toContain("not the full runtime detail report");
+    expect(getStatusTool?.description).toContain("detailed runtime status");
+    expect(getStatusTool?.description).toContain("router details");
+  });
+
   it("kickoff tool resolves client IP from get_clients and infers gwId from a single gateway", async () => {
     const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
     const bridge = {

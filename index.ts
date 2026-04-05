@@ -6,7 +6,8 @@ import { createClawWRTTools } from "./src/tool.js";
 export default definePluginEntry({
   id: "openclaw-wrt",
   name: "OpenClaw WRT",
-  description: "Bridge OpenClaw WRT devices into OpenClaw over WebSocket.",
+  description:
+    "List and inspect online OpenWrt or wireless router devices, and send management requests to connected routers over WebSocket.",
   configSchema: () => {
     const schema = createClawWRTPluginConfigSchema();
     schema.uiHints = {

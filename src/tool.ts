@@ -724,7 +724,8 @@ function createListDevicesTool(bridge: ClawWRTBridge): AnyAgentTool {
   return {
     name: "apfree_wifidog_list_devices",
     label: "OpenClaw WRT Devices",
-    description: "List all currently connected openclaw-wrt devices.",
+    description:
+      "List all currently connected online routers, wireless routers, or OpenWrt devices managed by openclaw-wrt.",
     parameters: Type.Object(
       {
         dummy_field: Type.Optional(
@@ -750,7 +751,8 @@ function createGetDeviceTool(bridge: ClawWRTBridge): AnyAgentTool {
   return {
     name: "apfree_wifidog_get_device",
     label: "OpenClaw WRT Device",
-    description: "Get the current connection snapshot for one connected openclaw-wrt device.",
+    description:
+      "Get the current connection snapshot for one online router or wireless router. This is a quick connectivity view, not the full runtime detail report.",
     parameters: Type.Object({ deviceId: DeviceIdField }, { additionalProperties: false }),
     execute: async (_toolCallId, rawParams) => {
       const args = rawParams as { deviceId: string };
@@ -770,7 +772,8 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       bridge,
       name: "apfree_wifidog_get_status",
       label: "OpenClaw WRT Status",
-      description: "Get a router's current openclaw-wrt status and runtime health summary.",
+      description:
+        "Get detailed runtime status and health information for an online router or wireless router. Prefer this when the user asks for router details or current router status.",
       op: "get_status",
       summarize: (_response, rawParams) => {
         const args = rawParams as DeviceOnlyParams;
@@ -781,7 +784,8 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       bridge,
       name: "apfree_wifidog_get_sys_info",
       label: "OpenClaw WRT System Info",
-      description: "Get router system information, resource usage, and platform details.",
+      description:
+        "Get detailed router system information such as model, platform, memory, storage, uptime, and resource usage for an online router.",
       op: "get_sys_info",
       summarize: (_response, rawParams) => {
         const args = rawParams as DeviceOnlyParams;
@@ -792,7 +796,8 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       bridge,
       name: "apfree_wifidog_get_device_info",
       label: "OpenClaw WRT Device Info",
-      description: "Get the configured device metadata for a router.",
+      description:
+        "Get configured router metadata such as site, label, location, and other saved device information for an online router.",
       op: "get_device_info",
       summarize: (_response, rawParams) => {
         const args = rawParams as DeviceOnlyParams;
