@@ -1,6 +1,6 @@
 {
   "name": "@openclaw/openclaw-wrt",
-  "version": "2026.3.8",
+  "version": "2026.4.5",
   "type": "module",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
