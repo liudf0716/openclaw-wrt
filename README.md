@@ -17,7 +17,7 @@ OpenClaw bridge plugin for OpenWrt / APFree Wifidog router device WebSocket cont
 ### Option 1: npm install (after published)
 
 ```bash
-openclaw plugins add @openclaw/openclaw-wrt
+openclaw plugins install @openclaw/openclaw-wrt
 ```
 
 ### Option 2: Local directory install (recommended for development)
@@ -25,7 +25,7 @@ openclaw plugins add @openclaw/openclaw-wrt
 Install the source directory directly into OpenClaw without building:
 
 ```bash
-openclaw plugins add /path/to/openclaw-wrt
+openclaw plugins install /path/to/openclaw-wrt
 ```
 
 Example:
@@ -43,7 +43,7 @@ openclaw plugins add /home/user/work/openclaw-wrt
 pnpm build
 
 # Install the built artifacts
-openclaw plugins add /path/to/openclaw-wrt
+openclaw plugins install /path/to/openclaw-wrt
 ```
 
 ### Verify installation

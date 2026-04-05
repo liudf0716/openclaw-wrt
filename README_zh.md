@@ -17,7 +17,7 @@ OpenClaw 路由器设备桥接插件，通过 WebSocket 控制 OpenWrt / APFree 
 ### 方式一：npm 安装（发布后）
 
 ```bash
-openclaw plugins add @openclaw/openclaw-wrt
+openclaw plugins install @openclaw/openclaw-wrt
 ```
 
 ### 方式二：本地目录安装（推荐开发调试）
@@ -25,13 +25,13 @@ openclaw plugins add @openclaw/openclaw-wrt
 无需构建，直接将源码目录安装到 OpenClaw 中：
 
 ```bash
-openclaw plugins add /path/to/openclaw-wrt
+openclaw plugins install /path/to/openclaw-wrt
 ```
 
 示例：
 
 ```bash
-openclaw plugins add /home/user/work/openclaw-wrt
+openclaw plugins install /home/user/work/openclaw-wrt
 ```
 
 > OpenClaw 会自动将插件链接到 `~/.openclaw/extensions/` 目录下，并通过 jiti 编译 TypeScript 源码加载。
@@ -43,7 +43,7 @@ openclaw plugins add /home/user/work/openclaw-wrt
 pnpm build
 
 # 安装构建产物
-openclaw plugins add /path/to/openclaw-wrt
+openclaw plugins install /path/to/openclaw-wrt
 ```
 
 ### 验证安装
