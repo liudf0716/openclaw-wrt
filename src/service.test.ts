@@ -284,6 +284,105 @@ describe("ClawWRTBridge", () => {
     await once(ws, "close");
   });
 
+  it("surfaces nested envelope error messages from devices", async () => {
+    const bridge = new ClawWRTBridge({
+      config: resolveClawWRTConfig({
+        enabled: true,
+        bind: "127.0.0.1",
+        port: 19217,
+        path: "/ws/wifidogx",
+        requestTimeoutMs: 3000,
+      }),
+      logger: createLogger(),
+    });
+    bridges.push(bridge);
+    await bridge.start();
+
+    const ws = new WebSocket("ws://127.0.0.1:19217/ws/wifidogx");
+    await once(ws, "open");
+    ws.send(JSON.stringify({ op: "connect", device_id: "dev-err", gateway: [] }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const responsePromise = bridge.callDevice({
+      deviceId: "dev-err",
+      op: "get_clients",
+    });
+    const errorAssertion = expect(responsePromise).rejects.toThrow(
+      "read unix @->/tmp/wdctlx.sock: i/o timeout",
+    );
+
+    const [messageEvent] = (await once(ws, "message")) as [Buffer];
+    const request = JSON.parse(messageEvent.toString("utf8")) as Record<string, unknown>;
+    ws.send(
+      JSON.stringify({
+        req_id: request.req_id,
+        response: "400",
+        data: {
+          type: "generic_response",
+          status: "error",
+          code: 500,
+          message: "read unix @->/tmp/wdctlx.sock: i/o timeout",
+        },
+      }),
+    );
+
+    await errorAssertion;
+
+    ws.close();
+    await once(ws, "close");
+  });
+
+  it("flattens nested success payloads from generic response envelopes", async () => {
+    const bridge = new ClawWRTBridge({
+      config: resolveClawWRTConfig({
+        enabled: true,
+        bind: "127.0.0.1",
+        port: 19218,
+        path: "/ws/wifidogx",
+        requestTimeoutMs: 3000,
+      }),
+      logger: createLogger(),
+    });
+    bridges.push(bridge);
+    await bridge.start();
+
+    const ws = new WebSocket("ws://127.0.0.1:19218/ws/wifidogx");
+    await once(ws, "open");
+    ws.send(JSON.stringify({ op: "connect", device_id: "dev-nested", gateway: [] }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const responsePromise = bridge.callDevice({
+      deviceId: "dev-nested",
+      op: "get_clients",
+    });
+
+    const [messageEvent] = (await once(ws, "message")) as [Buffer];
+    const request = JSON.parse(messageEvent.toString("utf8")) as Record<string, unknown>;
+    ws.send(
+      JSON.stringify({
+        req_id: request.req_id,
+        response: "200",
+        data: {
+          type: "get_clients_response",
+          status: "success",
+          code: 0,
+          message: "OK",
+          data: {
+            clients: [{ mac: "AA:BB:CC:DD:EE:FF", ip: "192.168.1.10" }],
+          },
+        },
+      }),
+    );
+
+    const response = await responsePromise;
+    expect(response.op).toBe("get_clients_response");
+    expect(response.message).toBe("OK");
+    expect(Array.isArray(response.clients)).toBe(true);
+
+    ws.close();
+    await once(ws, "close");
+  });
+
   it("uses random hex string req_ids and avoids AWAS pending collisions", async () => {
     const bridge = new ClawWRTBridge({
       config: resolveClawWRTConfig({

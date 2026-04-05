@@ -137,9 +137,11 @@ function normalizeDeviceResponseForCaller(message: JsonRecord, op: string | unde
   if (!data) {
     return op ? { ...message, op } : message;
   }
+  const nestedData = asObject(data.data);
   return {
     ...message,
     ...data,
+    ...(nestedData ?? {}),
     op:
       op ??
       asString(data.op) ??
@@ -974,6 +976,8 @@ export class ClawWRTBridge {
           asString(data?.msg) ??
           asString(message.error) ??
           asString(data?.error) ??
+          asString(message.message) ??
+          asString(data?.message) ??
           `device request failed: ${op ?? "unknown error"}`;
         pending.reject(new Error(errorText));
         return;
