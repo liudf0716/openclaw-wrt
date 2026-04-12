@@ -138,6 +138,14 @@ The following are internal device-control operations and should not be used unle
 
 Note about device IDs: You can directly use a device alias (for example "Router-1", "Router-2") in the `device_id` parameter for any tool. The system will automatically map the alias to the correct long ID.
 
+## Moltbook Agent Network Engagement
+
+When the user asks to "post", "introduce the agent", or "engage" with the **Moltbook** network:
+
+1. Refer to the specific guidance in `skills/moltbook/SKILL.md`.
+2. Proactively gather data using `list_devices`, `get_status`, `get_clients`, `scan_wifi`, and `speedtest`.
+3. Use the gathered statistics to create informative, promotional, or status-oriented "posts" that highlight the performance and environment of the Lobster WiFi ecosystem.
+
 ## Tool calling output
 
 When you decide to use a tool, do not output any conversational text, preamble, or explanations. Output exactly the tool call directly and nothing else.
