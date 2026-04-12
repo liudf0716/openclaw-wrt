@@ -304,6 +304,25 @@ const TrustedMacSyncSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const FirmwareUpgradeSchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    url: Type.String({ minLength: 1, description: "Firmware image URL." }),
+    force: Type.Optional(Type.Boolean({ description: "Force upgrade." })),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
+const DeleteWifiRelaySchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    apply: Type.Optional(Type.Boolean({ description: "Apply changes immediately." })),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
 const ShellCommandSchema = Type.Object(
   {
     deviceId: DeviceIdField,
@@ -449,6 +468,15 @@ const DeleteVpnRoutesSchema = Type.Object(
         }),
       ),
     ),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
+const RunSpeedtestSchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    serverId: Type.Optional(Type.String({ description: "Optional specific speedtest server ID." })),
     timeoutMs: TimeoutField,
   },
   { additionalProperties: false },
@@ -1674,23 +1702,43 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       bridge,
       name: "apfree_wifidog_get_network_interfaces",
       label: "OpenClaw WRT Network Interfaces",
-      description: "Get network interface status using the device shell bridge.",
-      op: "shell",
-      parameters: DeviceOnlySchema,
-      buildPayload: (rawParams) => {
-        const args = rawParams as DeviceOnlyParams;
-        return {
-          deviceId: args.deviceId ? args.deviceId.trim() : "",
-          payload: {
-            command:
-              'ip link show | grep -E "^[0-9]+:" | cut -d: -f2 | sed "s/ //g" | wc -l && echo "--- Interface Details ---" && ip addr show',
-          },
-          timeoutMs: args.timeoutMs,
-        };
-      },
+      description: "Get network interface inventory and IP details using a native API call.",
+      op: "get_network_interfaces",
       summarize: (_response, rawParams) => {
         const args = rawParams as DeviceOnlyParams;
         return `Fetched network interfaces for ${args.deviceId}.`;
+      },
+    }),
+    createSimpleOperationTool({
+      bridge,
+      name: "apfree_wifidog_firmware_upgrade",
+      label: "OpenClaw WRT Firmware Upgrade",
+      description: "Trigger a firmware upgrade (OTA) on the router using a URL.",
+      op: "firmware_upgrade",
+      parameters: FirmwareUpgradeSchema,
+      summarize: (_response, rawParams) => {
+        const args = rawParams as Static<typeof FirmwareUpgradeSchema>;
+        return `Firmware upgrade requested for ${args.deviceId} from ${args.url}.`;
+      },
+    }),
+    createSimpleOperationTool({
+      bridge,
+      name: "apfree_wifidog_delete_wifi_relay",
+      label: "OpenClaw WRT Delete WiFi Relay",
+      description: "Remove Wi-Fi relay/STA configuration from the router.",
+      op: "delete_wifi_relay",
+      parameters: DeleteWifiRelaySchema,
+      buildPayload: (rawParams) => {
+        const args = rawParams as Static<typeof DeleteWifiRelaySchema>;
+        return {
+          deviceId: args.deviceId.trim(),
+          payload: args.apply !== undefined ? { apply: args.apply } : undefined,
+          timeoutMs: args.timeoutMs,
+        }
+      },
+      summarize: (_response, rawParams) => {
+        const args = rawParams as Static<typeof DeleteWifiRelaySchema>;
+        return `Requested Wi-Fi relay deletion on ${args.deviceId}.`;
       },
     }),
     createSimpleOperationTool({
@@ -1716,6 +1764,37 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       summarize: (_response, rawParams) => {
         const args = rawParams as ShellCommandParams;
         return `Executed shell command on ${args.deviceId}.`;
+      },
+    }),
+    createSimpleOperationTool({
+      bridge,
+      name: "apfree_wifidog_get_speedtest_servers",
+      label: "OpenClaw WRT Speedtest Servers",
+      description: "List available nearby speedtest.net servers for performance testing.",
+      op: "get_speedtest_servers",
+      summarize: (_response, rawParams) => {
+        const args = rawParams as DeviceOnlyParams;
+        return `Fetched speedtest servers for ${args.deviceId}.`;
+      },
+    }),
+    createSimpleOperationTool({
+      bridge,
+      name: "apfree_wifidog_speedtest",
+      label: "OpenClaw WRT Speedtest",
+      description: "Run an internet speed test (ping, download, upload) on the router.",
+      op: "speedtest",
+      parameters: RunSpeedtestSchema,
+      buildPayload: (rawParams) => {
+        const args = rawParams as { deviceId: string; serverId?: string; timeoutMs?: number };
+        return {
+          deviceId: args.deviceId.trim(),
+          payload: args.serverId ? { server_id: args.serverId } : undefined,
+          timeoutMs: args.timeoutMs ?? 120_000,
+        };
+      },
+      summarize: (_response, rawParams) => {
+        const args = rawParams as { deviceId: string };
+        return `Completed speedtest on ${args.deviceId}.`;
       },
     }),
     createSimpleOperationTool({

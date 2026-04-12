@@ -38,6 +38,7 @@ Prefer the specific `apfree_wifidog_*` tools over the low-level `apfree_wifidog`
 - Use `apfree_wifidog_get_vpn_routes` to view current VPN routing rules (which traffic goes through the WireGuard tunnel).
 - Use `apfree_wifidog_set_vpn_routes` to steer traffic through the VPN tunnel: `selective` mode for specific CIDRs, `full_tunnel` mode for all traffic with `excludeIps` to prevent routing loop.
 - Use `apfree_wifidog_delete_vpn_routes` to remove VPN routing rules: `flushAll` to clear everything, or `routes` array for individual CIDRs.
+- Use `apfree_wifidog_firmware_upgrade` (or OTA) to trigger a remote firmware update via URL.
 - Use `apfree_wifidog_get_firmware_info` for firmware and build details.
 - Use `apfree_wifidog_get_network_interfaces` for interface inventory and IP details.
 - Use `apfree_wifidog_bpf_add` to add an IPv4, IPv6, or MAC target to BPF traffic monitoring.
@@ -102,8 +103,6 @@ Use `table` as one of: `mac`, `ipv4`, `ipv6`, `sid`, `l7`.
 
 When a user explicitly asks for any of the following operations, call the low-level tool with `action=call` and `op` set to the exact operation name:
 
-- `firmware_upgrade` or `ota` for firmware upgrades.
-- `delete_wifi_relay` or `unset_wifi_relay` to clear Wi-Fi relay or STA configuration.
 - `get_ipsec_vpn`, `set_ipsec_vpn`, `get_ipsec_vpn_status`.
 
 ## VPN route quick reference
