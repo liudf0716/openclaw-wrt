@@ -48,8 +48,19 @@ Prefer the specific `apfree_wifidog_*` tools over the low-level `apfree_wifidog`
 - Use `apfree_wifidog_bpf_flush` to clear all monitored entries in one BPF table.
 - Use `apfree_wifidog_bpf_update` to update per-target downrate/uprate limits.
 - Use `apfree_wifidog_bpf_update_all` to update downrate/uprate limits for all monitored entries in one BPF table.
-- Use `apfree_wifidog_execute_shell` only when the user explicitly requests a shell command.
+- Use `apfree_wifidog_get_speedtest_servers` to list available nearby speedtest.net servers.
+- Use `apfree_wifidog_speedtest` to run an internet speed test (ping, download, upload) on the best nearby server or a specific one.
 - Use `apfree_wifidog_reboot_device` only when the user explicitly requests a reboot.
+
+## Speedtest quick reference
+
+- `apfree_wifidog_get_speedtest_servers`
+  - Required: `deviceId`
+  - Returns: list of server objects `{id, name, country, sponsor, host}`.
+- `apfree_wifidog_speedtest`
+  - Required: `deviceId`
+  - Optional: `server_id` (string, target a specific server from the server list).
+  - Returns: results object `{server_id, server_name, sponsor, latency, download, upload, unit, download_bytes, upload_bytes}`. Velocities are in Mbps.
   Only use the low-level `apfree_wifidog` tool when you need an openclaw-wrt operation that is not covered by a specific tool above.
 
 ## BPF quick reference
