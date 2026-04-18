@@ -13,9 +13,9 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tools = createClawWRTTools({ bridge: bridge as never });
-    const listTool = tools.find((entry) => entry.name === "apfree_wifidog_list_devices");
-    const getDeviceTool = tools.find((entry) => entry.name === "apfree_wifidog_get_device");
-    const getStatusTool = tools.find((entry) => entry.name === "apfree_wifidog_get_status");
+    const listTool = tools.find((entry) => entry.name === "clawwrt_list_devices");
+    const getDeviceTool = tools.find((entry) => entry.name === "clawwrt_get_device");
+    const getStatusTool = tools.find((entry) => entry.name === "clawwrt_get_status");
 
     expect(listTool?.description).toContain("online routers");
     expect(listTool?.description).toContain("wireless routers");
@@ -59,7 +59,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_kickoff_client",
+      (entry) => entry.name === "clawwrt_kickoff_client",
     );
     expect(tool).toBeTruthy();
 
@@ -71,7 +71,7 @@ describe("openclaw-wrt intent tools", () => {
     expect(calls).toHaveLength(2);
     expect(calls[0]).toMatchObject({ op: "get_clients", deviceId: "dev-1" });
     expect(calls[1]).toMatchObject({
-      op: "kickoff",
+      op: "kickoff_client",
       deviceId: "dev-1",
       payload: {
         client_ip: "192.168.1.10",
@@ -100,7 +100,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_get_device",
+      (entry) => entry.name === "clawwrt_get_device",
     );
     expect(tool).toBeTruthy();
 
@@ -111,6 +111,51 @@ describe("openclaw-wrt intent tools", () => {
     expect((result as { details?: Record<string, unknown> }).details?.device).toMatchObject({
       deviceId: "dev-1",
       alias: "Router-1",
+    });
+  });
+
+  it("auth client tool sends the new auth_client op with client IP and MAC", async () => {
+    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+      async callDevice(params: {
+        deviceId: string;
+        op: string;
+        payload?: Record<string, unknown>;
+      }) {
+        calls.push(params);
+        return { type: "auth_client_response", status: "success" };
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "clawwrt_auth_client",
+    );
+    expect(tool).toBeTruthy();
+
+    const result = await tool?.execute?.("tool-auth", {
+      deviceId: "dev-auth",
+      clientMac: "aa-bb-cc-dd-ee-ff",
+      clientIp: "192.168.1.10",
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      deviceId: "dev-auth",
+      op: "auth_client",
+      payload: {
+        client_ip: "192.168.1.10",
+        client_mac: "AA:BB:CC:DD:EE:FF",
+      },
+    });
+    expect((result as { details?: Record<string, unknown> }).details?.resolved).toEqual({
+      clientIp: "192.168.1.10",
+      clientMac: "AA:BB:CC:DD:EE:FF",
     });
   });
 
@@ -142,7 +187,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_kickoff_client",
+      (entry) => entry.name === "clawwrt_kickoff_client",
     );
     expect(tool).toBeTruthy();
 
@@ -155,7 +200,7 @@ describe("openclaw-wrt intent tools", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
-      op: "kickoff",
+      op: "kickoff_client",
       deviceId: "dev-1",
       payload: {
         client_ip: "192.168.1.20",
@@ -185,7 +230,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_sync_trusted_domains",
+      (entry) => entry.name === "clawwrt_sync_trusted_domains",
     );
 
     const result = await tool?.execute?.("tool-2", {
@@ -226,7 +271,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_execute_shell",
+      (entry) => entry.name === "clawwrt_execute_shell",
     );
 
     await tool?.execute?.("tool-3", {
@@ -266,7 +311,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_bpf_add",
+      (entry) => entry.name === "clawwrt_bpf_add",
     );
 
     const result = await tool?.execute?.("tool-4", {
@@ -312,7 +357,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_bpf_json",
+      (entry) => entry.name === "clawwrt_bpf_json",
     );
 
     const result = await tool?.execute?.("tool-5", {
@@ -353,7 +398,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_bpf_json",
+      (entry) => entry.name === "clawwrt_bpf_json",
     );
 
     await tool?.execute?.("tool-5b", {
@@ -390,7 +435,7 @@ describe("openclaw-wrt intent tools", () => {
       },
     };
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_bpf_del",
+      (entry) => entry.name === "clawwrt_bpf_del",
     );
 
     await tool?.execute?.("tool-6", {
@@ -430,7 +475,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_set_wireguard_vpn",
+      (entry) => entry.name === "clawwrt_set_wireguard_vpn",
     );
 
     await tool?.execute?.("tool-wg-set", {
@@ -498,7 +543,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_get_wireguard_vpn_status",
+      (entry) => entry.name === "clawwrt_get_wireguard_vpn_status",
     );
 
     await tool?.execute?.("tool-wg-status", {
@@ -536,7 +581,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_generate_wireguard_keys",
+      (entry) => entry.name === "clawwrt_generate_wireguard_keys",
     );
 
     await tool?.execute?.("tool-genkeys", {
@@ -570,7 +615,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_bpf_flush",
+      (entry) => entry.name === "clawwrt_bpf_flush",
     );
 
     await tool?.execute?.("tool-7", {
@@ -608,7 +653,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_bpf_update",
+      (entry) => entry.name === "clawwrt_bpf_update",
     );
 
     await tool?.execute?.("tool-8", {
@@ -652,7 +697,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_bpf_update_all",
+      (entry) => entry.name === "clawwrt_bpf_update_all",
     );
 
     await tool?.execute?.("tool-9", {
@@ -694,7 +739,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_get_l7_active_stats",
+      (entry) => entry.name === "clawwrt_get_l7_active_stats",
     );
 
     await tool?.execute?.("tool-10", { deviceId: "dev-10" });
@@ -727,7 +772,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_get_l7_protocol_catalog",
+      (entry) => entry.name === "clawwrt_get_l7_protocol_catalog",
     );
 
     await tool?.execute?.("tool-11", { deviceId: "dev-11" });
@@ -760,7 +805,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_set_wireguard_vpn",
+      (entry) => entry.name === "clawwrt_set_wireguard_vpn",
     );
 
     await tool?.execute?.("tool-wg-rai", {
@@ -811,7 +856,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_get_vpn_routes",
+      (entry) => entry.name === "clawwrt_get_vpn_routes",
     );
 
     await tool?.execute?.("tool-vpnr-get", { deviceId: "dev-vpn" });
@@ -820,6 +865,53 @@ describe("openclaw-wrt intent tools", () => {
     expect(calls[0]).toMatchObject({
       deviceId: "dev-vpn",
       op: "get_vpn_routes",
+    });
+  });
+
+  it("set vpn domain routes sends domains in data payload", async () => {
+    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+      async callDevice(params: {
+        deviceId: string;
+        op: string;
+        payload?: Record<string, unknown>;
+      }) {
+        calls.push(params);
+        return {
+          type: "set_vpn_domain_routes_response",
+          interface: "wg0",
+          domains: ["example.com"],
+          resolved_routes: ["1.2.3.4/32"],
+          added: 1,
+          failed: 0,
+        };
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "clawwrt_set_vpn_domain_routes",
+    );
+
+    await tool?.execute?.("tool-vpnd-set", {
+      deviceId: "dev-vpn",
+      domains: ["example.com", "login.example.net"],
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      deviceId: "dev-vpn",
+      op: "set_vpn_domain_routes",
+      payload: {
+        data: {
+          domains: ["example.com", "login.example.net"],
+        },
+      },
     });
   });
 
@@ -849,7 +941,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_set_vpn_routes",
+      (entry) => entry.name === "clawwrt_set_vpn_routes",
     );
 
     await tool?.execute?.("tool-vpnr-set", {
@@ -897,7 +989,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_set_vpn_routes",
+      (entry) => entry.name === "clawwrt_set_vpn_routes",
     );
 
     await tool?.execute?.("tool-vpnr-ft", {
@@ -943,7 +1035,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_delete_vpn_routes",
+      (entry) => entry.name === "clawwrt_delete_vpn_routes",
     );
 
     await tool?.execute?.("tool-vpnr-del", {
@@ -988,7 +1080,7 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "apfree_wifidog_delete_vpn_routes",
+      (entry) => entry.name === "clawwrt_delete_vpn_routes",
     );
 
     await tool?.execute?.("tool-vpnr-del2", {

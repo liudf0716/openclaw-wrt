@@ -1,6 +1,6 @@
 # OpenClaw WRT
 
-OpenClaw 路由器设备桥接插件，通过 WebSocket 控制 OpenWrt / APFree Wifidog 设备。
+OpenClaw 路由器设备桥接插件，通过 WebSocket 控制 ClawWRT 路由器设备。
 
 **[English](README.md)**
 
@@ -66,19 +66,19 @@ openclaw plugins remove openclaw-wrt
 
 ```
 ┌──────────────┐    WebSocket     ┌──────────────────┐    Tool calls    ┌──────────────────┐
-│  OpenWrt /   │ ──────────────>  │  OpenClaw WRT    │ ──────────────>  │  OpenClaw Agent  │
-│  APFree      │ <──────────────  │  Bridge Plugin   │ <──────────────  │  (LLM)           │
-│  Wifidog     │    JSON-RPC      │                  │                  │                  │
-│  Router      │                  │  · req_id 关联   │                  │  通过 30+ 工具   │
+│   ClawWRT    │ ──────────────>  │  OpenClaw WRT    │ ──────────────>  │  OpenClaw Agent  │
+│   路由器     │ <──────────────  │  Bridge Plugin   │ <──────────────  │  (LLM)           │
+│   设备       │    JSON-RPC      │                  │                  │                  │
+│              │                  │  · req_id 关联   │                  │  通过 30+ 工具   │
 └──────────────┘                  │  · 设备管理      │                  │  管理路由器      │
                                   │  · 认证/令牌     │                  └──────────────────┘
                                   │  · AWAS 代理     │
                                   └──────────────────┘
 ```
 
-1. **路由器连接** — 每台 OpenWrt/APFree Wifidog 路由器通过 WebSocket 连接到桥接服务（`ws://host:8866/ws`），并发送包含 `device_id` 的连接消息。
+1. **路由器连接** — 每台 ClawWRT 路由器通过 WebSocket 连接到桥接服务（`ws://host:8866/ws`），并发送包含 `device_id` 的连接消息。
 2. **桥接管理会话** — 插件维护一个设备注册表，记录连接状态、别名，并支持可选的令牌认证。
-3. **Agent 控制设备** — OpenClaw 的 LLM Agent 调用 30+ 已注册的工具（如 `apfree_wifidog_get_clients`、`apfree_wifidog_set_wifi_info`、`apfree_wifidog_exec_shell`）。每次工具调用通过 `req_id` 与路由器的响应关联。
+3. **Agent 控制设备** — OpenClaw 的 LLM Agent 调用 30+ 已注册的工具（如 `clawwrt_get_clients`、`clawwrt_set_wifi_info`、`clawwrt_exec_shell`）。每次工具调用通过 `req_id` 与路由器的响应关联。
 4. **AWAS 代理（可选）** — 对于 cloud 模式设备，插件可以将认证流量转发到 AWAS（认证服务器）后端。
 
 ## 配置项
@@ -128,7 +128,7 @@ openclaw plugins remove openclaw-wrt
 
 - `coding` 是核心工具白名单，不是插件工具白名单
 - `alsoAllow: ["openclaw-wrt"]` 会展开并放行本插件注册的工具
-- 如果不加这项，Agent 可能“知道有这个插件”，但无法实际调用 `apfree_wifidog_list_devices`、`apfree_wifidog_get_status`、`apfree_wifidog_get_clients` 等工具
+- 如果不加这项，Agent 可能“知道有这个插件”，但无法实际调用 `clawwrt_list_devices`、`clawwrt_get_status`、`clawwrt_get_clients` 等工具
 
 ## 开发
 

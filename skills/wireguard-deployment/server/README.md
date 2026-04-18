@@ -2,6 +2,8 @@
 
 This module covers WireGuard server deployment on the **OpenClaw VPS host**. The VPS acts as the WireGuard server that routers connect to.
 
+Router/client-side key generation and tunnel setup are handled separately by the `clawwrt` workflow.
+
 ## Scope
 
 - Install WireGuard packages on the VPS
@@ -59,15 +61,9 @@ VPS_PUBLIC_IP=$(curl -s4 ifconfig.me || ip -4 addr show "$EGRESS_IF" | grep -oP 
 echo "VPS public IP: $VPS_PUBLIC_IP"
 ```
 
-## Step 4: Generate Router Public Key (on Router)
+## Step 4: Receive Router Public Key
 
-On the router, use the API tool:
-
-```text
-apfree_wifidog_generate_wireguard_keys
-```
-
-This generates a keypair **on the router itself**. The private key stays in UCI (`network.wg0.private_key`) and never leaves the device. The response `data.public_key` is what you add to the server peer config below.
+Obtain the router public key from the `clawwrt` workflow. The router-side private key stays on the device, and only the public key is provided to this server-side deployment flow.
 
 ## Step 5: Create `wg0.conf`
 
@@ -137,7 +133,7 @@ Expected output should show:
 
 For each new router:
 
-1. Run `apfree_wifidog_generate_wireguard_keys` on the router and collect `data.public_key`.
+1. Run `clawwrt_generate_wireguard_keys` on the router and collect `data.public_key`.
 2. Assign a unique tunnel IP (e.g., `10.0.0.3/32`, `10.0.0.4/32`, ...).
 3. Add a new `[Peer]` block in `/etc/wireguard/wg0.conf`.
 4. Reload without disrupting existing peers:
@@ -151,10 +147,10 @@ wg syncconf wg0 <(wg-quick strip wg0)
 If the VPS also runs the `clawwrt` agent (which it does when running OpenClaw), the server WireGuard config can also be managed via API:
 
 ```text
-apfree_wifidog_generate_wireguard_keys   → generates server keypair, stores in /etc/wireguard/wg0.conf
-apfree_wifidog_set_wireguard_vpn         → writes full wg0.conf and runs wg-quick up
-apfree_wifidog_get_wireguard_vpn         → reads current wg0.conf
-apfree_wifidog_get_wireguard_vpn_status  → runs wg show
+clawwrt_generate_wireguard_keys   → generates server keypair, stores in /etc/wireguard/wg0.conf
+clawwrt_set_wireguard_vpn         → writes full wg0.conf and runs wg-quick up
+clawwrt_get_wireguard_vpn         → reads current wg0.conf
+clawwrt_get_wireguard_vpn_status  → runs wg show
 ```
 
 On generic Linux (non-OpenWrt), the clawwrt handler automatically uses the `wg-quick` config path (`/etc/wireguard/wg0.conf`) instead of UCI.

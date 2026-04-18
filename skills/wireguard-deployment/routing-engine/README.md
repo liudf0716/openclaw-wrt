@@ -1,6 +1,6 @@
 # VPN Deployment - Routing Engine
 
-This module manages traffic steering after the WireGuard tunnel is established. All CIDR-based routing operations use `apfree_wifidog_*` API tools — **no shell commands needed**.
+This module manages traffic steering on the WireGuard server after the tunnel is established. All CIDR-based routing operations use `clawwrt_*` API tools — **no shell commands needed**.
 
 ## Routing Modes
 
@@ -18,9 +18,9 @@ This module manages traffic steering after the WireGuard tunnel is established. 
 Route only specific destination IPs/CIDRs through the VPN tunnel. All other traffic uses the normal default gateway.
 
 ```text
-Tool: apfree_wifidog_set_vpn_routes
+Tool: clawwrt_set_vpn_routes
 Parameters:
-  deviceId: "<router_device_id>"
+  deviceId: "<server_device_id>"
   data:
     mode: "selective"
     routes: ["1.2.3.4/32", "5.6.7.0/24", "8.8.8.8/32"]
@@ -31,7 +31,7 @@ Parameters:
 Route traffic to three specific servers through VPN:
 
 ```text
-apfree_wifidog_set_vpn_routes
+clawwrt_set_vpn_routes
   mode: "selective"
   routes:
     - "203.0.113.10/32"    # Application server A
@@ -54,9 +54,9 @@ apfree_wifidog_set_vpn_routes
 Route ALL traffic through VPN, except for explicitly excluded IPs.
 
 ```text
-Tool: apfree_wifidog_set_vpn_routes
+Tool: clawwrt_set_vpn_routes
 Parameters:
-  deviceId: "<router_device_id>"
+  deviceId: "<server_device_id>"
   data:
     mode: "full_tunnel"
     exclude_ips: ["<vps_public_ip>"]
@@ -92,9 +92,9 @@ Before enabling `full_tunnel`:
 ## Verify Routes
 
 ```text
-Tool: apfree_wifidog_get_vpn_routes
+Tool: clawwrt_get_vpn_routes
 Parameters:
-  deviceId: "<router_device_id>"
+  deviceId: "<server_device_id>"
 ```
 
 Returns all `proto static` routes on `wg0`, showing exactly which CIDRs are being steered through the VPN.
@@ -102,9 +102,9 @@ Returns all `proto static` routes on `wg0`, showing exactly which CIDRs are bein
 ## Clear All Routes
 
 ```text
-Tool: apfree_wifidog_delete_vpn_routes
+Tool: clawwrt_delete_vpn_routes
 Parameters:
-  deviceId: "<router_device_id>"
+  deviceId: "<server_device_id>"
   data:
     flush_all: true
 ```
@@ -114,9 +114,9 @@ This removes all VPN routes and restores normal routing. Use this as an **emerge
 ## Remove Specific Routes
 
 ```text
-Tool: apfree_wifidog_delete_vpn_routes
+Tool: clawwrt_delete_vpn_routes
 Parameters:
-  deviceId: "<router_device_id>"
+  deviceId: "<server_device_id>"
   data:
     routes: ["1.2.3.4/32"]
 ```
@@ -125,65 +125,32 @@ Parameters:
 
 ## Domain-Based Routing (Advanced)
 
-For domain-based steering (e.g., "route youtube.com through VPN"), the resolution must happen **on the router**, not on the VPS. This workflow currently requires router-side UCI/shell configuration via `apfree_wifidog_execute_shell` because there is no dedicated high-level API tool for domain routing yet.
+For domain-based steering (e.g., "route youtube.com through VPN"), use the dedicated API tool on the server host instead of shell-based dnsmasq/ipset wiring.
 
-### Why Router-Side Resolution
-
-- The router sees the actual DNS answers used by LAN clients.
-- CDN IPs change frequently; router-local DNS keeps the destination set fresh.
-- No need to push stale `/32` routes from the VPS.
-
-### Implementation Pattern (OpenWrt)
-
-**For fw4 / nftset** (newer OpenWrt):
-
-```bash
-# Add domain to dnsmasq nftset
-uci add_list dhcp.@dnsmasq[0].nftset='/youtube.com/4#inet#fw4#vpn_domains'
-uci add_list dhcp.@dnsmasq[0].nftset='/netflix.com/4#inet#fw4#vpn_domains'
-uci commit dhcp
-/etc/init.d/dnsmasq restart
+```text
+Tool: clawwrt_set_vpn_domain_routes
+Parameters:
+  deviceId: "<server_device_id>"
+  data:
+    domains: ["youtube.com", "netflix.com"]
+    interface: "wg0"
 ```
 
-**For fw3 / ipset** (older OpenWrt):
+### What the API Does
 
-```bash
-# Use ipset-based equivalent
-uci add_list dhcp.@dnsmasq[0].ipset='/youtube.com/vpn_domains'
-uci commit dhcp
-/etc/init.d/dnsmasq restart
-```
-
-Then configure firewall marking and policy routing so matched traffic exits via `wg0`. This requires:
-
-1. Firewall rule to mark packets matching the `vpn_domains` set.
-2. `ip rule` to route marked packets via a custom routing table.
-3. Custom routing table with default route through `wg0`.
+1. Resolves each domain to IPv4 addresses on the server side.
+2. Deduplicates the resolved IPv4 values across the input domain list.
+3. Installs each IPv4 as an `ip/32` static route on `wg0`.
+4. Returns the resolved routes and any domains that could not be resolved.
 
 ### Recommended Agent Workflow for Domain Routing
 
-1. Verify tunnel is up via `apfree_wifidog_get_wireguard_vpn_status`.
-2. Configure `dnsmasq` domain mapping on the router via `apfree_wifidog_execute_shell`.
-3. Configure firewall marking and policy routing via `apfree_wifidog_execute_shell`.
-4. Use `apfree_wifidog_get_vpn_routes` to verify base tunnel routes.
-
-> **Note**: Domain-based routing is the only VPN workflow that requires shell access. All CIDR-based routing is fully covered by the `apfree_wifidog_*` API.
-
-### Verification
-
-```bash
-# dnsmasq config contains domain set rules
-uci show dhcp | grep -E 'nftset|ipset'
-
-# policy routing rules exist
-ip rule show
-
-# route table for marked traffic
-ip route show table all | grep wg0
-```
+1. Verify the tunnel is up via `clawwrt_get_wireguard_vpn_status`.
+2. Call `clawwrt_set_vpn_domain_routes` with the domains you want to steer.
+3. Use `clawwrt_get_vpn_routes` to verify the resulting `wg0` routes.
 
 ### Caveats
 
-- DNS-over-HTTPS or DNS-over-TLS on clients can bypass router-local DNS.
-- Browser apps may use multiple domains and CDNs.
-- `dnsmasq` only manages destination IP membership; actual steering requires firewall marking.
+- The current API resolves IPv4 addresses only and writes `ip/32` routes.
+- DNS-over-HTTPS or DNS-over-TLS on downstream clients can still bypass the intended steering if the resolver path is outside the server control plane.
+- If a domain returns multiple A records, each distinct IPv4 is added as a separate route.

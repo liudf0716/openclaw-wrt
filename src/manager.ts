@@ -252,8 +252,8 @@ export class ClawWRTBridge {
     });
 
     this.server = http.createServer((req, res) => {
-      // If AWAS HTTP proxying is enabled and the request targets captive portal
-      // endpoints (typically under /wifidog), forward the request to AWAS.
+      // If AWAS HTTP proxying is enabled and the request targets the captive
+      // portal path, forward the request to AWAS.
       // AWAS HTTP proxy removed: HTTP requests are served directly by AWAS.
 
       // Default response for non-proxied requests

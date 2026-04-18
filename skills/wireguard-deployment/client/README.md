@@ -1,6 +1,6 @@
 # VPN Deployment - Client
 
-This module covers router-side WireGuard client configuration through `apfree_wifidog_*` API tools. All core VPN operations are handled via the clawwrt agent's API — **no shell commands are needed for tunnel setup and route management**.
+This module covers router-side WireGuard client configuration through `clawwrt_*` API tools. All core VPN operations are handled via the clawwrt agent's API — **no shell commands are needed for tunnel setup and route management**.
 
 ## Scope
 
@@ -12,17 +12,17 @@ This module covers router-side WireGuard client configuration through `apfree_wi
 
 | Tool | Purpose |
 |------|---------|
-| `apfree_wifidog_generate_wireguard_keys` | Generate keypair, private key stored in UCI |
-| `apfree_wifidog_get_wireguard_vpn` | Read current WireGuard config from UCI |
-| `apfree_wifidog_set_wireguard_vpn` | Write WireGuard config to UCI and bring up tunnel |
-| `apfree_wifidog_get_wireguard_vpn_status` | Runtime status (`wg show` output) |
+| `clawwrt_generate_wireguard_keys` | Generate keypair, private key stored in UCI |
+| `clawwrt_get_wireguard_vpn` | Read current WireGuard config from UCI |
+| `clawwrt_set_wireguard_vpn` | Write WireGuard config to UCI and bring up tunnel |
+| `clawwrt_get_wireguard_vpn_status` | Runtime status (`wg show` output) |
 
 ## Step 1: Pre-Check Existing Config
 
 Before making changes, check if a WireGuard tunnel already exists:
 
 ```text
-Tool: apfree_wifidog_get_wireguard_vpn
+Tool: clawwrt_get_wireguard_vpn
 Parameters:
   deviceId: "<router_device_id>"
 ```
@@ -32,7 +32,7 @@ If the response shows an existing `interface` with `proto: wireguard`, a tunnel 
 ## Step 2: Generate Keys on Router
 
 ```text
-Tool: apfree_wifidog_generate_wireguard_keys
+Tool: clawwrt_generate_wireguard_keys
 Parameters:
   deviceId: "<router_device_id>"
 ```
@@ -50,7 +50,7 @@ Parameters:
 ## Step 3: Configure WireGuard Tunnel
 
 ```text
-Tool: apfree_wifidog_set_wireguard_vpn
+Tool: clawwrt_set_wireguard_vpn
 Parameters:
   deviceId: "<router_device_id>"
   data:
@@ -78,7 +78,7 @@ Parameters:
 | `route_allowed_ips` | `0` (false) | **CRITICAL** — Do NOT let WireGuard auto-add routes; use routing-engine instead |
 
 > **⚠️ DANGER: Never set `allowed_ips` to `0.0.0.0/0` combined with `route_allowed_ips: 1`**
-> This will redirect ALL traffic (including the WireGuard tunnel itself and the WebSocket control channel) through VPN, causing immediate network breakage and loss of agent connectivity. Always use `route_allowed_ips: 0` and manage routes explicitly via `apfree_wifidog_set_vpn_routes`.
+> This will redirect ALL traffic (including the WireGuard tunnel itself and the WebSocket control channel) through VPN, causing immediate network breakage and loss of agent connectivity. Always use `route_allowed_ips: 0` and manage routes explicitly via `clawwrt_set_vpn_routes`.
 
 ### Private Key Preservation
 
@@ -95,7 +95,7 @@ The `set_wireguard_vpn` handler automatically preserves the existing private key
 ## Step 4: Verify Tunnel Status
 
 ```text
-Tool: apfree_wifidog_get_wireguard_vpn_status
+Tool: clawwrt_get_wireguard_vpn_status
 Parameters:
   deviceId: "<router_device_id>"
 ```
@@ -117,6 +117,6 @@ Parameters:
 After tunnel is up and handshake is confirmed, proceed to `routing-engine/README.md` to steer specific traffic through the tunnel using:
 
 ```text
-apfree_wifidog_set_vpn_routes   (selective mode — recommended)
-apfree_wifidog_get_vpn_routes   (verify)
+clawwrt_set_vpn_routes   (selective mode — recommended)
+clawwrt_get_vpn_routes   (verify)
 ```

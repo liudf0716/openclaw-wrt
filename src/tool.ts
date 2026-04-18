@@ -68,6 +68,16 @@ const ClientInfoSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const AuthClientSchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    clientMac: Type.String({ minLength: 1, description: "Client MAC address to authorize." }),
+    clientIp: Type.String({ minLength: 1, description: "Client IP address to authorize." }),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
 const KickoffClientSchema = Type.Object(
   {
     deviceId: DeviceIdField,
@@ -454,6 +464,23 @@ const SetVpnRoutesSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const SetVpnDomainRoutesSchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    domains: Type.Array(
+      Type.String({
+        minLength: 1,
+        description: "Domain name to resolve into IPv4 /32 routes through wg0.",
+      }),
+    ),
+    interface: Type.Optional(
+      Type.String({ minLength: 1, description: "WireGuard interface name, defaults to wg0." }),
+    ),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
 const DeleteVpnRoutesSchema = Type.Object(
   {
     deviceId: DeviceIdField,
@@ -485,6 +512,7 @@ const RunSpeedtestSchema = Type.Object(
 type GenericToolParams = Static<typeof GenericToolSchema>;
 type DeviceOnlyParams = Static<typeof DeviceOnlySchema>;
 type ClientInfoParams = Static<typeof ClientInfoSchema>;
+type AuthClientParams = Static<typeof AuthClientSchema>;
 type KickoffClientParams = Static<typeof KickoffClientSchema>;
 type UpdateDeviceInfoParams = Static<typeof UpdateDeviceInfoSchema>;
 type SetAuthServerParams = Static<typeof SetAuthServerSchema>;
@@ -505,6 +533,7 @@ type BpfFlushParams = Static<typeof BpfFlushSchema>;
 type BpfUpdateParams = Static<typeof BpfUpdateSchema>;
 type BpfUpdateAllParams = Static<typeof BpfUpdateAllSchema>;
 type SetVpnRoutesParams = Static<typeof SetVpnRoutesSchema>;
+type SetVpnDomainRoutesParams = Static<typeof SetVpnDomainRoutesSchema>;
 type DeleteVpnRoutesParams = Static<typeof DeleteVpnRoutesSchema>;
 
 type BpfJsonTable = "ipv4" | "ipv6" | "mac" | "sid" | "l7";
@@ -707,10 +736,10 @@ function createSimpleOperationTool(params: {
 
 function createGenericTool(bridge: ClawWRTBridge): AnyAgentTool {
   return {
-    name: "apfree_wifidog",
+    name: "clawwrt",
     label: "OpenClaw WRT",
     description:
-      "Low-level fallback tool for openclaw-wrt. Prefer the more specific apfree_wifidog_* tools when they match the user intent.",
+      "Low-level fallback tool for openclaw-wrt. Prefer the more specific clawwrt_* tools when they match the user intent.",
     parameters: GenericToolSchema,
     execute: async (_toolCallId, rawParams) => {
       const toolParams = rawParams as GenericToolParams;
@@ -750,7 +779,7 @@ function createGenericTool(bridge: ClawWRTBridge): AnyAgentTool {
 
 function createListDevicesTool(bridge: ClawWRTBridge): AnyAgentTool {
   return {
-    name: "apfree_wifidog_list_devices",
+    name: "clawwrt_list_devices",
     label: "OpenClaw WRT Devices",
     description:
       "List all currently connected online routers, wireless routers, or OpenWrt devices managed by openclaw-wrt.",
@@ -777,7 +806,7 @@ function createListDevicesTool(bridge: ClawWRTBridge): AnyAgentTool {
 
 function createGetDeviceTool(bridge: ClawWRTBridge): AnyAgentTool {
   return {
-    name: "apfree_wifidog_get_device",
+    name: "clawwrt_get_device",
     label: "OpenClaw WRT Device",
     description:
       "Get the current connection snapshot for one online router or wireless router. This is a quick connectivity view, not the full runtime detail report.",
@@ -798,7 +827,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     createGetDeviceTool(bridge),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_status",
+      name: "clawwrt_get_status",
       label: "OpenClaw WRT Status",
       description:
         "Get detailed runtime status and health information for an online router or wireless router. Prefer this when the user asks for router details or current router status.",
@@ -810,7 +839,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_sys_info",
+      name: "clawwrt_get_sys_info",
       label: "OpenClaw WRT System Info",
       description:
         "Get detailed router system information such as model, platform, memory, storage, uptime, and resource usage for an online router.",
@@ -822,7 +851,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_device_info",
+      name: "clawwrt_get_device_info",
       label: "OpenClaw WRT Device Info",
       description:
         "Get configured router metadata such as site, label, location, and other saved device information for an online router.",
@@ -834,7 +863,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_update_device_info",
+      name: "clawwrt_update_device_info",
       label: "OpenClaw WRT Update Device Info",
       description: "Update device metadata such as site, label, location, or custom fields.",
       op: "update_device_info",
@@ -854,7 +883,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_clients",
+      name: "clawwrt_get_clients",
       label: "OpenClaw WRT Clients",
       description: "List currently authenticated clients on a router.",
       op: "get_clients",
@@ -865,7 +894,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       },
     }),
     {
-      name: "apfree_wifidog_get_client_info",
+      name: "clawwrt_get_client_info",
       label: "OpenClaw WRT Client Info",
       description: "Get detailed information for one authenticated client by MAC address.",
       parameters: ClientInfoSchema,
@@ -885,7 +914,33 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       },
     },
     {
-      name: "apfree_wifidog_kickoff_client",
+      name: "clawwrt_auth_client",
+      label: "OpenClaw WRT Auth Client",
+      description:
+        "Authorize one client by MAC and IP through the router-side ClawWRT API. Use this for captive portal login and AI-driven approval.",
+      parameters: AuthClientSchema,
+      execute: async (_toolCallId, rawParams) => {
+        const args = rawParams as AuthClientParams;
+        const clientMac = normalizeMac(args.clientMac);
+        const clientIp = args.clientIp.trim();
+        const response = await callDeviceOp({
+          bridge,
+          deviceId: args.deviceId.trim(),
+          op: "auth_client",
+          payload: {
+            client_ip: clientIp,
+            client_mac: clientMac,
+          },
+          timeoutMs: args.timeoutMs,
+        });
+        return buildToolResult(`Authorized client ${clientMac} on ${args.deviceId}.`, {
+          response,
+          resolved: { clientIp, clientMac },
+        });
+      },
+    },
+    {
+      name: "clawwrt_kickoff_client",
       label: "OpenClaw WRT Kickoff Client",
       description:
         "Disconnect an authenticated client by MAC address. If client IP is omitted, the tool looks it up from get_clients. If the router has exactly one gateway, gwId is inferred automatically.",
@@ -919,7 +974,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         const response = await callDeviceOp({
           bridge,
           deviceId,
-          op: "kickoff",
+          op: "kickoff_client",
           payload: {
             client_ip: clientIp,
             client_mac: resolvedClientMac,
@@ -935,10 +990,10 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     },
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_tmp_pass",
-      label: "OpenClaw WRT Temporary Pass",
+      name: "clawwrt_tmp_pass_client",
+      label: "OpenClaw WRT Temporary Pass Client",
       description: "Temporarily allow one client MAC to bypass captive portal authentication.",
-      op: "tmp_pass",
+      op: "tmp_pass_client",
       parameters: TmpPassSchema,
       buildPayload: (rawParams) => {
         const args = rawParams as TmpPassParams;
@@ -962,7 +1017,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_wifi_info",
+      name: "clawwrt_get_wifi_info",
       label: "OpenClaw WRT WiFi Info",
       description: "Get the router's Wi-Fi and radio configuration.",
       op: "get_wifi_info",
@@ -973,7 +1028,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_set_wifi_info",
+      name: "clawwrt_set_wifi_info",
       label: "OpenClaw WRT Set WiFi Info",
       description:
         "Update Wi-Fi configuration on the router, such as changing SSID (network name), password, encryption type, or hiding the network. Use this tool when the user asks to modify, change, or update Wi-Fi settings including SSID.",
@@ -994,7 +1049,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_scan_wifi",
+      name: "clawwrt_scan_wifi",
       label: "OpenClaw WRT Scan WiFi",
       description: "Scan nearby Wi-Fi networks, optionally filtered to 2.4 GHz or 5 GHz.",
       op: "scan_wifi",
@@ -1014,7 +1069,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_set_wifi_relay",
+      name: "clawwrt_set_wifi_relay",
       label: "OpenClaw WRT Set WiFi Relay",
       description: "Configure the router to join an upstream Wi-Fi as relay/STA.",
       op: "set_wifi_relay",
@@ -1040,7 +1095,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_bpf_add",
+      name: "clawwrt_bpf_add",
       label: "OpenClaw WRT BPF Add",
       description: "Add an IPv4, IPv6, or MAC target to the device's BPF traffic monitoring table.",
       op: "bpf_add",
@@ -1065,7 +1120,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_bpf_json",
+      name: "clawwrt_bpf_json",
       label: "OpenClaw WRT BPF Stats",
       description:
         "Query BPF traffic monitoring statistics for one table (`ipv4`, `ipv6`, `mac`, `sid`, or `l7`).",
@@ -1090,7 +1145,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_l7_active_stats",
+      name: "clawwrt_get_l7_active_stats",
       label: "OpenClaw WRT L7 Active Stats",
       description:
         "Get active L7 protocol traffic speed and volume statistics (SID view) for the current device.",
@@ -1111,7 +1166,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_l7_protocol_catalog",
+      name: "clawwrt_get_l7_protocol_catalog",
       label: "OpenClaw WRT L7 Protocol Catalog",
       description:
         "List the L7 protocol library currently supported by the device, including domain signatures when available.",
@@ -1132,7 +1187,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_bpf_del",
+      name: "clawwrt_bpf_del",
       label: "OpenClaw WRT BPF Delete",
       description:
         "Remove an IPv4, IPv6, or MAC target from the device's BPF traffic monitoring table.",
@@ -1158,7 +1213,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_bpf_flush",
+      name: "clawwrt_bpf_flush",
       label: "OpenClaw WRT BPF Flush",
       description: "Clear all entries from one BPF monitoring table.",
       op: "bpf_flush",
@@ -1181,7 +1236,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_bpf_update",
+      name: "clawwrt_bpf_update",
       label: "OpenClaw WRT BPF Update",
       description: "Update downrate/uprate limits for one BPF monitored target.",
       op: "bpf_update",
@@ -1208,7 +1263,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_bpf_update_all",
+      name: "clawwrt_bpf_update_all",
       label: "OpenClaw WRT BPF Update All",
       description: "Update downrate/uprate limits for all entries in one BPF table.",
       op: "bpf_update_all",
@@ -1233,7 +1288,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_trusted_domains",
+      name: "clawwrt_get_trusted_domains",
       label: "OpenClaw WRT Trusted Domains",
       description: "Get the trusted domain whitelist for captive portal bypass.",
       op: "get_trusted_domains",
@@ -1244,7 +1299,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_sync_trusted_domains",
+      name: "clawwrt_sync_trusted_domains",
       label: "OpenClaw WRT Sync Trusted Domains",
       description: "Replace the trusted domain whitelist with the provided full domain list.",
       op: "sync_trusted_domain",
@@ -1264,7 +1319,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_trusted_wildcard_domains",
+      name: "clawwrt_get_trusted_wildcard_domains",
       label: "OpenClaw WRT Trusted Wildcard Domains",
       description: "Get the trusted wildcard domain whitelist such as *.example.com.",
       op: "get_trusted_wildcard_domains",
@@ -1275,7 +1330,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_sync_trusted_wildcard_domains",
+      name: "clawwrt_sync_trusted_wildcard_domains",
       label: "OpenClaw WRT Sync Trusted Wildcard Domains",
       description: "Replace the trusted wildcard domain whitelist with the provided full list.",
       op: "sync_trusted_wildcard_domains",
@@ -1295,7 +1350,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_trusted_mac",
+      name: "clawwrt_get_trusted_mac",
       label: "OpenClaw WRT Trusted MACs",
       description: "Get the trusted MAC whitelist.",
       op: "get_trusted_mac",
@@ -1306,7 +1361,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_sync_trusted_mac",
+      name: "clawwrt_sync_trusted_mac",
       label: "OpenClaw WRT Sync Trusted MACs",
       description: "Replace the trusted MAC whitelist with the provided full MAC list.",
       op: "sync_trusted_mac",
@@ -1330,7 +1385,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_auth_serv",
+      name: "clawwrt_get_auth_serv",
       label: "OpenClaw WRT Get Auth Server",
       description: "Get the current captive portal authentication server configuration.",
       op: "get_auth_serv",
@@ -1341,7 +1396,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_set_auth_serv",
+      name: "clawwrt_set_auth_serv",
       label: "OpenClaw WRT Set Auth Server",
       description: "Set the captive portal authentication server hostname, port, and path.",
       op: "set_auth_serv",
@@ -1368,7 +1423,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_mqtt_serv",
+      name: "clawwrt_get_mqtt_serv",
       label: "OpenClaw WRT Get MQTT Server",
       description: "Get the current MQTT server configuration for the device.",
       op: "get_mqtt_serv",
@@ -1379,7 +1434,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_set_mqtt_serv",
+      name: "clawwrt_set_mqtt_serv",
       label: "OpenClaw WRT Set MQTT Server",
       description: "Set the MQTT server hostname, port, credentials, and TLS flag.",
       op: "set_mqtt_serv",
@@ -1405,7 +1460,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_websocket_serv",
+      name: "clawwrt_get_websocket_serv",
       label: "OpenClaw WRT Get WebSocket Server",
       description: "Get the current WebSocket server configuration for the device.",
       op: "get_websocket_serv",
@@ -1416,7 +1471,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_set_websocket_serv",
+      name: "clawwrt_set_websocket_serv",
       label: "OpenClaw WRT Set WebSocket Server",
       description: "Set the WebSocket server hostname, port, path, and TLS flag.",
       op: "set_websocket_serv",
@@ -1441,7 +1496,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_wireguard_vpn",
+      name: "clawwrt_get_wireguard_vpn",
       label: "OpenClaw WRT Get WireGuard VPN",
       description: "Get WireGuard VPN configuration (single tunnel mode: wg0).",
       op: "get_wireguard_vpn",
@@ -1452,7 +1507,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_set_wireguard_vpn",
+      name: "clawwrt_set_wireguard_vpn",
       label: "OpenClaw WRT Set WireGuard VPN",
       description:
         "Set WireGuard VPN configuration for a single tunnel (wg0), including interface and peers.",
@@ -1484,7 +1539,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       },
     }),
     {
-      name: "apfree_wifidog_get_wireguard_vpn_status",
+      name: "clawwrt_get_wireguard_vpn_status",
       label: "OpenClaw WRT Get WireGuard VPN Status",
       description:
         "Get runtime WireGuard status from both the router (peer handshake/traffic) and the local OpenClaw server (tunnel presence).",
@@ -1561,7 +1616,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       },
     },
     {
-      name: "apfree_wifidog_setup_server_vpn_nat",
+      name: "clawwrt_setup_server_vpn_nat",
       label: "OpenClaw WRT Setup Server VPN NAT",
       description: "Automate server-side SNAT (MASQUERADE) configuration and enable IP forwarding.",
       parameters: Type.Object(
@@ -1608,7 +1663,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     },
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_generate_wireguard_keys",
+      name: "clawwrt_generate_wireguard_keys",
       label: "OpenClaw WRT Generate WireGuard Keys",
       description:
         "Generate a WireGuard key pair on the router. The private key is written directly to UCI (network.wg0.private_key) and never leaves the device. Only the public key is returned. Use this BEFORE set_wireguard_vpn to avoid sending private keys over the network.",
@@ -1620,7 +1675,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_vpn_routes",
+      name: "clawwrt_get_vpn_routes",
       label: "OpenClaw WRT Get VPN Routes",
       description:
         "Get current VPN routing table entries (ip route show dev wg0 proto static). Shows which traffic is being steered through the WireGuard tunnel.",
@@ -1632,7 +1687,33 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_set_vpn_routes",
+      name: "clawwrt_set_vpn_domain_routes",
+      label: "OpenClaw WRT Set VPN Domain Routes",
+      description:
+        "Resolve one or more domain names to IPv4 addresses and add each resolved address as an ip/32 static route through wg0.",
+      op: "set_vpn_domain_routes",
+      parameters: SetVpnDomainRoutesSchema,
+      buildPayload: (rawParams) => {
+        const args = rawParams as SetVpnDomainRoutesParams;
+        return {
+          deviceId: args.deviceId.trim(),
+          payload: {
+            data: {
+              domains: args.domains,
+              interface: args.interface,
+            },
+          },
+          timeoutMs: args.timeoutMs,
+        };
+      },
+      summarize: (_response, rawParams) => {
+        const args = rawParams as SetVpnDomainRoutesParams;
+        return `Resolved domain routes for ${args.domains.length} domain(s) on ${args.deviceId}.`;
+      },
+    }),
+    createSimpleOperationTool({
+      bridge,
+      name: "clawwrt_set_vpn_routes",
       label: "OpenClaw WRT Set VPN Routes",
       description:
         "Set VPN routing rules to steer traffic through the WireGuard tunnel. Selective mode routes specific CIDRs; full_tunnel mode routes all traffic (0.0.0.0/1 + 128.0.0.0/1) with exclude_ips to prevent routing loop for VPS IP.",
@@ -1660,7 +1741,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_delete_vpn_routes",
+      name: "clawwrt_delete_vpn_routes",
       label: "OpenClaw WRT Delete VPN Routes",
       description:
         "Delete VPN routing rules. Use flushAll to remove all routes, or provide specific CIDR routes to remove individually.",
@@ -1689,7 +1770,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_firmware_info",
+      name: "clawwrt_get_firmware_info",
       label: "OpenClaw WRT Firmware Info",
       description: "Get the router's firmware/build information.",
       op: "get_firmware_info",
@@ -1700,7 +1781,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_network_interfaces",
+      name: "clawwrt_get_network_interfaces",
       label: "OpenClaw WRT Network Interfaces",
       description: "Get network interface inventory and IP details using a native API call.",
       op: "get_network_interfaces",
@@ -1711,7 +1792,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_firmware_upgrade",
+      name: "clawwrt_firmware_upgrade",
       label: "OpenClaw WRT Firmware Upgrade",
       description: "Trigger a firmware upgrade (OTA) on the router using a URL.",
       op: "firmware_upgrade",
@@ -1723,7 +1804,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_delete_wifi_relay",
+      name: "clawwrt_delete_wifi_relay",
       label: "OpenClaw WRT Delete WiFi Relay",
       description: "Remove Wi-Fi relay/STA configuration from the router.",
       op: "delete_wifi_relay",
@@ -1743,7 +1824,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_execute_shell",
+      name: "clawwrt_execute_shell",
       label: "OpenClaw WRT Execute Shell",
       description:
         "Execute a shell command on the router. Use only when the user explicitly requests shell-level access.",
@@ -1768,7 +1849,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_get_speedtest_servers",
+      name: "clawwrt_get_speedtest_servers",
       label: "OpenClaw WRT Speedtest Servers",
       description: "List available nearby speedtest.net servers for performance testing.",
       op: "get_speedtest_servers",
@@ -1779,7 +1860,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_speedtest",
+      name: "clawwrt_speedtest",
       label: "OpenClaw WRT Speedtest",
       description: "Run an internet speed test (ping, download, upload) on the router.",
       op: "speedtest",
@@ -1799,7 +1880,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     }),
     createSimpleOperationTool({
       bridge,
-      name: "apfree_wifidog_reboot_device",
+      name: "clawwrt_reboot_device",
       label: "OpenClaw WRT Reboot Device",
       description:
         "Request a router reboot. The device should respond before rebooting, but it may disconnect immediately.",
