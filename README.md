@@ -10,7 +10,7 @@ OpenClaw bridge plugin for ClawWRT router device WebSocket control.
 - Request/response correlation via `req_id`
 - Device session management (connect, auth, timeout, alias)
 - AWAS authentication proxy (forwards cloud-mode device connect/heartbeat to AWAS server)
-- 30+ fine-grained tools covering: WiFi config, client management, BPF traffic monitoring, WireGuard VPN, shell execution, domain trust list, etc.
+- 30+ fine-grained tools covering: WiFi config, client management, BPF traffic monitoring, WireGuard VPN, shell execution, portal page publishing, domain trust list, etc.
 
 ## Installation
 
@@ -80,6 +80,12 @@ openclaw plugins remove openclaw-wrt
 2. **Bridge manages sessions** — The plugin maintains a device registry with connection state, aliases, and optional token-based authentication.
 3. **Agent controls devices** — OpenClaw's LLM agent calls 30+ registered tools (e.g., `clawwrt_get_clients`, `clawwrt_set_wifi_info`, `clawwrt_exec_shell`). Each tool call is correlated with the router's response via `req_id`.
 4. **AWAS proxy (optional)** — For cloud-mode devices, the plugin can forward authentication traffic to an AWAS (Auth Server) backend.
+
+## Captive portal pages
+
+Use `clawwrt_publish_portal_page` after the agent has generated the portal HTML from the user's prompt. The tool writes the page into the host nginx web root as `page.html`, then updates the connected router so ApFree WiFiDog redirects users to that page.
+
+The page should be self-contained HTML. Keep CSS and JavaScript inline unless you know the nginx web root will also serve extra assets.
 
 ## Configuration
 

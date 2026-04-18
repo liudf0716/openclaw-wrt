@@ -7,7 +7,7 @@ export default definePluginEntry({
   id: "openclaw-wrt",
   name: "OpenClaw WRT",
   description:
-    "List and inspect online OpenWrt or wireless router devices, and send management requests to connected routers over WebSocket.",
+    "List and inspect online OpenWrt or wireless router devices, publish captive portal HTML pages, and send management requests to connected routers over WebSocket.",
   configSchema: () => {
     const schema = createClawWRTPluginConfigSchema();
     schema.uiHints = {

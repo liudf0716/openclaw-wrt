@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 import { createClawWRTTools } from "./tool.js";
 
@@ -249,6 +253,53 @@ describe("openclaw-wrt intent tools", () => {
     expect((result as { content?: Array<{ text?: string }> }).content?.[0]?.text).toContain(
       "Synced 2 trusted domains",
     );
+  });
+
+  it("publishes a portal page into the provided web root and updates the router", async () => {
+    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+      async callDevice(params: { deviceId: string; op: string; payload?: Record<string, unknown> }) {
+        calls.push(params);
+        return { type: "set_local_portal_response", status: "success" };
+      },
+    };
+
+    const webRoot = await mkdtemp(path.join(os.tmpdir(), "openclaw-wrt-portal-"));
+    try {
+      const tool = createClawWRTTools({ bridge: bridge as never }).find(
+        (entry) => entry.name === "clawwrt_publish_portal_page",
+      );
+      expect(tool).toBeTruthy();
+
+      const html = "<html><body><h1>Welcome</h1></body></html>";
+      const result = await tool?.execute?.("tool-portal", {
+        deviceId: "dev-portal",
+        html,
+        webRoot,
+      });
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        deviceId: "dev-portal",
+        op: "set_local_portal",
+        payload: {
+          portal: "page.html",
+        },
+      });
+      expect(await readFile(path.join(webRoot, "page.html"), "utf8")).toBe(html);
+      expect((result as { details?: Record<string, unknown> }).details).toMatchObject({
+        pageName: "page.html",
+        filePath: path.join(webRoot, "page.html"),
+      });
+    } finally {
+      await rm(webRoot, { recursive: true, force: true });
+    }
   });
 
   it("shell tool forwards command and device-side timeout to the shell op", async () => {

@@ -1,3 +1,6 @@
+import path from "node:path";
+import { promises as fs, constants as fsConstants } from "node:fs";
+
 import { Type, type Static } from "@sinclair/typebox";
 import { optionalStringEnum, stringEnum } from "openclaw/plugin-sdk/core";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
@@ -129,6 +132,18 @@ const SetAuthServerSchema = Type.Object(
     hostname: Type.String({ minLength: 1, description: "Authentication server hostname." }),
     port: Type.Optional(Type.String({ minLength: 1, description: "Authentication server port." })),
     path: Type.Optional(Type.String({ minLength: 1, description: "Authentication server path." })),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
+const PublishPortalPageSchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    html: Type.String({ minLength: 1, description: "Generated portal HTML content." }),
+    webRoot: Type.Optional(
+      Type.String({ minLength: 1, description: "Optional nginx web root override." }),
+    ),
     timeoutMs: TimeoutField,
   },
   { additionalProperties: false },
@@ -516,6 +531,7 @@ type AuthClientParams = Static<typeof AuthClientSchema>;
 type KickoffClientParams = Static<typeof KickoffClientSchema>;
 type UpdateDeviceInfoParams = Static<typeof UpdateDeviceInfoSchema>;
 type SetAuthServerParams = Static<typeof SetAuthServerSchema>;
+type PublishPortalPageParams = Static<typeof PublishPortalPageSchema>;
 type SetMqttServerParams = Static<typeof SetMqttServerSchema>;
 type SetWebsocketServerParams = Static<typeof SetWebsocketServerSchema>;
 type SetWireguardVpnParams = Static<typeof SetWireguardVpnSchema>;
@@ -537,6 +553,16 @@ type SetVpnDomainRoutesParams = Static<typeof SetVpnDomainRoutesSchema>;
 type DeleteVpnRoutesParams = Static<typeof DeleteVpnRoutesSchema>;
 
 type BpfJsonTable = "ipv4" | "ipv6" | "mac" | "sid" | "l7";
+
+const PORTAL_PAGE_NAME = "page.html";
+const PORTAL_WEB_ROOT_CANDIDATES = [
+  "/usr/share/nginx/html",
+  "/var/www/html",
+  "/www",
+  "/srv/http",
+  "/usr/local/www/nginx/html",
+  "/usr/local/www",
+];
 
 function normalizeMac(input: string): string {
   return input.trim().toUpperCase().replace(/-/g, ":");
@@ -616,6 +642,39 @@ function summarizeBpfJsonResponse(
   return `Fetched ${table} BPF stats for ${deviceId}${count > 0 ? ` (${count} entries)` : ""}.`;
 }
 
+function sanitizePortalHtmlRoot(root: string): string {
+  return path.resolve(root.trim());
+}
+
+async function resolvePortalWebRoot(explicitRoot?: string): Promise<string> {
+  const envRoot = process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT?.trim() ?? process.env.OPENCLAW_WRT_WEB_ROOT?.trim();
+  const candidates = [explicitRoot?.trim(), envRoot, ...PORTAL_WEB_ROOT_CANDIDATES].filter(
+    (value): value is string => typeof value === "string" && value.trim() !== "",
+  );
+
+  for (const candidate of candidates) {
+    const resolved = sanitizePortalHtmlRoot(candidate);
+    if (explicitRoot?.trim() === candidate || envRoot === candidate) {
+      await fs.mkdir(resolved, { recursive: true });
+      return resolved;
+    }
+    try {
+      await fs.access(resolved, fsConstants.W_OK);
+      return resolved;
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(
+    `unable to locate a writable nginx web root; set OPENCLAW_WRT_PORTAL_WEB_ROOT or pass webRoot (checked: ${PORTAL_WEB_ROOT_CANDIDATES.join(", ")})`,
+  );
+}
+
+function buildPortalPageName(): string {
+  return PORTAL_PAGE_NAME;
+}
+
 function ensureDevice(bridge: ClawWRTBridge, deviceId: string): DeviceSnapshot {
   const device = bridge.getDevice(deviceId);
   if (!device) {
@@ -652,6 +711,31 @@ async function callDeviceOp(params: {
     timeoutMs: params.timeoutMs,
     expectResponse: params.expectResponse,
   });
+}
+
+async function publishPortalPage(params: {
+  bridge: ClawWRTBridge;
+  deviceId: string;
+  html: string;
+  webRoot?: string;
+  timeoutMs?: number;
+}) {
+  const pageName = buildPortalPageName();
+  const root = await resolvePortalWebRoot(params.webRoot);
+  const filePath = path.join(root, pageName);
+
+  await fs.writeFile(filePath, params.html, "utf8");
+
+  const response = await callDeviceOp({
+    bridge: params.bridge,
+    deviceId: params.deviceId,
+    op: "set_local_portal",
+    payload: { portal: pageName },
+    timeoutMs: params.timeoutMs,
+    expectResponse: true,
+  });
+
+  return { pageName, root, filePath, response };
 }
 
 async function lookupClientByMac(params: {
@@ -730,6 +814,38 @@ function createSimpleOperationTool(params: {
       } catch (error) {
         throw error;
       }
+    },
+  };
+}
+
+function createPublishPortalPageTool(bridge: ClawWRTBridge): AnyAgentTool {
+  return {
+    name: "clawwrt_publish_portal_page",
+    label: "OpenClaw WRT Publish Portal Page",
+    description:
+      "Generate a captive portal HTML page into the host nginx web root, then update ClawWRT to use it.",
+    parameters: PublishPortalPageSchema,
+    execute: async (_toolCallId, rawParams) => {
+      const args = rawParams as PublishPortalPageParams;
+      const deviceId = args.deviceId.trim();
+      const result = await publishPortalPage({
+        bridge,
+        deviceId,
+        html: args.html,
+        webRoot: args.webRoot,
+        timeoutMs: args.timeoutMs,
+      });
+
+      return buildToolResult(
+        `Published portal page ${result.pageName} for ${deviceId} and updated local portal routing.`,
+        {
+          deviceId,
+          pageName: result.pageName,
+          webRoot: result.root,
+          filePath: result.filePath,
+          response: result.response,
+        },
+      );
     },
   };
 }
@@ -1421,6 +1537,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         return `Updated auth server for ${args.deviceId} to ${args.hostname}.`;
       },
     }),
+    createPublishPortalPageTool(bridge),
     createSimpleOperationTool({
       bridge,
       name: "clawwrt_get_mqtt_serv",

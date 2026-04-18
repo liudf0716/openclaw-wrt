@@ -10,7 +10,7 @@ OpenClaw 路由器设备桥接插件，通过 WebSocket 控制 ClawWRT 路由器
 - 通过 `req_id` 实现请求/响应关联
 - 设备会话管理（连接、认证、超时、别名）
 - AWAS 认证代理（将 cloud 模式设备的 connect/heartbeat 转发到 AWAS 服务器）
-- 30+ 细粒度工具，覆盖：WiFi 配置、客户端管理、BPF 流量监控、WireGuard VPN、Shell 执行、域名信任列表等
+- 30+ 细粒度工具，覆盖：WiFi 配置、客户端管理、BPF 流量监控、WireGuard VPN、Shell 执行、portal 页面发布、域名信任列表等
 
 ## 安装
 
@@ -80,6 +80,12 @@ openclaw plugins remove openclaw-wrt
 2. **桥接管理会话** — 插件维护一个设备注册表，记录连接状态、别名，并支持可选的令牌认证。
 3. **Agent 控制设备** — OpenClaw 的 LLM Agent 调用 30+ 已注册的工具（如 `clawwrt_get_clients`、`clawwrt_set_wifi_info`、`clawwrt_exec_shell`）。每次工具调用通过 `req_id` 与路由器的响应关联。
 4. **AWAS 代理（可选）** — 对于 cloud 模式设备，插件可以将认证流量转发到 AWAS（认证服务器）后端。
+
+## Portal 页面
+
+在 Agent 已根据用户 prompt 生成 portal HTML 之后，使用 `clawwrt_publish_portal_page` 将页面写入宿主机 nginx 的 web 目录，并保存为 `page.html`，随后更新已连接路由器，让 ApFree WiFiDog 将用户重定向到该页面。
+
+页面应尽量保持自包含。除非你明确知道 nginx web 目录还会提供额外资源，否则建议把 CSS 和 JavaScript 内联到 HTML 中。
 
 ## 配置项
 
