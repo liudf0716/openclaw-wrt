@@ -974,7 +974,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         const response = await callDeviceOp({
           bridge,
           deviceId,
-          op: "kickoff_client",
+          op: "kickoff",
           payload: {
             client_ip: clientIp,
             client_mac: resolvedClientMac,

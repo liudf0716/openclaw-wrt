@@ -71,7 +71,7 @@ describe("openclaw-wrt intent tools", () => {
     expect(calls).toHaveLength(2);
     expect(calls[0]).toMatchObject({ op: "get_clients", deviceId: "dev-1" });
     expect(calls[1]).toMatchObject({
-      op: "kickoff_client",
+      op: "kickoff",
       deviceId: "dev-1",
       payload: {
         client_ip: "192.168.1.10",
@@ -200,7 +200,7 @@ describe("openclaw-wrt intent tools", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
-      op: "kickoff_client",
+      op: "kickoff",
       deviceId: "dev-1",
       payload: {
         client_ip: "192.168.1.20",

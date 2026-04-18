@@ -8,6 +8,8 @@ user-invocable: true
 
 Build and operate the WireGuard server on an **OpenClaw VPS host** or other cloud Linux host so it can relay traffic for connected 龙虾WiFi routers. Router/client setup is handled separately by `clawwrt`.
 
+This skill is server-side only. If you need a router/client WireGuard tunnel, use the `clawwrt` workflow. If you need a single host to act as both a WireGuard server and an upstream WireGuard client, treat that as two separate configurations and keep the server-side and client-side steps isolated.
+
 ## Architecture
 
 ```text
@@ -50,6 +52,7 @@ wireguard-deployment/
 
 3. Install WireGuard and generate server keys (see `server/README.md`).
 4. Add the router as a peer on the server's `wg0.conf`, then reload.
+5. Open the WireGuard UDP listen port on the VPS firewall, and if the host is in a cloud environment, also open the same UDP port in the cloud provider security group / network firewall.
 
 ### Phase 3: Apply Routing Policy
 
@@ -62,6 +65,8 @@ wireguard-deployment/
 8. Keep `clawwrt_delete_vpn_routes` ready for rollback if a route change breaks connectivity.
 
 > **⚠️ CRITICAL SAFETY RULE**: Never use `full_tunnel` mode without first adding the VPS public IP and any control-plane endpoint that must stay reachable to `excludeIps`. Failing to do so will route the VPN's own control traffic through the tunnel, causing immediate loss of connectivity.
+
+> **⚠️ FIREWALL RULE**: The server's UDP listen port must be reachable from the Internet. For the default WireGuard port, open `51820/udp` on the VPS host firewall and on the cloud provider firewall or security group if one is in front of the host.
 
 ## API Tools Reference
 
