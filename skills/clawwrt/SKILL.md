@@ -35,7 +35,7 @@ Prefer the specific `clawwrt_*` tools over the low-level `clawwrt` tool for rout
 - Use `clawwrt_get_trusted_wildcard_domains` and `clawwrt_sync_trusted_wildcard_domains` for wildcard domain allowlists.
 - Use `clawwrt_get_trusted_mac` and `clawwrt_sync_trusted_mac` for trusted MAC allowlists.
 - Use `clawwrt_get_auth_serv` and `clawwrt_set_auth_serv` for captive portal auth server settings.
-- Use `clawwrt_publish_portal_page` when the user wants a custom captive portal HTML page generated from the prompt, written to the host nginx web root, and activated on a router.
+- Use `clawwrt_publish_portal_page` when the user wants a custom post-connect captive portal HTML page generated from the prompt, written to the host nginx web root, and activated on a router.
 - Use `clawwrt_get_mqtt_serv` and `clawwrt_set_mqtt_serv` for MQTT server connection settings.
 - Use `clawwrt_get_websocket_serv` and `clawwrt_set_websocket_serv` for WebSocket server connection settings.
 - Use `clawwrt_generate_wireguard_keys` to generate a WireGuard key pair on the router (private key stays on device, only public key returned). **Always call this before `set_wireguard_vpn`** to avoid sending private keys over the network.
@@ -61,14 +61,11 @@ Prefer the specific `clawwrt_*` tools over the low-level `clawwrt` tool for rout
 
 ## Captive Portal Page Workflow
 
-When the user asks for a custom login portal or captive portal landing page, the agent should:
+For portal page generation and template selection, use the dedicated portal skill in `skills/portal-pages/SKILL.md`.
 
-1. Read the prompt and generate the portal HTML itself.
-2. Keep the HTML self-contained unless the user explicitly asks for external assets.
-3. Treat the resulting file as `page.html` for the ClawWRT contract.
-4. Call `clawwrt_publish_portal_page` with the generated HTML, the target `deviceId`, and an optional `webRoot` if a non-default nginx directory is needed.
+These portal pages are typically shown after a client has already connected to Wi-Fi, so the copy should read as a welcome, notice, or confirmation page rather than a network-setup gate.
 
-The `clawwrt_publish_portal_page` tool writes the file into the host nginx web directory, then calls the router-side `set_local_portal` flow so ApFree WiFiDog serves that page to Wi-Fi clients.
+This skill still owns the router-side publishing step: `clawwrt_publish_portal_page` writes the generated HTML into the host nginx web directory as a device-specific HTML file, then calls the router-side `set_local_portal` flow so ApFree WiFiDog serves that page to Wi-Fi clients.
 
 ## Speedtest quick reference
 

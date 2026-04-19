@@ -141,6 +141,9 @@ const PublishPortalPageSchema = Type.Object(
   {
     deviceId: DeviceIdField,
     html: Type.String({ minLength: 1, description: "Generated portal HTML content." }),
+    pageName: Type.Optional(
+      Type.String({ minLength: 1, description: "Optional HTML file name for the portal page." }),
+    ),
     webRoot: Type.Optional(
       Type.String({ minLength: 1, description: "Optional nginx web root override." }),
     ),
@@ -671,8 +674,23 @@ async function resolvePortalWebRoot(explicitRoot?: string): Promise<string> {
   );
 }
 
-function buildPortalPageName(): string {
-  return PORTAL_PAGE_NAME;
+function sanitizePortalPageName(input: string): string {
+  const baseName = path.basename(input.trim());
+  const cleaned = baseName.replace(/[^A-Za-z0-9._-]+/g, "-");
+  return cleaned.replace(/^-+|-+$/g, "");
+}
+
+function buildPortalPageName(deviceId: string, explicitPageName?: string): string {
+  const requested = explicitPageName?.trim();
+  if (requested) {
+    const cleaned = sanitizePortalPageName(requested);
+    if (cleaned) {
+      return cleaned.endsWith(".html") ? cleaned : `${cleaned}.html`;
+    }
+  }
+
+  const deviceSlug = deviceId.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `portal-${deviceSlug || PORTAL_PAGE_NAME.replace(/\.html$/i, "")}.html`;
 }
 
 function ensureDevice(bridge: ClawWRTBridge, deviceId: string): DeviceSnapshot {
@@ -717,10 +735,11 @@ async function publishPortalPage(params: {
   bridge: ClawWRTBridge;
   deviceId: string;
   html: string;
+  pageName?: string;
   webRoot?: string;
   timeoutMs?: number;
 }) {
-  const pageName = buildPortalPageName();
+  const pageName = buildPortalPageName(params.deviceId, params.pageName);
   const root = await resolvePortalWebRoot(params.webRoot);
   const filePath = path.join(root, pageName);
 
@@ -832,6 +851,7 @@ function createPublishPortalPageTool(bridge: ClawWRTBridge): AnyAgentTool {
         bridge,
         deviceId,
         html: args.html,
+        pageName: args.pageName,
         webRoot: args.webRoot,
         timeoutMs: args.timeoutMs,
       });

@@ -289,14 +289,58 @@ describe("openclaw-wrt intent tools", () => {
         deviceId: "dev-portal",
         op: "set_local_portal",
         payload: {
-          portal: "page.html",
+          portal: "portal-dev-portal.html",
         },
       });
-      expect(await readFile(path.join(webRoot, "page.html"), "utf8")).toBe(html);
+      expect(await readFile(path.join(webRoot, "portal-dev-portal.html"), "utf8")).toBe(html);
       expect((result as { details?: Record<string, unknown> }).details).toMatchObject({
-        pageName: "page.html",
-        filePath: path.join(webRoot, "page.html"),
+        pageName: "portal-dev-portal.html",
+        filePath: path.join(webRoot, "portal-dev-portal.html"),
       });
+    } finally {
+      await rm(webRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes a portal page with an explicit filename when provided", async () => {
+    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+      async callDevice(params: { deviceId: string; op: string; payload?: Record<string, unknown> }) {
+        calls.push(params);
+        return { type: "set_local_portal_response", status: "success" };
+      },
+    };
+
+    const webRoot = await mkdtemp(path.join(os.tmpdir(), "openclaw-wrt-portal-"));
+    try {
+      const tool = createClawWRTTools({ bridge: bridge as never }).find(
+        (entry) => entry.name === "clawwrt_publish_portal_page",
+      );
+      expect(tool).toBeTruthy();
+
+      const html = "<html><body><h1>Welcome</h1></body></html>";
+      await tool?.execute?.("tool-portal", {
+        deviceId: "dev-two",
+        html,
+        pageName: "loki-dev-two.html",
+        webRoot,
+      });
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        deviceId: "dev-two",
+        op: "set_local_portal",
+        payload: {
+          portal: "loki-dev-two.html",
+        },
+      });
+      expect(await readFile(path.join(webRoot, "loki-dev-two.html"), "utf8")).toBe(html);
     } finally {
       await rm(webRoot, { recursive: true, force: true });
     }
