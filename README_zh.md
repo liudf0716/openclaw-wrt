@@ -76,7 +76,7 @@ openclaw plugins remove openclaw-wrt
                                   └──────────────────┘
 ```
 
-1. **路由器连接** — 每台 ClawWRT 路由器通过 WebSocket 连接到桥接服务（`ws://host:8866/ws`），并发送包含 `device_id` 的连接消息。
+1. **路由器连接** — 每台 ClawWRT 路由器通过 WebSocket 连接到桥接服务（`ws://host:8001/ws/clawwrt`），并发送包含 `device_id` 的连接消息。
 2. **桥接管理会话** — 插件维护一个设备注册表，记录连接状态、别名，并支持可选的令牌认证。
 3. **Agent 控制设备** — OpenClaw 的 LLM Agent 调用 30+ 已注册的工具（如 `clawwrt_get_clients`、`clawwrt_set_wifi_info`、`clawwrt_exec_shell`）。每次工具调用通过 `req_id` 与路由器的响应关联。
 4. **AWAS 代理（可选）** — 对于 cloud 模式设备，插件可以将认证流量转发到 AWAS（认证服务器）后端。
@@ -92,17 +92,17 @@ openclaw plugins remove openclaw-wrt
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `enabled` | 启用桥接 | `true` |
-| `bind` | 绑定地址 | `0.0.0.0` |
-| `port` | 桥接端口 | `8866` |
-| `path` | WebSocket 路径 | `/ws` |
+| `bind` | 绑定地址 | `127.0.0.1` |
+| `port` | 桥接端口 | `8001` |
+| `path` | WebSocket 路径 | `/ws/clawwrt` |
 | `allowDeviceIds` | 允许的设备 ID（白名单） | *(任意)* |
-| `requestTimeoutMs` | 默认请求超时（毫秒） | `15000` |
+| `requestTimeoutMs` | 默认请求超时（毫秒） | `10000` |
 | `maxPayloadBytes` | 最大负载字节数 | `262144` |
-| `token` | 设备认证令牌 | *(无)* |
+| `token` | 设备认证令牌 | `clawwrt` |
 | `awasEnabled` | 启用 AWAS 认证代理 | `false` |
 | `awasHost` | AWAS 服务器主机名 | `127.0.0.1` |
-| `awasPort` | AWAS 服务器端口 | `8088` |
-| `awasPath` | AWAS WebSocket 路径 | `/ws` |
+| `awasPort` | AWAS 服务器端口 | `80` |
+| `awasPath` | AWAS WebSocket 路径 | `/ws/clawwrt` |
 | `awasSsl` | 使用 TLS (wss://) | `false` |
 
 ### 工具白名单说明

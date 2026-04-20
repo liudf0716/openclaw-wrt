@@ -76,7 +76,7 @@ openclaw plugins remove openclaw-wrt
                                   └──────────────────┘
 ```
 
-1. **Router connects** — Each ClawWRT-enabled router opens a WebSocket to the bridge (`ws://host:8866/ws`) and sends a connect message with its `device_id`.
+1. **Router connects** — Each ClawWRT-enabled router opens a WebSocket to the bridge (`ws://host:8001/ws/clawwrt`) and sends a connect message with its `device_id`.
 2. **Bridge manages sessions** — The plugin maintains a device registry with connection state, aliases, and optional token-based authentication.
 3. **Agent controls devices** — OpenClaw's LLM agent calls 30+ registered tools (e.g., `clawwrt_get_clients`, `clawwrt_set_wifi_info`, `clawwrt_exec_shell`). Each tool call is correlated with the router's response via `req_id`.
 4. **AWAS proxy (optional)** — For cloud-mode devices, the plugin can forward authentication traffic to an AWAS (Auth Server) backend.
@@ -92,17 +92,17 @@ The page should be self-contained HTML. Keep CSS and JavaScript inline unless yo
 | Setting | Description | Default |
 |---------|-------------|---------|
 | `enabled` | Enable bridge | `true` |
-| `bind` | Bind address | `0.0.0.0` |
-| `port` | Bridge port | `8866` |
-| `path` | WebSocket path | `/ws` |
+| `bind` | Bind address | `127.0.0.1` |
+| `port` | Bridge port | `8001` |
+| `path` | WebSocket path | `/ws/clawwrt` |
 | `allowDeviceIds` | Allowed device IDs (allowlist) | *(any)* |
-| `requestTimeoutMs` | Default request timeout (ms) | `15000` |
+| `requestTimeoutMs` | Default request timeout (ms) | `10000` |
 | `maxPayloadBytes` | Max payload bytes | `262144` |
-| `token` | Device authentication token | *(none)* |
+| `token` | Device authentication token | `clawwrt` |
 | `awasEnabled` | Enable AWAS auth proxy | `false` |
 | `awasHost` | AWAS server hostname | `127.0.0.1` |
-| `awasPort` | AWAS server port | `8088` |
-| `awasPath` | AWAS WebSocket path | `/ws` |
+| `awasPort` | AWAS server port | `80` |
+| `awasPath` | AWAS WebSocket path | `/ws/clawwrt` |
 | `awasSsl` | Use TLS (wss://) | `false` |
 
 ### Tool allowlist note

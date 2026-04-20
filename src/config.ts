@@ -48,7 +48,7 @@ export type ResolvedClawWRTConfig = {
   allowDeviceIds: string[];
   requestTimeoutMs: number;
   maxPayloadBytes: number;
-  token: string;
+  token?: string;
   aliasFile: string;
   awas: AwasConfig;
 };
@@ -111,7 +111,7 @@ export function resolveClawWRTConfig(input: unknown): ResolvedClawWRTConfig {
       readIntegerInRange(parsed?.requestTimeoutMs, 1000, 120_000) ?? DEFAULT_TIMEOUT_MS,
     maxPayloadBytes:
       readIntegerInRange(parsed?.maxPayloadBytes, 1024, 1_048_576) ?? DEFAULT_MAX_PAYLOAD_BYTES,
-    token: readNonEmptyString(parsed?.token) || DEFAULT_TOKEN,
+    token: parsed?.token === "" ? undefined : (readNonEmptyString(parsed?.token) || DEFAULT_TOKEN),
     aliasFile: readNonEmptyString(parsed?.aliasFile) || "device-aliases.json",
     awas: {
       enabled: readBoolean(parsed?.awasEnabled) === true,

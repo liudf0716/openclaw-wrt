@@ -54,7 +54,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19190,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 5000,
       }),
       logger: createLogger(),
@@ -62,11 +62,11 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const ws = new WebSocket("ws://127.0.0.1:19190/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19190/ws/clawwrt");
     await once(ws, "open");
     ws.send(
       JSON.stringify({
-        op: "connect",
+        op: "connect", token: "clawwrt",
         device_id: "dev-1",
         device_info: { ap_device_id: "ap-1" },
         gateway: [{ gw_id: "gw-1" }],
@@ -113,8 +113,9 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19214,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 5000,
+        token: "secret-token",
         awasEnabled: true,
       }),
       logger: {
@@ -125,11 +126,11 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const ws = new WebSocket("ws://127.0.0.1:19214/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19214/ws/clawwrt");
     await once(ws, "open");
     ws.send(
       JSON.stringify({
-        op: "connect",
+        op: "connect", token: "clawwrt",
         device_id: "dev-redact",
         token: "secret-token",
         command: "sensitive-command",
@@ -159,7 +160,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19224,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 5000,
         awasEnabled: true,
       }),
@@ -181,11 +182,11 @@ describe("ClawWRTBridge", () => {
       }
     ).awasProxy.forwardToAwas = forwardToAwas;
 
-    const ws = new WebSocket("ws://127.0.0.1:19224/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19224/ws/clawwrt");
     await once(ws, "open");
     ws.send(
       JSON.stringify({
-        op: "connect",
+        op: "connect", token: "clawwrt",
         device_id: "dev-non-cloud",
         mode: 1,
         gateway: [],
@@ -207,7 +208,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19215,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 5000,
       }),
       logger: createLogger(),
@@ -215,9 +216,9 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const wsBeforeRestart = new WebSocket("ws://127.0.0.1:19215/ws/wifidogx");
+    const wsBeforeRestart = new WebSocket("ws://127.0.0.1:19215/ws/clawwrt");
     await once(wsBeforeRestart, "open");
-    wsBeforeRestart.send(JSON.stringify({ op: "connect", device_id: "dev-before", gateway: [] }));
+    wsBeforeRestart.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-before", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(bridge.getDevice("dev-before")?.deviceId).toBe("dev-before");
 
@@ -231,9 +232,9 @@ describe("ClawWRTBridge", () => {
     await bridge.start();
     bridges.push(bridge);
 
-    const wsAfterRestart = new WebSocket("ws://127.0.0.1:19215/ws/wifidogx");
+    const wsAfterRestart = new WebSocket("ws://127.0.0.1:19215/ws/clawwrt");
     await once(wsAfterRestart, "open");
-    wsAfterRestart.send(JSON.stringify({ op: "connect", device_id: "dev-after", gateway: [] }));
+    wsAfterRestart.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-after", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(bridge.getDevice("dev-after")?.deviceId).toBe("dev-after");
@@ -248,7 +249,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19216,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 5000,
       }),
       logger: createLogger(),
@@ -282,9 +283,9 @@ describe("ClawWRTBridge", () => {
 
     expect(malformedResponse.startsWith("HTTP/1.1 400 Bad Request")).toBe(true);
 
-    const ws = new WebSocket("ws://127.0.0.1:19216/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19216/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", device_id: "dev-malformed-path", gateway: [] }));
+    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-malformed-path", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(bridge.getDevice("dev-malformed-path")?.deviceId).toBe("dev-malformed-path");
 
@@ -298,7 +299,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19217,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -306,9 +307,9 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const ws = new WebSocket("ws://127.0.0.1:19217/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19217/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", device_id: "dev-err", gateway: [] }));
+    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-err", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const responsePromise = bridge.callDevice({
@@ -346,7 +347,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19218,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -354,9 +355,9 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const ws = new WebSocket("ws://127.0.0.1:19218/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19218/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", device_id: "dev-nested", gateway: [] }));
+    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-nested", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const responsePromise = bridge.callDevice({
@@ -397,7 +398,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19213,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -405,9 +406,9 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const ws = new WebSocket("ws://127.0.0.1:19213/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19213/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", device_id: "dev-skip", gateway: [] }));
+    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-skip", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const responsePromise = bridge.callDevice({
@@ -439,7 +440,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19212,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -447,9 +448,9 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const ws = new WebSocket("ws://127.0.0.1:19212/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19212/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", device_id: "dev-alias", gateway: [] }));
+    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-alias", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(bridge.listDevices()[0]?.alias).toBe("Router-1");
@@ -472,7 +473,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19217,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -480,14 +481,14 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const wsRealId = new WebSocket("ws://127.0.0.1:19217/ws/wifidogx");
+    const wsRealId = new WebSocket("ws://127.0.0.1:19217/ws/clawwrt");
     await once(wsRealId, "open");
-    wsRealId.send(JSON.stringify({ op: "connect", device_id: "Router-1", gateway: [] }));
+    wsRealId.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "Router-1", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const wsAlias = new WebSocket("ws://127.0.0.1:19217/ws/wifidogx");
+    const wsAlias = new WebSocket("ws://127.0.0.1:19217/ws/clawwrt");
     await once(wsAlias, "open");
-    wsAlias.send(JSON.stringify({ op: "connect", device_id: "dev-alias-safe", gateway: [] }));
+    wsAlias.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-alias-safe", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(bridge.getDevice("Router-1")?.deviceId).toBe("Router-1");
@@ -508,7 +509,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19218,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -516,15 +517,15 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const wsAlias = new WebSocket("ws://127.0.0.1:19218/ws/wifidogx");
+    const wsAlias = new WebSocket("ws://127.0.0.1:19218/ws/clawwrt");
     await once(wsAlias, "open");
-    wsAlias.send(JSON.stringify({ op: "connect", device_id: "dev-first", gateway: [] }));
+    wsAlias.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-first", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(bridge.getDevice("Router-1")?.deviceId).toBe("dev-first");
 
-    const wsRealId = new WebSocket("ws://127.0.0.1:19218/ws/wifidogx");
+    const wsRealId = new WebSocket("ws://127.0.0.1:19218/ws/clawwrt");
     await once(wsRealId, "open");
-    wsRealId.send(JSON.stringify({ op: "connect", device_id: "Router-1", gateway: [] }));
+    wsRealId.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "Router-1", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(bridge.getDevice("Router-1")?.deviceId).toBe("Router-1");
@@ -545,7 +546,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19216,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -553,9 +554,9 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const ws = new WebSocket("ws://127.0.0.1:19216/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19216/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", device_id: "dev-stop-alias", gateway: [] }));
+    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-stop-alias", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(bridge.getDevice("Router-1")?.deviceId).toBe("dev-stop-alias");
@@ -583,7 +584,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19209,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -591,13 +592,13 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const ws = new WebSocket("ws://127.0.0.1:19209/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19209/ws/clawwrt");
     await once(ws, "open");
 
-    ws.send(JSON.stringify({ op: "connect", device_id: "dev-old", gateway: [] }));
+    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    ws.send(JSON.stringify({ op: "heartbeat", device_id: "dev-new", gateway: [] }));
+    ws.send(JSON.stringify({ op: "heartbeat", token: "clawwrt", device_id: "dev-new", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const devices = bridge.listDevices();
@@ -620,7 +621,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19217,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -628,12 +629,12 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const ws = new WebSocket("ws://127.0.0.1:19217/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19217/ws/clawwrt");
     await once(ws, "open");
 
     ws.send(
       JSON.stringify({
-        op: "connect",
+        op: "connect", token: "clawwrt",
         device_id: "dev-preserve",
         device_info: { ap_device_id: "ap-1" },
         gateway: [{ gw_id: "gw-1" }],
@@ -643,7 +644,7 @@ describe("ClawWRTBridge", () => {
 
     ws.send(
       JSON.stringify({
-        op: "heartbeat",
+        op: "heartbeat", token: "clawwrt",
         device_id: "dev-preserve",
       }),
     );
@@ -664,16 +665,16 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19191,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
       }),
       logger: createLogger(),
     });
     bridges.push(bridge);
     await bridge.start();
 
-    const ws = new WebSocket("ws://127.0.0.1:19191/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19191/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", device_id: "dev-2", gateway: [] }));
+    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-2", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const responsePromise = bridge.callDevice({
@@ -706,7 +707,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19219,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 1000,
       }),
       logger: {
@@ -717,9 +718,9 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const ws = new WebSocket("ws://127.0.0.1:19219/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19219/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", device_id: "dev-timeout", gateway: [] }));
+    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-timeout", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     await expect(
@@ -747,7 +748,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19192,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -755,9 +756,9 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const ws = new WebSocket("ws://127.0.0.1:19192/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19192/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", device_id: "dev-3", gateway: [] }));
+    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-3", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const successPromise = bridge.callDevice({
@@ -819,7 +820,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19207,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -827,13 +828,13 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const wsA = new WebSocket("ws://127.0.0.1:19207/ws/wifidogx");
-    const wsB = new WebSocket("ws://127.0.0.1:19207/ws/wifidogx");
+    const wsA = new WebSocket("ws://127.0.0.1:19207/ws/clawwrt");
+    const wsB = new WebSocket("ws://127.0.0.1:19207/ws/clawwrt");
     await once(wsA, "open");
     await once(wsB, "open");
 
-    wsA.send(JSON.stringify({ op: "connect", device_id: "dev-a", gateway: [] }));
-    wsB.send(JSON.stringify({ op: "connect", device_id: "dev-b", gateway: [] }));
+    wsA.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-a", gateway: [] }));
+    wsB.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-b", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const responsePromise = bridge.callDevice({
@@ -874,7 +875,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19218,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -882,13 +883,13 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const wsA = new WebSocket("ws://127.0.0.1:19218/ws/wifidogx");
-    const wsB = new WebSocket("ws://127.0.0.1:19218/ws/wifidogx");
+    const wsA = new WebSocket("ws://127.0.0.1:19218/ws/clawwrt");
+    const wsB = new WebSocket("ws://127.0.0.1:19218/ws/clawwrt");
     await once(wsA, "open");
     await once(wsB, "open");
 
-    wsA.send(JSON.stringify({ op: "connect", device_id: "dev-roll-a", gateway: [] }));
-    wsB.send(JSON.stringify({ op: "connect", device_id: "dev-roll-b", gateway: [] }));
+    wsA.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-roll-a", gateway: [] }));
+    wsB.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-roll-b", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const responsePromiseA = bridge.callDevice({
@@ -944,7 +945,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19220,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -952,9 +953,9 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const ws = new WebSocket("ws://127.0.0.1:19220/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19220/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", device_id: "dev-serial", gateway: [] }));
+    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-serial", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const firstPromise = bridge.callDevice({
@@ -1020,7 +1021,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19221,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 5000,
       }),
       logger: createLogger(),
@@ -1028,9 +1029,9 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const wsOld = new WebSocket("ws://127.0.0.1:19221/ws/wifidogx");
+    const wsOld = new WebSocket("ws://127.0.0.1:19221/ws/clawwrt");
     await once(wsOld, "open");
-    wsOld.send(JSON.stringify({ op: "connect", device_id: "dev-supersede", gateway: [] }));
+    wsOld.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-supersede", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const firstPromise = bridge.callDevice({
@@ -1058,9 +1059,9 @@ describe("ClawWRTBridge", () => {
       activeSession.socket.close = closeSpy;
     }
 
-    const wsNew = new WebSocket("ws://127.0.0.1:19221/ws/wifidogx");
+    const wsNew = new WebSocket("ws://127.0.0.1:19221/ws/clawwrt");
     await once(wsNew, "open");
-    wsNew.send(JSON.stringify({ op: "heartbeat", device_id: "dev-supersede", gateway: [] }));
+    wsNew.send(JSON.stringify({ op: "heartbeat", token: "clawwrt", device_id: "dev-supersede", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(closeSpy).toHaveBeenCalled();
@@ -1103,7 +1104,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19193,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -1116,13 +1117,13 @@ describe("ClawWRTBridge", () => {
       bridge as unknown as { awasProxy: { forwardToAwas: typeof awasForward } }
     ).awasProxy.forwardToAwas = awasForward;
 
-    const ws1 = new WebSocket("ws://127.0.0.1:19193/ws/wifidogx");
-    const ws2 = new WebSocket("ws://127.0.0.1:19193/ws/wifidogx");
+    const ws1 = new WebSocket("ws://127.0.0.1:19193/ws/clawwrt");
+    const ws2 = new WebSocket("ws://127.0.0.1:19193/ws/clawwrt");
     await once(ws1, "open");
     await once(ws2, "open");
 
-    ws1.send(JSON.stringify({ op: "connect", device_id: "dev-a", gateway: [] }));
-    ws2.send(JSON.stringify({ op: "connect", device_id: "dev-b", gateway: [] }));
+    ws1.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-a", gateway: [] }));
+    ws2.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-b", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     awasForward.mockClear();
 
@@ -1164,7 +1165,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19214,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -1177,9 +1178,9 @@ describe("ClawWRTBridge", () => {
       bridge as unknown as { awasProxy: { forwardToAwas: typeof awasForward } }
     ).awasProxy.forwardToAwas = awasForward;
 
-    const ws = new WebSocket("ws://127.0.0.1:19214/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19214/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", device_id: "dev-collision", gateway: [] }));
+    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-collision", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     awasForward.mockClear();
 
@@ -1229,7 +1230,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19210,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -1242,13 +1243,13 @@ describe("ClawWRTBridge", () => {
       bridge as unknown as { awasProxy: { forwardToAwas: typeof awasForward } }
     ).awasProxy.forwardToAwas = awasForward;
 
-    const wsActive = new WebSocket("ws://127.0.0.1:19210/ws/wifidogx");
-    const wsForged = new WebSocket("ws://127.0.0.1:19210/ws/wifidogx");
+    const wsActive = new WebSocket("ws://127.0.0.1:19210/ws/clawwrt");
+    const wsForged = new WebSocket("ws://127.0.0.1:19210/ws/clawwrt");
     await once(wsActive, "open");
     await once(wsForged, "open");
 
-    wsActive.send(JSON.stringify({ op: "connect", device_id: "dev-aws", gateway: [] }));
-    wsForged.send(JSON.stringify({ op: "connect", device_id: "dev-other", gateway: [] }));
+    wsActive.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-aws", gateway: [] }));
+    wsForged.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-other", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     awasForward.mockClear();
 
@@ -1298,7 +1299,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19205,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -1311,9 +1312,9 @@ describe("ClawWRTBridge", () => {
       bridge as unknown as { awasProxy: { forwardToAwas: typeof awasForward } }
     ).awasProxy.forwardToAwas = awasForward;
 
-    const ws = new WebSocket("ws://127.0.0.1:19205/ws/wifidogx");
+    const ws = new WebSocket("ws://127.0.0.1:19205/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", device_id: "dev-zero", gateway: [] }));
+    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-zero", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     awasForward.mockClear();
 
@@ -1482,7 +1483,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19204,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -1490,14 +1491,14 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const wsOld = new WebSocket("ws://127.0.0.1:19204/ws/wifidogx");
+    const wsOld = new WebSocket("ws://127.0.0.1:19204/ws/clawwrt");
     await once(wsOld, "open");
-    wsOld.send(JSON.stringify({ op: "connect", device_id: "dev-reconnect", gateway: [] }));
+    wsOld.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-reconnect", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const wsNew = new WebSocket("ws://127.0.0.1:19204/ws/wifidogx");
+    const wsNew = new WebSocket("ws://127.0.0.1:19204/ws/clawwrt");
     await once(wsNew, "open");
-    wsNew.send(JSON.stringify({ op: "connect", device_id: "dev-reconnect", gateway: [] }));
+    wsNew.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-reconnect", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const responsePromise = bridge.callDevice({
@@ -1531,7 +1532,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19208,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -1544,15 +1545,15 @@ describe("ClawWRTBridge", () => {
       bridge as unknown as { awasProxy: { removeProxy: typeof removeProxy } }
     ).awasProxy.removeProxy = removeProxy;
 
-    const wsOld = new WebSocket("ws://127.0.0.1:19208/ws/wifidogx");
+    const wsOld = new WebSocket("ws://127.0.0.1:19208/ws/clawwrt");
     await once(wsOld, "open");
-    wsOld.send(JSON.stringify({ op: "connect", device_id: "dev-aways", gateway: [] }));
+    wsOld.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-aways", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     removeProxy.mockClear();
 
-    const wsNew = new WebSocket("ws://127.0.0.1:19208/ws/wifidogx");
+    const wsNew = new WebSocket("ws://127.0.0.1:19208/ws/clawwrt");
     await once(wsNew, "open");
-    wsNew.send(JSON.stringify({ op: "connect", device_id: "dev-aways", gateway: [] }));
+    wsNew.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-aways", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     wsOld.terminate();
@@ -1569,7 +1570,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port: 19211,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -1582,18 +1583,18 @@ describe("ClawWRTBridge", () => {
       bridge as unknown as { awasProxy: { removeProxy: typeof removeProxy } }
     ).awasProxy.removeProxy = removeProxy;
 
-    const wsActive = new WebSocket("ws://127.0.0.1:19211/ws/wifidogx");
-    const wsSuperseded = new WebSocket("ws://127.0.0.1:19211/ws/wifidogx");
+    const wsActive = new WebSocket("ws://127.0.0.1:19211/ws/clawwrt");
+    const wsSuperseded = new WebSocket("ws://127.0.0.1:19211/ws/clawwrt");
     await once(wsActive, "open");
     await once(wsSuperseded, "open");
 
-    wsSuperseded.send(JSON.stringify({ op: "connect", device_id: "dev-old", gateway: [] }));
+    wsSuperseded.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    wsActive.send(JSON.stringify({ op: "connect", device_id: "dev-old", gateway: [] }));
+    wsActive.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     removeProxy.mockClear();
 
-    wsSuperseded.send(JSON.stringify({ op: "heartbeat", device_id: "dev-new", gateway: [] }));
+    wsSuperseded.send(JSON.stringify({ op: "heartbeat", token: "clawwrt", device_id: "dev-new", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(removeProxy).not.toHaveBeenCalled();
@@ -1609,7 +1610,7 @@ describe("ClawWRTBridge", () => {
         enabled: true,
         bind: "127.0.0.1",
         port,
-        path: "/ws/wifidogx",
+        path: "/ws/clawwrt",
         requestTimeoutMs: 3000,
       }),
       logger: createLogger(),
@@ -1617,19 +1618,19 @@ describe("ClawWRTBridge", () => {
     bridges.push(bridge);
     await bridge.start();
 
-    const wsCurrent = new WebSocket(`ws://127.0.0.1:${port}/ws/wifidogx`);
-    const wsSuperseded = new WebSocket(`ws://127.0.0.1:${port}/ws/wifidogx`);
-    const wsOther = new WebSocket(`ws://127.0.0.1:${port}/ws/wifidogx`);
+    const wsCurrent = new WebSocket(`ws://127.0.0.1:${port}/ws/clawwrt`);
+    const wsSuperseded = new WebSocket(`ws://127.0.0.1:${port}/ws/clawwrt`);
+    const wsOther = new WebSocket(`ws://127.0.0.1:${port}/ws/clawwrt`);
     await Promise.all([once(wsCurrent, "open"), once(wsSuperseded, "open"), once(wsOther, "open")]);
 
-    wsSuperseded.send(JSON.stringify({ op: "connect", device_id: "dev-old", gateway: [] }));
+    wsSuperseded.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    wsCurrent.send(JSON.stringify({ op: "connect", device_id: "dev-old", gateway: [] }));
+    wsCurrent.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    wsOther.send(JSON.stringify({ op: "connect", device_id: "dev-new", gateway: [] }));
+    wsOther.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-new", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    wsSuperseded.send(JSON.stringify({ op: "heartbeat", device_id: "dev-new", gateway: [] }));
+    wsSuperseded.send(JSON.stringify({ op: "heartbeat", token: "clawwrt", device_id: "dev-new", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(bridge.getDevice("dev-old")?.remoteAddress).toBeDefined();
