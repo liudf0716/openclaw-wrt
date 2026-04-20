@@ -5,6 +5,14 @@ import { WebSocket } from "ws";
 import { resolveClawWRTConfig } from "./config.js";
 import { ClawWRTBridge } from "./manager.js";
 
+vi.mock("node:fs", () => ({
+  default: {
+    existsSync: vi.fn().mockImplementation(() => false),
+    readFileSync: vi.fn().mockImplementation(() => "{}"),
+    writeFileSync: vi.fn(),
+  },
+}));
+
 function createLogger() {
   return {
     info() {},
@@ -425,7 +433,7 @@ describe("ClawWRTBridge", () => {
     ws.terminate();
   });
 
-  it("removes stale device aliases when a device disconnects", async () => {
+  it("preserves device aliases when a device disconnects", async () => {
     const bridge = new ClawWRTBridge({
       config: resolveClawWRTConfig({
         enabled: true,
@@ -455,7 +463,7 @@ describe("ClawWRTBridge", () => {
           deviceAliases: Map<string, string>;
         }
       ).deviceAliases.has("dev-alias"),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("skips aliases that collide with a connected device ID", async () => {
@@ -531,7 +539,7 @@ describe("ClawWRTBridge", () => {
     await once(wsAlias, "close");
   });
 
-  it("clears device aliases when the bridge stops", async () => {
+  it("preserves device aliases when the bridge stops", async () => {
     const bridge = new ClawWRTBridge({
       config: resolveClawWRTConfig({
         enabled: true,
@@ -559,14 +567,14 @@ describe("ClawWRTBridge", () => {
       bridges.splice(index, 1);
     }
 
-    expect(bridge.getDevice("Router-1")).toBeNull();
+    expect(bridge.getDevice("Router-1")).toBeNull(); // offline, but internal alias should remain
     expect(
       (
         bridge as unknown as {
           deviceAliases: Map<string, string>;
         }
       ).deviceAliases.size,
-    ).toBe(0);
+    ).toBe(1);
   });
 
   it("clears a prior device binding before remapping the same socket", async () => {

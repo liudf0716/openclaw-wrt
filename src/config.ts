@@ -26,6 +26,7 @@ export const ClawWRTConfigSchema = Type.Object(
     token: Type.Optional(
       Type.String({ minLength: 1, description: "Shared secret for device authentication." }),
     ),
+    aliasFile: Type.Optional(Type.String({ minLength: 1 })),
     // AWAS auth server proxy configuration
     awasEnabled: Type.Optional(Type.Boolean()),
     awasHost: Type.Optional(Type.String({ minLength: 1 })),
@@ -47,6 +48,7 @@ export type ResolvedClawWRTConfig = {
   requestTimeoutMs: number;
   maxPayloadBytes: number;
   token?: string;
+  aliasFile: string;
   awas: AwasConfig;
 };
 
@@ -109,6 +111,7 @@ export function resolveClawWRTConfig(input: unknown): ResolvedClawWRTConfig {
     maxPayloadBytes:
       readIntegerInRange(parsed?.maxPayloadBytes, 1024, 1_048_576) ?? DEFAULT_MAX_PAYLOAD_BYTES,
     token: readNonEmptyString(parsed?.token),
+    aliasFile: readNonEmptyString(parsed?.aliasFile) || "device-aliases.json",
     awas: {
       enabled: readBoolean(parsed?.awasEnabled) === true,
       host: readNonEmptyString(parsed?.awasHost) || DEFAULT_AWAS_HOST,
@@ -162,6 +165,7 @@ export function createClawWRTPluginConfigSchema(): OpenClawPluginConfigSchema {
           maximum: 1048576,
         },
         token: { type: "string" },
+        aliasFile: { type: "string" },
         awasEnabled: { type: "boolean" },
         awasHost: { type: "string" },
         awasPort: { type: "integer", minimum: 1, maximum: 65535 },

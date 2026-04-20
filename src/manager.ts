@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
@@ -251,6 +252,8 @@ export class ClawWRTBridge {
       },
     });
 
+    this.loadAliases();
+
     this.server = http.createServer((req, res) => {
       // If AWAS HTTP proxying is enabled and the request targets the captive
       // portal path, forward the request to AWAS.
@@ -342,9 +345,6 @@ export class ClawWRTBridge {
   }
 
   async stop(): Promise<void> {
-    if (!this.started) {
-      return;
-    }
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(new Error("openclaw-wrt bridge stopped"));
@@ -358,6 +358,10 @@ export class ClawWRTBridge {
     this.awasPending.clear();
     this.deviceSendQueue.clear();
 
+    if (!this.started) {
+      return;
+    }
+
     for (const session of this.sessions.values()) {
       try {
         session.socket.close();
@@ -367,7 +371,6 @@ export class ClawWRTBridge {
     }
     this.sessions.clear();
     this.socketToDeviceId.clear();
-    this.deviceAliases.clear();
 
     // Stop all AWAS proxy connections
     this.awasProxy.stopAll();
@@ -492,6 +495,7 @@ export class ClawWRTBridge {
     }
     const alias = this.allocateAlias(deviceId);
     this.deviceAliases.set(deviceId, alias);
+    this.saveAliases();
     const session = this.sessions.get(deviceId);
     if (session) {
       session.snapshot.alias = alias;
@@ -506,6 +510,7 @@ export class ClawWRTBridge {
     }
     const alias = this.allocateAlias(conflictingDeviceId, deviceId);
     this.deviceAliases.set(conflictingDeviceId, alias);
+    this.saveAliases();
     const session = this.sessions.get(conflictingDeviceId);
     if (session) {
       session.snapshot.alias = alias;
@@ -754,8 +759,43 @@ export class ClawWRTBridge {
   }
 
   private clearDeviceState(deviceId: string): void {
-    this.deviceAliases.delete(deviceId);
     this.clearAwasStateForDevice(deviceId);
+  }
+
+  private loadAliases(): void {
+    try {
+      const file = this.config.aliasFile;
+      if (fs.existsSync(file)) {
+        const data = fs.readFileSync(file, "utf8");
+        const json = JSON.parse(data) as Record<string, string>;
+        for (const [deviceId, alias] of Object.entries(json)) {
+          this.deviceAliases.set(deviceId, alias);
+          const match = /^Router-(\d+)$/.exec(alias);
+          if (match) {
+            const id = parseInt(match[1], 10);
+            if (id >= this.nextAliasId) {
+              this.nextAliasId = id + 1;
+            }
+          }
+        }
+        this.logger.info(`openclaw-wrt: loaded ${this.deviceAliases.size} device aliases from ${file}`);
+      }
+    } catch (error) {
+      this.logger.warn(`openclaw-wrt: failed to load device aliases: ${String(error)}`);
+    }
+  }
+
+  private saveAliases(): void {
+    try {
+      const file = this.config.aliasFile;
+      const json: Record<string, string> = {};
+      for (const [deviceId, alias] of this.deviceAliases.entries()) {
+        json[deviceId] = alias;
+      }
+      fs.writeFileSync(file, JSON.stringify(json, null, 2), "utf8");
+    } catch (error) {
+      this.logger.warn(`openclaw-wrt: failed to save device aliases: ${String(error)}`);
+    }
   }
 
   private async handleMessage(
@@ -841,22 +881,6 @@ export class ClawWRTBridge {
         }
         return;
       }
-      if (previous && previous.socket !== socket) {
-        this.rejectPendingRequestsForSocket(previous.socket, (pendingDeviceId) => {
-          return `device session superseded: ${pendingDeviceId}`;
-        });
-        this.logger.info(
-          `openclaw-wrt: superseding existing session for ${deviceId} remote=${remoteAddress ?? "unknown"}`,
-        );
-        try {
-          previous.socket.close(1000, "superseded");
-        } catch {
-          // ignore
-        }
-      }
-      this.reassignAliasConflictingWithDeviceId(deviceId);
-      const alias = this.assignAlias(deviceId);
-
       if (priorDeviceId && priorDeviceId !== deviceId) {
         const remappingActivePriorSession = priorSession?.socket === socket;
         if (remappingActivePriorSession) {
@@ -875,12 +899,15 @@ export class ClawWRTBridge {
         }
       }
 
+      this.reassignAliasConflictingWithDeviceId(deviceId);
+
       const authMode = resolveDeviceAuthMode(message) ?? previous?.snapshot.authMode;
+      // 3. Update session immediately to avoid race conditions with the request queue.
       this.sessions.set(deviceId, {
         socket,
         snapshot: {
           deviceId,
-          alias,
+          alias: previous?.snapshot.alias, // placeholder, updated by assignAlias below
           connectedAtMs: previous?.snapshot.connectedAtMs ?? now,
           lastSeenAtMs: now,
           remoteAddress,
@@ -889,8 +916,23 @@ export class ClawWRTBridge {
           authMode,
         },
       });
-      const snapshot = this.sessions.get(deviceId)?.snapshot;
+      const alias = this.assignAlias(deviceId);
+      const snapshot = this.sessions.get(deviceId)!.snapshot;
       this.socketToDeviceId.set(socket, deviceId);
+
+      if (previous && previous.socket !== socket) {
+        this.rejectPendingRequestsForSocket(previous.socket, (pendingDeviceId) => {
+          return `device session superseded: ${pendingDeviceId}`;
+        });
+        this.logger.info(
+          `openclaw-wrt: superseding existing session for ${deviceId} remote=${remoteAddress ?? "unknown"}`,
+        );
+        try {
+          previous.socket.close(1000, "superseded");
+        } catch {
+          // ignore
+        }
+      }
 
       // Only cloud mode should connect/forward to AWAS.
       if (shouldForwardConnectOrHeartbeatToAwas(message, snapshot)) {
