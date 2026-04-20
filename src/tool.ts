@@ -5,6 +5,12 @@ import { Type, type Static } from "@sinclair/typebox";
 import { optionalStringEnum, stringEnum } from "openclaw/plugin-sdk/core";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import type { ClawWRTBridge, DeviceSnapshot } from "./manager.js";
+import {
+  PORTAL_TEMPLATE_VALUES,
+  renderPortalPageHtml,
+  type PortalContent as PortalContentType,
+  type PortalTemplate as PortalTemplateType,
+} from "./portal-page-renderer.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -137,10 +143,55 @@ const SetAuthServerSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const PortalTemplateField = stringEnum(
+  PORTAL_TEMPLATE_VALUES,
+  {
+    description: "Portal page template to render when html is not provided.",
+  },
+);
+
+const PortalContentSchema = Type.Object(
+  {
+    brandName: Type.Optional(Type.String({ minLength: 1, description: "Brand or venue name." })),
+    networkName: Type.Optional(Type.String({ minLength: 1, description: "Wi-Fi network name." })),
+    venueName: Type.Optional(Type.String({ minLength: 1, description: "Venue or location name." })),
+    title: Type.Optional(Type.String({ minLength: 1, description: "Primary page title." })),
+    body: Type.Optional(Type.String({ minLength: 1, description: "Primary supporting copy." })),
+    buttonText: Type.Optional(Type.String({ minLength: 1, description: "Primary action label." })),
+    footerText: Type.Optional(Type.String({ minLength: 1, description: "Footer support text." })),
+    supportText: Type.Optional(Type.String({ minLength: 1, description: "Additional helper copy." })),
+    voucherLabel: Type.Optional(Type.String({ minLength: 1, description: "Voucher or code field label." })),
+    voucherHint: Type.Optional(Type.String({ minLength: 1, description: "Voucher input hint text." })),
+    rules: Type.Optional(Type.Array(Type.String({ minLength: 1, description: "Rule item." }))),
+    accentColor: Type.Optional(Type.String({ minLength: 1, description: "Primary accent color." })),
+  },
+  { additionalProperties: false },
+);
+
 const PublishPortalPageSchema = Type.Object(
   {
     deviceId: DeviceIdField,
-    html: Type.String({ minLength: 1, description: "Generated portal HTML content." }),
+    html: Type.Optional(
+      Type.String({ minLength: 1, description: "Optional complete portal HTML content." }),
+    ),
+    template: Type.Optional(PortalTemplateField),
+    content: Type.Optional(PortalContentSchema),
+    pageName: Type.Optional(
+      Type.String({ minLength: 1, description: "Optional HTML file name for the portal page." }),
+    ),
+    webRoot: Type.Optional(
+      Type.String({ minLength: 1, description: "Optional nginx web root override." }),
+    ),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
+const GeneratePortalPageSchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    template: Type.Optional(PortalTemplateField),
+    content: Type.Optional(PortalContentSchema),
     pageName: Type.Optional(
       Type.String({ minLength: 1, description: "Optional HTML file name for the portal page." }),
     ),
@@ -534,7 +585,10 @@ type AuthClientParams = Static<typeof AuthClientSchema>;
 type KickoffClientParams = Static<typeof KickoffClientSchema>;
 type UpdateDeviceInfoParams = Static<typeof UpdateDeviceInfoSchema>;
 type SetAuthServerParams = Static<typeof SetAuthServerSchema>;
+type PortalTemplate = PortalTemplateType;
+type PortalContentParams = PortalContentType;
 type PublishPortalPageParams = Static<typeof PublishPortalPageSchema>;
+type GeneratePortalPageParams = Static<typeof GeneratePortalPageSchema>;
 type SetMqttServerParams = Static<typeof SetMqttServerSchema>;
 type SetWebsocketServerParams = Static<typeof SetWebsocketServerSchema>;
 type SetWireguardVpnParams = Static<typeof SetWireguardVpnSchema>;
@@ -557,7 +611,6 @@ type DeleteVpnRoutesParams = Static<typeof DeleteVpnRoutesSchema>;
 
 type BpfJsonTable = "ipv4" | "ipv6" | "mac" | "sid" | "l7";
 
-const PORTAL_PAGE_NAME = "page.html";
 const PORTAL_WEB_ROOT_CANDIDATES = [
   "/usr/share/nginx/html",
   "/var/www/html",
@@ -690,7 +743,10 @@ function buildPortalPageName(deviceId: string, explicitPageName?: string): strin
   }
 
   const deviceSlug = deviceId.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return `portal-${deviceSlug || PORTAL_PAGE_NAME.replace(/\.html$/i, "")}.html`;
+  if (!deviceSlug) {
+    throw new Error("unable to derive portal page name from deviceId");
+  }
+  return `portal-${deviceSlug}.html`;
 }
 
 function ensureDevice(bridge: ClawWRTBridge, deviceId: string): DeviceSnapshot {
@@ -734,7 +790,9 @@ async function callDeviceOp(params: {
 async function publishPortalPage(params: {
   bridge: ClawWRTBridge;
   deviceId: string;
-  html: string;
+  html?: string;
+  template?: PortalTemplate;
+  content?: PortalContentParams;
   pageName?: string;
   webRoot?: string;
   timeoutMs?: number;
@@ -742,8 +800,13 @@ async function publishPortalPage(params: {
   const pageName = buildPortalPageName(params.deviceId, params.pageName);
   const root = await resolvePortalWebRoot(params.webRoot);
   const filePath = path.join(root, pageName);
+  const html = params.html?.trim() || renderPortalPageHtml({
+    deviceId: params.deviceId,
+    template: params.template,
+    content: params.content,
+  });
 
-  await fs.writeFile(filePath, params.html, "utf8");
+  await fs.writeFile(filePath, html, "utf8");
 
   const response = await callDeviceOp({
     bridge: params.bridge,
@@ -842,7 +905,7 @@ function createPublishPortalPageTool(bridge: ClawWRTBridge): AnyAgentTool {
     name: "clawwrt_publish_portal_page",
     label: "OpenClaw WRT Publish Portal Page",
     description:
-      "Generate a captive portal HTML page into the host nginx web root, then update ClawWRT to use it.",
+      "Publish a captive portal HTML page to the device-specific portal file.",
     parameters: PublishPortalPageSchema,
     execute: async (_toolCallId, rawParams) => {
       const args = rawParams as PublishPortalPageParams;
@@ -851,6 +914,8 @@ function createPublishPortalPageTool(bridge: ClawWRTBridge): AnyAgentTool {
         bridge,
         deviceId,
         html: args.html,
+        template: args.template,
+        content: args.content,
         pageName: args.pageName,
         webRoot: args.webRoot,
         timeoutMs: args.timeoutMs,
@@ -863,6 +928,42 @@ function createPublishPortalPageTool(bridge: ClawWRTBridge): AnyAgentTool {
           pageName: result.pageName,
           webRoot: result.root,
           filePath: result.filePath,
+          template: args.template ?? null,
+          response: result.response,
+        },
+      );
+    },
+  };
+}
+
+function createGeneratePortalPageTool(bridge: ClawWRTBridge): AnyAgentTool {
+  return {
+    name: "clawwrt_generate_portal_page",
+    label: "OpenClaw WRT Generate Portal Page",
+    description:
+      "Generate a captive portal HTML page and publish it to the device-specific portal file.",
+    parameters: GeneratePortalPageSchema,
+    execute: async (_toolCallId, rawParams) => {
+      const args = rawParams as GeneratePortalPageParams;
+      const deviceId = args.deviceId.trim();
+      const result = await publishPortalPage({
+        bridge,
+        deviceId,
+        template: args.template,
+        content: args.content,
+        pageName: args.pageName,
+        webRoot: args.webRoot,
+        timeoutMs: args.timeoutMs,
+      });
+
+      return buildToolResult(
+        `Generated and published portal page ${result.pageName} for ${deviceId}.`,
+        {
+          deviceId,
+          pageName: result.pageName,
+          webRoot: result.root,
+          filePath: result.filePath,
+          template: args.template ?? "default",
           response: result.response,
         },
       );
@@ -1557,6 +1658,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         return `Updated auth server for ${args.deviceId} to ${args.hostname}.`;
       },
     }),
+    createGeneratePortalPageTool(bridge),
     createPublishPortalPageTool(bridge),
     createSimpleOperationTool({
       bridge,

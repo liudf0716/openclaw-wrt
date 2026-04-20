@@ -83,7 +83,7 @@ openclaw plugins remove openclaw-wrt
 
 ## Portal 页面
 
-在 Agent 已根据用户 prompt 生成 portal HTML 之后，使用 `clawwrt_publish_portal_page` 将页面写入宿主机 nginx 的 web 目录，并保存为 `page.html`，随后更新已连接路由器，让 ApFree WiFiDog 将用户重定向到该页面。
+在 Agent 已根据用户 prompt 生成 portal HTML 之后，使用 `clawwrt_publish_portal_page` 将页面写入宿主机 nginx 的 web 目录，并保存为设备专属 HTML 文件，随后更新已连接路由器，让 ApFree WiFiDog 将用户重定向到该页面。
 
 页面应尽量保持自包含。除非你明确知道 nginx web 目录还会提供额外资源，否则建议把 CSS 和 JavaScript 内联到 HTML 中。
 

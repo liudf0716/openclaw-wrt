@@ -65,7 +65,7 @@ For portal page generation and template selection, use the dedicated portal skil
 
 These portal pages are typically shown after a client has already connected to Wi-Fi, so the copy should read as a welcome, notice, or confirmation page rather than a network-setup gate.
 
-This skill still owns the router-side publishing step: `clawwrt_publish_portal_page` writes the generated HTML into the host nginx web directory as a device-specific HTML file, then calls the router-side `set_local_portal` flow so ApFree WiFiDog serves that page to Wi-Fi clients.
+`clawwrt_publish_portal_page` still owns the router-side publishing step. It writes the generated HTML into the host nginx web directory as a device-specific file, then calls the router-side `set_local_portal` flow so ApFree WiFiDog serves that page to Wi-Fi clients.
 
 ## Speedtest quick reference
 

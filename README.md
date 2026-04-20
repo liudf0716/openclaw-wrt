@@ -83,7 +83,7 @@ openclaw plugins remove openclaw-wrt
 
 ## Captive portal pages
 
-Use `clawwrt_publish_portal_page` after the agent has generated the portal HTML from the user's prompt. The tool writes the page into the host nginx web root as `page.html`, then updates the connected router so ApFree WiFiDog redirects users to that page.
+Use `clawwrt_publish_portal_page` after the agent has generated the portal HTML from the user's prompt. The tool writes the page into the host nginx web root as a device-specific HTML file, then updates the connected router so ApFree WiFiDog redirects users to that page.
 
 The page should be self-contained HTML. Keep CSS and JavaScript inline unless you know the nginx web root will also serve extra assets.
 
