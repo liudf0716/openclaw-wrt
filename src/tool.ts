@@ -1033,8 +1033,10 @@ function createListDevicesTool(bridge: ClawWRTBridge): AnyAgentTool {
     execute: async () => {
       const devices = bridge.listDevices();
 
-      const deviceStrings = devices.map((d) => `${d.alias} (ID: ${d.deviceId})`).join(", ");
-      const textOutput = `Connected devices: ${devices.length}${devices.length > 0 ? `. Devices: ${deviceStrings}` : ""}`;
+      const deviceStrings = devices
+        .map((d) => `- ${d.alias || "Router"} (ID: ${d.deviceId})`)
+        .join("\n");
+      const textOutput = `当前 ${devices.length} 台设备在线：\n\n${deviceStrings}`;
 
       return buildToolResult(textOutput, { devices });
     },

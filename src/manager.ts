@@ -489,13 +489,13 @@ export class ClawWRTBridge {
   }
 
   private assignAlias(deviceId: string): string {
-    const existingAlias = this.deviceAliases.get(deviceId);
-    if (existingAlias && this.isAliasAvailable(existingAlias, deviceId)) {
-      return existingAlias;
+    let alias = this.deviceAliases.get(deviceId);
+    if (!alias || !this.isAliasAvailable(alias, deviceId)) {
+      alias = this.allocateAlias(deviceId);
+      this.deviceAliases.set(deviceId, alias);
+      this.saveAliases();
     }
-    const alias = this.allocateAlias(deviceId);
-    this.deviceAliases.set(deviceId, alias);
-    this.saveAliases();
+
     const session = this.sessions.get(deviceId);
     if (session) {
       session.snapshot.alias = alias;
