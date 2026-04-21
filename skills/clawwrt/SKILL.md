@@ -57,6 +57,9 @@ Prefer the specific `clawwrt_*` tools over the low-level `clawwrt` tool for rout
 - Use `clawwrt_bpf_update_all` to update downrate/uprate limits for all monitored entries in one BPF table.
 - Use `clawwrt_get_speedtest_servers` to list available nearby speedtest.net servers.
 - Use `clawwrt_speedtest` to run an internet speed test (ping, download, upload) on the best nearby server or a specific one.
+- Use `clawwrt_get_xfrpc_config` to read current intranet penetration settings.
+- Use `clawwrt_set_xfrpc_common` to configure the xfrpc client connection to a remote frps server.
+- Use `clawwrt_add_xfrpc_tcp_service` to create a new TCP port forwarding service via xfrpc.
 - Use `clawwrt_reboot_device` only when the user explicitly requests a reboot.
 
 ## Captive Portal Page Workflow

@@ -504,6 +504,48 @@ const BpfUpdateAllSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const SetXfrpcCommonSchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    enabled: Type.Optional(Type.String({ description: "'0' or '1'." })),
+    loglevel: Type.Optional(Type.String({ description: "Log level, e.g., '7'." })),
+    server_addr: Type.Optional(Type.String({ description: "FRPS server address." })),
+    server_port: Type.Optional(Type.String({ description: "FRPS server port." })),
+    token: Type.Optional(Type.String({ description: "Authentication token." })),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
+const AddXfrpcTcpServiceSchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    name: Type.String({ minLength: 1, description: "Unique service name string." }),
+    enabled: Type.Optional(Type.String({ description: "'0' or '1'." })),
+    local_ip: Type.Optional(Type.String({ description: "Local IP to forward." })),
+    local_port: Type.Optional(Type.String({ description: "Local port to forward." })),
+    remote_port: Type.Optional(Type.String({ description: "Remote port on FRPS server." })),
+    start_time: Type.Optional(Type.String({ description: "Start time, default '0'." })),
+    end_time: Type.Optional(Type.String({ description: "End time, default '0'." })),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
+const DeployFrpsSchema = Type.Object(
+  {
+    port: Type.Integer({ minimum: 1, maximum: 65535, description: "FRPS listen port." }),
+    token: Type.Optional(Type.String({ description: "Authentication token." })),
+    dashboardPort: Type.Optional(
+      Type.Integer({ minimum: 1, maximum: 65535, description: "FRPS dashboard port." }),
+    ),
+    vhostHttpPort: Type.Optional(
+      Type.Integer({ minimum: 1, maximum: 65535, description: "FRPS vhost HTTP port." }),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 const SetVpnRoutesSchema = Type.Object(
   {
     deviceId: DeviceIdField,
@@ -2131,6 +2173,138 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         return `Reboot request sent to ${args.deviceId}. Treat this as best-effort and expect disconnect.`;
       },
     }),
+    createSimpleOperationTool({
+      bridge,
+      name: "clawwrt_get_xfrpc_config",
+      label: "OpenClaw WRT XFRPC Config",
+      description: "Get current XFRPC (intranet penetration) configuration from the router.",
+      op: "get_xfrpc_config",
+      summarize: (_response, rawParams) => {
+        const args = rawParams as DeviceOnlyParams;
+        return `Fetched XFRPC config for ${args.deviceId}.`;
+      },
+    }),
+    createSimpleOperationTool({
+      bridge,
+      name: "clawwrt_set_xfrpc_common",
+      label: "OpenClaw WRT Set XFRPC Common",
+      description: "Set XFRPC common configuration (server address, port, token) on the router.",
+      op: "set_xfrpc_common",
+      parameters: SetXfrpcCommonSchema,
+      buildPayload: (rawParams) => {
+        const args = rawParams as any;
+        const payload: JsonRecord = {};
+        if (args.enabled !== undefined) payload.enabled = args.enabled;
+        if (args.loglevel !== undefined) payload.loglevel = args.loglevel;
+        if (args.server_addr !== undefined) payload.server_addr = args.server_addr;
+        if (args.server_port !== undefined) payload.server_port = args.server_port;
+        if (args.token !== undefined) payload.token = args.token;
+        return {
+          deviceId: args.deviceId.trim(),
+          payload,
+          timeoutMs: args.timeoutMs,
+        };
+      },
+      summarize: (_response, rawParams) => {
+        const args = rawParams as any;
+        return `Updated XFRPC common config on ${args.deviceId}.`;
+      },
+    }),
+    createSimpleOperationTool({
+      bridge,
+      name: "clawwrt_add_xfrpc_tcp_service",
+      label: "OpenClaw WRT Add XFRPC TCP Service",
+      description: "Add a TCP intranet penetration service to the router.",
+      op: "add_xfrpc_tcp_service",
+      parameters: AddXfrpcTcpServiceSchema,
+      buildPayload: (rawParams) => {
+        const args = rawParams as any;
+        const payload: JsonRecord = { name: args.name };
+        if (args.enabled !== undefined) payload.enabled = args.enabled;
+        if (args.local_ip !== undefined) payload.local_ip = args.local_ip;
+        if (args.local_port !== undefined) payload.local_port = args.local_port;
+        if (args.remote_port !== undefined) payload.remote_port = args.remote_port;
+        if (args.start_time !== undefined) payload.start_time = args.start_time;
+        if (args.end_time !== undefined) payload.end_time = args.end_time;
+        return {
+          deviceId: args.deviceId.trim(),
+          payload,
+          timeoutMs: args.timeoutMs,
+        };
+      },
+      summarize: (_response, rawParams) => {
+        const args = rawParams as any;
+        return `Added XFRPC TCP service '${args.name}' on ${args.deviceId}.`;
+      },
+    }),
+    {
+      name: "openclaw_deploy_frps",
+      label: "OpenClaw Deploy FRPS",
+      description: "Deploy and start an FRPS server on the local VPS host.",
+      parameters: DeployFrpsSchema,
+      execute: async (_toolCallId, rawParams) => {
+        const args = rawParams as any;
+        const { execSync } = await import("node:child_process");
+
+        const configPath = path.resolve(process.cwd(), "frps.toml");
+        let toml = `bindPort = ${args.port}\n`;
+        if (args.token) toml += `auth.token = "${args.token}"\n`;
+        if (args.dashboardPort) {
+          toml += `dashboardAddr = "0.0.0.0"\ndashboardPort = ${args.dashboardPort}\n`;
+        }
+        if (args.vhostHttpPort) {
+          toml += `vhostHttpPort = ${args.vhostHttpPort}\n`;
+        }
+
+        await fs.writeFile(configPath, toml, "utf8");
+
+        // Try to start frps. We assume frps is in the PATH or we download it?
+        // For now, let's assume it's installed or we provide instructions if it fails.
+        let status = "success";
+        let output = "";
+        try {
+          // Use nohup to keep it running
+          output = execSync(`nohup frps -c ${configPath} > frps.log 2>&1 &`, { encoding: "utf-8" });
+        } catch (error) {
+          status = "error";
+          output = error instanceof Error ? error.message : String(error);
+        }
+
+        return buildToolResult(
+          `FRPS deployment ${status}.\nConfig: ${configPath}\nOutput: ${output}`,
+          { status, configPath, toml },
+        );
+      },
+    },
+    {
+      name: "openclaw_get_frps_status",
+      label: "OpenClaw Get FRPS Status",
+      description: "Check if an FRPS server is currently configured and running on the VPS host.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        const { execSync } = await import("node:child_process");
+        const configPath = path.resolve(process.cwd(), "frps.toml");
+
+        let configExists = false;
+        let configContent = "";
+        try {
+          configContent = await fs.readFile(configPath, "utf8");
+          configExists = true;
+        } catch {}
+
+        let running = false;
+        let processInfo = "";
+        try {
+          processInfo = execSync("pgrep -a frps", { encoding: "utf-8" }).trim();
+          running = processInfo.length > 0;
+        } catch {}
+
+        return buildToolResult(
+          `FRPS Status: ${running ? "Running" : "Stopped"}\nConfig: ${configExists ? "Found" : "Not Found"}\n\n${processInfo}`,
+          { running, configExists, configContent, processInfo },
+        );
+      },
+    },
     createGenericTool(bridge),
   ];
 }
