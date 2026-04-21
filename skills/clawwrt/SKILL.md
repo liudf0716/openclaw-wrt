@@ -57,9 +57,9 @@ Prefer the specific `clawwrt_*` tools over the low-level `clawwrt` tool for rout
 - Use `clawwrt_bpf_update_all` to update downrate/uprate limits for all monitored entries in one BPF table.
 - Use `clawwrt_get_speedtest_servers` to list available nearby speedtest.net servers.
 - Use `clawwrt_speedtest` to run an internet speed test (ping, download, upload) on the best nearby server or a specific one.
-- Use `clawwrt_get_xfrpc_config` to read current intranet penetration settings.
-- Use `clawwrt_set_xfrpc_common` to configure the xfrpc client connection to a remote frps server.
-- Use `clawwrt_add_xfrpc_tcp_service` to create a new TCP port forwarding service via xfrpc.
+- Use `clawwrt_get_xfrpc_config` to read current 内网穿透 settings.
+- Use `clawwrt_set_xfrpc_common` to configure the 内网穿透客户端 connection to a remote 内网穿透服务端.
+- Use `clawwrt_add_xfrpc_tcp_service` to create a new TCP port forwarding service via 内网穿透.
 - Use `clawwrt_reboot_device` only when the user explicitly requests a reboot.
 
 ## Captive Portal Page Workflow
@@ -136,6 +136,11 @@ When a user explicitly asks for any of the following operations, call the low-le
   - Selective mode: provide `routes` array of CIDRs (e.g. `["1.2.3.0/24", "4.5.6.0/24"]`).
   - Full tunnel mode: provide `excludeIps` array with VPS public IP to prevent routing loop. Routes `0.0.0.0/1` + `128.0.0.0/1` are added automatically.
   - Note: existing routes are flushed before new ones are applied.
-- `clawwrt_delete_vpn_routes`
-  - Required: `deviceId`
-  - Optional: `flushAll` (boolean, removes all VPN routes), `routes` (array of CIDRs to remove individually).
+## 使用示例 (Suggested Prompts)
+
+- **查询状态**: "帮我看看现在有哪些路由器在线，并报告一下它们的运行状态和负载情况。"
+- **设置 WiFi**: "把房间 101 的路由器 SSID 改成 'Lobster-Fast'，密码设置为 'claw123456'，记得开启 5G 频段。"
+- **强制下线**: "把 MAC 地址是 AA:BB:CC:DD:EE:FF 的那个客户端踢掉。"
+- **内网穿透**: "查看一下当前路由器的内网穿透配置，并帮我添加一个本地 80 端口到公网 8080 端口的 TCP 映射。"
+- **限速管理**: "给正在下载的大流量用户（IP: 192.168.1.50）限速，下行带宽控制在 2Mbps。"
+- **VPN 路由**: "把 google.com 和 youtube.com 的流量都走 WireGuard 隧道，其他的走普通网关。"

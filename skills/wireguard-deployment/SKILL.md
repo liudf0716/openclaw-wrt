@@ -83,9 +83,16 @@ Follow these steps for a complete WireGuard deployment between **OpenClaw VPS ho
 | `clawwrt_set_vpn_routes` | Add selective or full-tunnel routes |
 | `clawwrt_delete_vpn_routes` | Remove VPN routes |
 
-## Suggested Prompt
+## 使用示例 (Suggested Prompts)
 
-Use this when you want the model to handle both sides of the VPN plan correctly:
+- **单机直连**: "帮我把这台龙虾WiFi 和我的 VPS 连起来。首先检查 VPS 下有没有安装 WireGuard，没有就装一下，记得开防火墙。然后生成密钥把连通性配好，最后互 ping 测试一下。"
+- **多点组网 (Site-to-Site)**: "我要在三个办公室的路由器之间建立 VPN 局域网。VPS 作为中心节点，各个办公室连上来。请确保它们之间的子网能够互访，并帮我下发准确的静态路由。"
+- **域名分流**: "配置好 WireGuard 后，帮我设置一下域名路由：让访问 google.com 和 telegram.org 的流量走 VPN，其他的流量走本地网络。"
+- **状态监控**: "帮我查一下现在的 VPN 状态，看看握手时间正常吗？顺便检查一下服务器侧的 NAT 转发和 IP 转发开了没。"
+
+### 复杂方案提示词 (Complex Deployment Template)
+
+如果您需要 Agent 处理完整的双向 VPN 方案，建议使用以下固定格式：
 
 ```text
 请把这次 WG VPN 方案拆成两部分：

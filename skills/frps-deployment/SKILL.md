@@ -1,51 +1,65 @@
 ---
-name: frps-deployment
-description: VPS-side FRPS server deployment guide for OpenClaw. Covers server setup, port configuration, and deployment on the host.
+name: intranet-penetration-deployment
+description: VPS 侧内网穿透服务端部署指南。涵盖服务端安装、端口配置及在宿主机上的部署。
 user-invocable: true
 ---
 
-# FRPS Server Deployment Guide
+# 内网穿透服务端部署指南
 
-Deploy and operate the FRPS (frp server) on an **OpenClaw VPS host** or other cloud Linux host to enable intranet penetration for connected routers. Router/client setup is handled separately by `clawwrt` using its xfrpc tools.
+在 **OpenClaw VPS 宿主机**或其他云端 Linux 主机上部署并运行内网穿透服务端，以便为连接的路由器实现内网穿透。路由器/客户端侧的设置通过 `clawwrt` 及其相关的内网穿透工具独立处理。
 
-This skill is server-side only. If you need a router/client xfrpc configuration, use the `clawwrt` workflow and `clawwrt_*_xfrpc_*` tools.
+本技能仅限服务端操作。如果您需要配置路由器侧的内网穿透客户端，请参考 `clawwrt` 工作流。
 
-## Recommended Workflow (End-to-End)
+## 架构
 
-Follow these steps to set up a complete intranet penetration solution:
+```text
+┌──────────────────────────────────────────────────────────────────────────┐
+│  OpenClaw VPS / 云端宿主机                                                 │
+│                                                                          │
+│  内网穿透服务端 (监听端口)                                                   │
+│  - 身份验证 Token                                                        │
+│  - 仪表盘 (可选)                                                          │
+│  - 虚拟主机 HTTP/HTTPS (可选)                                             │
+└──────────────────────────────────────────────────────────────────────────┘
+```
 
-1.  **Phase 1: Server Check (VPS side)**
-    - Check if `frps` is already running on the host. You can attempt to read `frps.toml` or check if the port is in use.
-    - If not running, use `openclaw_deploy_frps` to deploy and start the server.
-    - Note the `port` and `token` used.
+## 推荐工作流 (端到端)
 
-2.  **Phase 2: Client Connection (Router side)**
-    - Call `clawwrt_get_xfrpc_config` to check existing settings on the target device.
-    - Compare settings. If the `server_addr`, `server_port`, and `token` already match your server, skip to Phase 3.
-    - If they differ, use `clawwrt_set_xfrpc_common` to configure the connection. Inform the user if you are overwriting an existing configuration.
+按照以下步骤设置完整的内网穿透方案：
 
-3.  **Phase 3: Service Mapping (Router side)**
-    - List existing services from `clawwrt_get_xfrpc_config`.
-    - If a service with the same `remote_port` or `name` already exists, warn the user instead of creating a duplicate.
-    - Use `clawwrt_add_xfrpc_tcp_service` to create the requested mapping (e.g., SSH on port 22 to remote port 6000).
+1.  **阶段 1：服务端检查 (VPS 侧)**
+    - 检查宿主机上是否已运行内网穿透服务端。
+    - 如果未运行，使用 `openclaw_deploy_frps` 进行部署并启动服务端。
+    - 记录所使用的 `端口` 和 `Token`。
 
-4.  **Phase 4: Verification**
-    - Confirm with the user that the service should now be reachable via `VPS_IP:REMOTE_PORT`.
+2.  **阶段 2：客户端连接 (路由器侧)**
+    - 调用 `clawwrt_get_xfrpc_config` 检查目标设备上的现有设置。
+    - 比对设置。如果服务器地址、端口和 Token 已与您的服务端匹配，则跳过此阶段。
+    - 如果不一致，使用 `clawwrt_set_xfrpc_common` 配置连接。
 
-## API Tools Reference
+3.  **阶段 3：服务映射 (路由器侧)**
+    - 列出当前已有的映射服务。
+    - 如果已存在相同远程端口或名称的服务，请提醒用户。
+    - 使用 `clawwrt_add_xfrpc_tcp_service` 创建所需的映射（例如，将 22 端口映射到远程 6022 端口）。
 
-| Tool | Purpose |
+4.  **阶段 4：验证**
+    - 与用户确认服务是否已可通过 `VPS_IP:远程端口` 访问。
+
+## 工具参考
+
+| 工具 | 用途 |
 |------|---------|
-| `openclaw_deploy_frps` | Write `frps.toml` and start the server process on the VPS host. |
-| `openclaw_get_frps_status` | Check if frps is running and return its configuration. |
-| `clawwrt_get_xfrpc_config` | Read current xfrpc client and service settings from the router. |
-| `clawwrt_set_xfrpc_common` | Configure xfrpc client connection on the router. |
-| `clawwrt_add_xfrpc_tcp_service` | Add a port forwarding service on the router. |
+| `openclaw_deploy_frps` | 在 VPS 宿主机上写入配置并启动内网穿透服务端。 |
+| `openclaw_get_frps_status` | 检查服务端是否正在运行并返回其配置。 |
+| `clawwrt_get_xfrpc_config` | 读取路由器上的内网穿透配置。 |
+| `clawwrt_set_xfrpc_common` | 配置路由器上的内网穿透客户端连接。 |
+| `clawwrt_add_xfrpc_tcp_service` | 在路由器上添加一个新的端口映射。 |
 
-## Quick reference for `openclaw_deploy_frps`
+## 使用示例 (Suggested Prompts)
 
-- Required: `port` (e.g., 7000)
-- Optional: `token`, `dashboardPort`, `vhostHttpPort`.
-- Returns: path to `frps.toml` and execution status.
+- **完整部署**: "帮我在当前 VPS 上创建一个内网穿透服务端。端口用 7000，Token 设置为 'mypassword123'。创建好之后，把 101 房间路由器的 SSH 端口（22）映射到公网的 6022 端口。"
+- **状态检查**: "检查一下现在的内网穿透服务端有没有在运行？它的配置是怎样的？"
+- **添加映射**: "既然服务端已经跑起来了，直接给我的龙虾WiFi 路由器添加一个 TCP 映射，把本地的 80 端口转发到公网 8080。"
+- **排除故障**: "我刚配了内网穿透但是连不上，帮我检查一下 VPS 的防火墙端口开了没，还有路由器的连接状态。"
 
-> **⚠️ SECURITY**: Always use a strong `token` to prevent unauthorized clients from using your proxy.
+> **⚠️ 安全提示**: 务必使用强 Token 以防止未经授权的客户端使用您的代理。
