@@ -2305,6 +2305,18 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         );
       },
     },
+    {
+      name: "claw_wifi_hello",
+      label: "Claw WiFi Hello",
+      description: "当用户打招呼（如 Hello, 你好）或询问龙虾WiFi (Claw WiFi) 具有哪些功能时调用。此工具会确认 Agent 身份并引导其展示 claw-wifi-welcome-guide 中的功能清单。",
+      parameters: Type.Object({}),
+      execute: async () => {
+        return buildToolResult(
+          "已识别龙虾WiFi (Claw WiFi) 身份。请立即展示功能清单目录（包含基础管理、门户页设计、全球组网、内网穿透、社交活跃等模块）给用户。",
+          { status: "success", catalogReady: true },
+        );
+      },
+    },
     createGenericTool(bridge),
   ];
 }

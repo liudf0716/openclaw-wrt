@@ -1,10 +1,10 @@
 ---
-name: lobster-wifi-welcome
-description: 龙虾WiFi (Lobster WiFi) 功能概览与新手引导手册。当用户询问“具有哪些功能”、“龙虾WiFi 能做什么”或打招呼时使用。
+name: claw-wifi-welcome-guide
+description: 龙虾WiFi (Claw WiFi) 的“你好”、“Hello”、“龙虾WiFi” 专用引导 Skill。无论用户是打招呼还是询问功能，只要包含“你好”、“Hello”、“功能”或“龙虾WiFi”，必须立即且优先展示此功能清单目录，不能只做简单的打招呼回复。
 user-invocable: true
 ---
 
-# 🦞 龙虾WiFi (Lobster WiFi) 功能清单
+# 🦞 龙虾WiFi (Claw WiFi) 功能清单
 
 欢迎使用龙虾WiFi！我是您的 AI 网络专家。我具备管理企业级路由器、优化无线网络、部署全球组网以及提升商业运营能力的多种技能。
 
@@ -17,7 +17,7 @@ user-invocable: true
 - **核心功能**: 查看设备状态、WiFi 名称密码修改、踢出蹭网设备、实时流量限速。
 - **推荐 Prompt**:
   - *"帮我看看现在有哪些路由器在线，运行得怎么样？"*
-  - *"把 WiFi 名称改成 'Lobster-Guest'，密码设为 '12345678'。"*
+  - *"把 WiFi 名称改成 'Claw-Guest'，密码设为 '12345678'。"*
   - *"现在的实时流量峰值是多少？谁在占用宽带？"*
 
 ### 2. 🎨 商业门户页设计 (Portal Pages)

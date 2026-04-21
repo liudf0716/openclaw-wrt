@@ -139,7 +139,7 @@ When a user explicitly asks for any of the following operations, call the low-le
 ## 使用示例 (Suggested Prompts)
 
 - **查询状态**: "帮我看看现在有哪些路由器在线，并报告一下它们的运行状态和负载情况。"
-- **设置 WiFi**: "把房间 101 的路由器 SSID 改成 'Lobster-Fast'，密码设置为 'claw123456'，记得开启 5G 频段。"
+- **设置 WiFi**: "把房间 101 的路由器 SSID 改成 'Claw-Fast'，密码设置为 'claw123456'，记得开启 5G 频段。"
 - **强制下线**: "把 MAC 地址是 AA:BB:CC:DD:EE:FF 的那个客户端踢掉。"
 - **内网穿透**: "查看一下当前路由器的内网穿透配置，并帮我添加一个本地 80 端口到公网 8080 端口的 TCP 映射。"
 - **限速管理**: "给正在下载的大流量用户（IP: 192.168.1.50）限速，下行带宽控制在 2Mbps。"
