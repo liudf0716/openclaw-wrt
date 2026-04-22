@@ -611,6 +611,36 @@ const DeleteVpnRoutesSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const DeployWgServerSchema = Type.Object(
+  {
+    port: Type.Optional(
+      Type.Integer({
+        minimum: 1,
+        maximum: 65535,
+        description: "WireGuard UDP listen port. Default 51820.",
+      }),
+    ),
+    tunnelIp: Type.Optional(
+      Type.String({ description: "Server tunnel IP with mask. Default 10.0.0.1/24." }),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+const AddWgPeerSchema = Type.Object(
+  {
+    publicKey: Type.String({ minLength: 1, description: "Peer public key." }),
+    allowedIps: Type.Array(
+      Type.String({
+        minLength: 1,
+        description: "Allowed IPs for this peer, e.g. ['10.0.0.2/32'].",
+      }),
+    ),
+    endpoint: Type.Optional(Type.String({ description: "Optional peer endpoint." })),
+  },
+  { additionalProperties: false },
+);
+
 const RunSpeedtestSchema = Type.Object(
   {
     deviceId: DeviceIdField,
@@ -2241,15 +2271,15 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       name: "openclaw_deploy_frps",
       label: "OpenClaw Deploy FRPS",
       description:
-        "Deploy, install to /usr/bin/, and configure an FRPS server with systemd autostart on the VPS host.",
+        "Automatically fetch the latest version from GitHub, install as /usr/bin/nwct-server, and configure a service with systemd autostart on the VPS host.",
       parameters: DeployFrpsSchema,
       execute: async (_toolCallId, rawParams) => {
         const args = rawParams as any;
         const { execSync } = await import("node:child_process");
 
-        const configDir = "/etc/frp";
-        const configPath = path.join(configDir, "frps.toml");
-        const servicePath = "/etc/systemd/system/frps.service";
+        const configDir = "/etc/nwct";
+        const configPath = path.join(configDir, "nwct-server.toml");
+        const servicePath = "/etc/systemd/system/nwct-server.service";
 
         let toml = `bindPort = ${args.port}\n`;
         if (args.token) toml += `auth.token = "${args.token}"\n`;
@@ -2264,45 +2294,83 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         try {
           // 1. Ensure config directory
           execSync(`sudo mkdir -p ${configDir}`, { encoding: "utf-8" });
-          await fs.writeFile("/tmp/frps.toml", toml, "utf8");
-          execSync(`sudo mv /tmp/frps.toml ${configPath}`, { encoding: "utf-8" });
+          await fs.writeFile("/tmp/nwct-server.toml", toml, "utf8");
+          execSync(`sudo mv /tmp/nwct-server.toml ${configPath}`, { encoding: "utf-8" });
 
-          // 2. Install binary if missing (placeholder for actual download logic if needed, but we check path)
+          // 2. Install binary if missing
           try {
-            execSync("which frps", { encoding: "utf-8" });
+            execSync("which nwct-server", { encoding: "utf-8" });
+            output += "nwct-server binary already exists.\n";
           } catch {
-            output += "Warning: frps binary not found in PATH. You may need to download it manually to /usr/bin/frps.\n";
+            output += "nwct-server binary not found. Downloading latest version from GitHub...\n";
+            try {
+              const archMap: Record<string, string> = {
+                x64: "amd64",
+                arm64: "arm64",
+                arm: "arm",
+              };
+              const arch = archMap[process.arch] || "amd64";
+
+              // Get latest version via GitHub API
+              const latestJson = execSync(
+                "curl -s --connect-timeout 10 https://api.github.com/repos/fatedier/frp/releases/latest",
+                { encoding: "utf-8" },
+              );
+              const latestInfo = JSON.parse(latestJson);
+              const tagName = latestInfo.tag_name;
+              if (!tagName) throw new Error("Could not determine latest version from GitHub API.");
+
+              const version = tagName.startsWith("v") ? tagName.substring(1) : tagName;
+              const folderName = `frp_${version}_linux_${arch}`;
+              const filename = `${folderName}.tar.gz`;
+              const downloadUrl = `https://github.com/fatedier/frp/releases/download/${tagName}/${filename}`;
+
+              output += `Target version: ${tagName}, Arch: ${arch}\nDownloading from: ${downloadUrl}\n`;
+
+              execSync(`curl -L -o /tmp/${filename} ${downloadUrl}`, { encoding: "utf-8" });
+              execSync(`tar -C /tmp -zxvf /tmp/${filename}`, { encoding: "utf-8" });
+              execSync(`sudo mv /tmp/${folderName}/frps /usr/bin/nwct-server`, {
+                encoding: "utf-8",
+              });
+              execSync(`sudo chmod +x /usr/bin/nwct-server`, { encoding: "utf-8" });
+              execSync(`rm -rf /tmp/${filename} /tmp/${folderName}`, { encoding: "utf-8" });
+              output += "Binary installed successfully to /usr/bin/nwct-server and temporary files removed.\n";
+            } catch (dlError) {
+              output += `Error during binary download/install: ${dlError instanceof Error ? dlError.message : String(dlError)}\n`;
+              output += "Please install the binary manually to /usr/bin/nwct-server.\n";
+              throw dlError;
+            }
           }
 
           // 3. Create systemd service
           const serviceContent = `[Unit]
-Description=Intranet Penetration Server (FRPS)
+Description=Intranet Penetration Server (NWCT)
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/frps -c ${configPath}
+ExecStart=/usr/bin/nwct-server -c ${configPath}
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
 `;
-          await fs.writeFile("/tmp/frps.service", serviceContent, "utf8");
-          execSync(`sudo mv /tmp/frps.service ${servicePath}`, { encoding: "utf-8" });
+          await fs.writeFile("/tmp/nwct-server.service", serviceContent, "utf8");
+          execSync(`sudo mv /tmp/nwct-server.service ${servicePath}`, { encoding: "utf-8" });
 
           // 4. Reload and start
           execSync("sudo systemctl daemon-reload", { encoding: "utf-8" });
-          execSync("sudo systemctl enable frps", { encoding: "utf-8" });
-          output += execSync("sudo systemctl restart frps", { encoding: "utf-8" });
-          output += "\nFRPS service successfully configured and restarted via systemd.";
+          execSync("sudo systemctl enable nwct-server", { encoding: "utf-8" });
+          output += execSync("sudo systemctl restart nwct-server", { encoding: "utf-8" });
+          output += "\nNWCT service successfully configured and restarted via systemd.";
         } catch (error) {
           return buildToolResult(
-            `FRPS deployment failed. Output: ${output}\nError: ${error instanceof Error ? error.message : String(error)}`,
+            `Deployment failed. Output: ${output}\nError: ${error instanceof Error ? error.message : String(error)}`,
             { status: "error", output },
           );
         }
 
-        return buildToolResult(`FRPS deployment success.\nConfig: ${configPath}\nOutput: ${output}`, {
+        return buildToolResult(`Deployment success.\nConfig: ${configPath}\nOutput: ${output}`, {
           status: "success",
           configPath,
           toml,
@@ -2313,11 +2381,11 @@ WantedBy=multi-user.target
       name: "openclaw_get_frps_status",
       label: "OpenClaw Get FRPS Status",
       description:
-        "Check FRPS server status, including systemd state, listening ports, and active configuration.",
+        "Check server status, including systemd state, listening ports, and active configuration.",
       parameters: Type.Object({}),
       execute: async () => {
         const { execSync } = await import("node:child_process");
-        const configPath = "/etc/frp/frps.toml";
+        const configPath = "/etc/nwct/nwct-server.toml";
 
         let configExists = false;
         let configContent = "";
@@ -2328,14 +2396,14 @@ WantedBy=multi-user.target
 
         let serviceStatus = "Unknown";
         try {
-          serviceStatus = execSync("systemctl is-active frps || true", {
+          serviceStatus = execSync("systemctl is-active nwct-server || true", {
             encoding: "utf-8",
           }).trim();
         } catch {}
 
         let portsInfo = "";
         try {
-          portsInfo = execSync("sudo ss -tulpn | grep frps || true", {
+          portsInfo = execSync("sudo ss -tulpn | grep nwct-server || true", {
             encoding: "utf-8",
           }).trim();
         } catch {}
@@ -2348,6 +2416,177 @@ WantedBy=multi-user.target
           configContent,
           portsInfo,
         });
+      },
+    },
+    {
+      name: "openclaw_deploy_wg_server",
+      label: "OpenClaw Deploy WireGuard Server",
+      description:
+        "Automatically install WireGuard, enable IP forwarding, generate server keys, and configure wg0 with NAT on the VPS host.",
+      parameters: DeployWgServerSchema,
+      execute: async (_toolCallId, rawParams) => {
+        const args = rawParams as any;
+        const { execSync } = await import("node:child_process");
+        const port = args.port || 51820;
+        const tunnelIp = args.tunnelIp || "10.0.0.1/24";
+        let output = "";
+
+        try {
+          // 1. Install WireGuard tools
+          output += "Checking/Installing WireGuard tools...\n";
+          const installCmd = `
+            if ! command -v wg >/dev/null; then
+              if command -v apt-get >/dev/null; then
+                sudo apt-get update && sudo apt-get install -y wireguard
+              elif command -v dnf >/dev/null; then
+                sudo dnf install -y epel-release elrepo-release && sudo dnf install -y kmod-wireguard wireguard-tools
+              elif command -v pacman >/dev/null; then
+                sudo pacman -S --noconfirm wireguard-tools
+              else
+                echo "Unsupported package manager. Please install wireguard-tools manually."
+                exit 1
+              fi
+            fi
+          `;
+          execSync(installCmd, { encoding: "utf-8" });
+
+          // 2. Enable IP forwarding
+          output += "Enabling IPv4 forwarding...\n";
+          execSync("sudo sysctl -w net.ipv4.ip_forward=1", { encoding: "utf-8" });
+          execSync("echo 'net.ipv4.ip_forward = 1' | sudo tee /etc/sysctl.d/99-wireguard.conf", {
+            encoding: "utf-8",
+          });
+
+          // 3. Generate server keys if missing
+          const privKeyPath = "/etc/wireguard/server_private.key";
+          const pubKeyPath = "/etc/wireguard/server_public.key";
+          try {
+            execSync(`sudo ls ${privKeyPath}`, { encoding: "utf-8" });
+            output += "Server keys already exist.\n";
+          } catch {
+            output += "Generating server keys...\n";
+            execSync(`sudo mkdir -p /etc/wireguard && sudo chmod 700 /etc/wireguard`, {
+              encoding: "utf-8",
+            });
+            execSync(`wg genkey | sudo tee ${privKeyPath} | wg pubkey | sudo tee ${pubKeyPath}`, {
+              encoding: "utf-8",
+            });
+            execSync(`sudo chmod 600 ${privKeyPath}`, { encoding: "utf-8" });
+          }
+          const serverPrivKey = execSync(`sudo cat ${privKeyPath}`, { encoding: "utf-8" }).trim();
+          const serverPubKey = execSync(`sudo cat ${pubKeyPath}`, { encoding: "utf-8" }).trim();
+
+          // 4. Detect egress interface
+          const egressIf = execSync("ip route get 1.1.1.1 | awk '{print $5; exit}'", {
+            encoding: "utf-8",
+          }).trim();
+          output += `Egress interface detected: ${egressIf}\n`;
+
+          // 5. Create wg0.conf
+          const confPath = "/etc/wireguard/wg0.conf";
+          const confContent = `[Interface]
+Address = ${tunnelIp}
+ListenPort = ${port}
+PrivateKey = ${serverPrivKey}
+PostUp = iptables -t nat -A POSTROUTING -o ${egressIf} -j MASQUERADE; iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT
+PostDown = iptables -t nat -D POSTROUTING -o ${egressIf} -j MASQUERADE; iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT
+`;
+          await fs.writeFile("/tmp/wg0.conf", confContent, "utf8");
+          execSync(`sudo mv /tmp/wg0.conf ${confPath}`, { encoding: "utf-8" });
+          execSync(`sudo chmod 600 ${confPath}`, { encoding: "utf-8" });
+
+          // 6. Open UDP port (best effort)
+          output += "Attempting to open UDP port in firewall...\n";
+          const fwCmd = `
+            if systemctl is-active --quiet firewalld; then
+              sudo firewall-cmd --permanent --add-port=${port}/udp
+              sudo firewall-cmd --permanent --add-masquerade
+              sudo firewall-cmd --reload
+            elif command -v ufw >/dev/null && sudo ufw status | grep -q "active"; then
+              sudo ufw allow ${port}/udp
+            fi
+          `;
+          try {
+            execSync(fwCmd, { encoding: "utf-8" });
+          } catch {}
+
+          // 7. Start service
+          execSync("sudo systemctl enable wg-quick@wg0", { encoding: "utf-8" });
+          execSync("sudo systemctl restart wg-quick@wg0", { encoding: "utf-8" });
+          output += "WireGuard server successfully deployed and started.\n";
+
+          return buildToolResult(
+            `WireGuard deployment success.\nPublic Key: ${serverPubKey}\nOutput: ${output}`,
+            {
+              status: "success",
+              serverPubKey,
+              port,
+              tunnelIp,
+            },
+          );
+        } catch (error) {
+          return buildToolResult(
+            `WireGuard deployment failed: ${error instanceof Error ? error.message : String(error)}`,
+            {
+              status: "error",
+              output,
+            },
+          );
+        }
+      },
+    },
+    {
+      name: "openclaw_add_wg_peer",
+      label: "OpenClaw Add WireGuard Peer",
+      description: "Add a new peer (router) to the VPS WireGuard server configuration and reload.",
+      parameters: AddWgPeerSchema,
+      execute: async (_toolCallId, rawParams) => {
+        const args = rawParams as any;
+        const { execSync } = await import("node:child_process");
+        const confPath = "/etc/wireguard/wg0.conf";
+
+        try {
+          const peerBlock = `\n[Peer]\nPublicKey = ${args.publicKey}\nAllowedIPs = ${args.allowedIps.join(", ")}\n${args.endpoint ? `Endpoint = ${args.endpoint}\n` : ""}`;
+          execSync(`echo "${peerBlock}" | sudo tee -a ${confPath}`, { encoding: "utf-8" });
+
+          // Reload without downtime
+          execSync(`sudo wg syncconf wg0 <(sudo wg-quick strip wg0)`, {
+            encoding: "utf-8",
+            shell: "/bin/bash",
+          });
+
+          return buildToolResult(`Peer added successfully.\nPublicKey: ${args.publicKey}`, {
+            status: "success",
+          });
+        } catch (error) {
+          return buildToolResult(
+            `Failed to add peer: ${error instanceof Error ? error.message : String(error)}`,
+            { status: "error" },
+          );
+        }
+      },
+    },
+    {
+      name: "openclaw_get_wg_status",
+      label: "OpenClaw Get WireGuard Status",
+      description: "Check WireGuard server runtime status, peers, and forwarding state.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        const { execSync } = await import("node:child_process");
+        try {
+          const wgShow = execSync("sudo wg show", { encoding: "utf-8" });
+          const forwarding = execSync("sysctl net.ipv4.ip_forward", { encoding: "utf-8" }).trim();
+          return buildToolResult(`WireGuard Status:\n${wgShow}\n\n${forwarding}`, {
+            status: "success",
+            wgShow,
+            forwarding,
+          });
+        } catch (error) {
+          return buildToolResult(
+            `Failed to get status: ${error instanceof Error ? error.message : String(error)}`,
+            { status: "error" },
+          );
+        }
       },
     },
     {

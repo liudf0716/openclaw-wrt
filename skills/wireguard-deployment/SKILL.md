@@ -33,61 +33,44 @@ wireguard-deployment/
 └── observability/   # Verification checklist and troubleshooting
 ```
 
-## Read Order
-
-1. `server/README.md` — Install WireGuard on VPS, generate server keys, prepare `wg0.conf`
-2. `routing-engine/README.md` — Apply selective or full-tunnel routing
-3. `policy/README.md` — Security and anti-lockout rules
-4. `observability/README.md` — Verify connectivity and troubleshoot
-
 ## Quick Start (E2E Deployment)
 
-Follow these steps for a complete WireGuard deployment between **OpenClaw VPS host** and **龙虾WiFi routers**.
+### Phase 1: Server Setup (VPS)
+1. **Automated Deployment**: Use `openclaw_deploy_wg_server` to install WireGuard, enable forwarding, and set up the `wg0` interface.
+2. **Collect Public Key**: The tool will return the **Server PublicKey**. You will need this for the router configuration.
 
-### Phase 1: Server Readiness Check (VPS)
-1. **Check Installation**: Verify if the WireGuard package is installed on the VPS host. If not, install it.
-2. **Firewall (CRITICAL)**: **MUST** open the WireGuard UDP listen port (default `51820/udp`) on the VPS host firewall (iptables/ufw) **AND** the cloud provider's security group/firewall. **Failure to do this will cause immediate connection timeout.**
+### Phase 2: Peer Registration (VPS)
+1. **Generate Router Keys**: Use `clawwrt_generate_wireguard_keys` on the target router to get its **PublicKey**.
+2. **Add Peer to Server**: Call `openclaw_add_wg_peer` on the VPS with the router's PublicKey and assigned tunnel IP (e.g., `10.0.0.2/32`).
 
-### Phase 2: Server Peer Configuration (VPS)
-1. Generate server keys.
-2. Use `clawwrt_generate_wireguard_keys` on the router to get its **PublicKey**.
-3. Add the router as a peer in the server's `wg0.conf` with a unique tunnel IP.
-4. If building a **VPN LAN (Site-to-Site)** between multiple routers, repeat this for each router, assigning unique tunnel IPs within the same subnet.
+### Phase 3: Client Configuration (Router)
+1. **Push Config**: Use `clawwrt_set_wireguard_vpn` to configure the router. Use the Server PublicKey, VPS Public IP, and the assigned tunnel IP.
+2. **Set Routes**: Apply routing policies via `clawwrt_set_vpn_routes` or `clawwrt_set_vpn_domain_routes`.
 
-### Phase 3: Client Deployment (Router)
-1. Use `clawwrt_set_wireguard_vpn` to push the client config (private key, server endpoint, tunnel IP) to the router.
-2. Apply routing policies via `clawwrt_set_vpn_routes` or `clawwrt_set_vpn_domain_routes`.
+### Phase 4: Verification
+1. **Check Status**: Use `clawwrt_get_wireguard_vpn_status` and `openclaw_get_wg_status` to confirm the tunnel is up.
+2. **Ping Test**: Attempt bidirectional pings between the VPS tunnel IP and router tunnel IP.
 
-### Phase 4: Verification & Ping Test
-1. Use `clawwrt_get_wireguard_vpn_status` to confirm the tunnel is up and handshakes are happening.
-2. **Ping Test**: Attempt to ping the VPS `wg0` IP from the router, and vice versa, to confirm bidirectional communication.
-
-### Phase 5: Multi-Node LAN Routing
-1. To enable users behind different 龙虾WiFi routers to communicate with each other, you **MUST** ensure:
-   - **AllowedIPs** on the server include the LAN subnets of the routers.
-   - **Static Routes** are injected on each router or the server to point to the respective remote LANs.
-   - Remind the user to verify these routing rules for inter-node connectivity.
-
-> **⚠️ CRITICAL SAFETY RULE**: Never use `full_tunnel` mode without first adding the VPS public IP and any control-plane endpoint that must stay reachable to `excludeIps`.
+> **⚠️ CRITICAL SAFETY RULE**: Never use `full_tunnel` mode without first adding the VPS public IP to `excludeIps`.
 
 ## API Tools Reference
 
 | Tool | Purpose |
 |------|---------|
-| `clawwrt_generate_wireguard_keys` | Generate keypair on router, private key stays on device |
-| `clawwrt_get_wireguard_vpn` | Read current WireGuard configuration |
-| `clawwrt_set_wireguard_vpn` | Write WireGuard config and bring up tunnel |
-| `clawwrt_get_wireguard_vpn_status` | Runtime status (router handshake + server NAT check) |
-| `clawwrt_get_vpn_routes` | List active VPN routes |
-| `clawwrt_set_vpn_domain_routes` | Resolve domains to IPv4 and add `ip/32` routes on `wg0` |
-| `clawwrt_set_vpn_routes` | Add selective or full-tunnel routes |
-| `clawwrt_delete_vpn_routes` | Remove VPN routes |
+| `openclaw_deploy_wg_server` | Install WG, enable forwarding, and setup wg0 on VPS |
+| `openclaw_add_wg_peer` | Register a router peer on the VPS server |
+| `openclaw_get_wg_status` | Check server-side tunnel and peer status |
+| `clawwrt_generate_wireguard_keys` | Generate keypair on router (client side) |
+| `clawwrt_set_wireguard_vpn` | Push client config to router |
+| `clawwrt_get_wireguard_vpn_status` | Check router-side tunnel status |
+| `clawwrt_set_vpn_domain_routes` | Add domain-based routes on router |
+| `clawwrt_set_vpn_routes` | Add CIDR-based routes on router |
 
 ## 使用示例 (Suggested Prompts)
 
-- **单机直连**: "帮我把这台龙虾WiFi 和我的 VPS 连起来。首先检查 VPS 下有没有安装 WireGuard，没有就装一下，记得开防火墙。然后生成密钥把连通性配好，最后互 ping 测试一下。"
-- **多点组网 (Site-to-Site)**: "我要在三个办公室的路由器之间建立 VPN 局域网。VPS 作为中心节点，各个办公室连上来。请确保它们之间的子网能够互访，并帮我下发准确的静态路由。"
-- **域名分流**: "配置好 WireGuard 后，帮我设置一下域名路由：让访问 google.com 和 telegram.org 的流量走 VPN，其他的流量走本地网络。"
+- **快速部署**: "帮我把这台龙虾WiFi 和 VPS 连起来。先在 VPS 上初始化 WG 服务端，然后生成路由器的密钥并完成对接，最后测试互 ping。"
+- **添加节点**: "再帮我添加一台 102 房间的路由器到现有的 VPN 组网中，分配 IP 10.0.0.3。"
+- **分流设置**: "配置好 VPN 后，让 google.com 的流量走隧道，其他的走本地。"
 - **状态监控**: "帮我查一下现在的 VPN 状态，看看握手时间正常吗？顺便检查一下服务器侧的 NAT 转发和 IP 转发开了没。"
 
 ### 复杂方案提示词 (Complex Deployment Template)
