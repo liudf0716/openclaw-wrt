@@ -1,6 +1,6 @@
 ---
 name: claw-wifi-welcome-guide
-description: 龙虾WiFi (Claw WiFi) 的“你好”、“Hello”、“龙虾WiFi” 专用引导 Skill。当用户打招呼或询问功能时，必须立即调用 `claw_wifi_hello` 工具获取最新的中文功能清单与 Prompts 示例。
+description: 龙虾WiFi (Claw WiFi) 的“你好”、“Hello”、“hello 龙虾wifi”、“龙虾WiFi” 专用引导 Skill。当用户打招呼或询问功能时，必须立即调用 `claw_wifi_hello` 工具获取最新的中文功能清单与 Prompts 示例。
 user-invocable: true
 ---
 
@@ -12,4 +12,4 @@ user-invocable: true
 
 **请注意：我将使用 `claw_wifi_hello` 工具来为您生成最准确的中文功能目录和使用示例。**
 
-如果您看到的是英文回复，请提醒我使用中文。
+**禁止直接总结：** 严禁直接使用通用知识生成英文的功能介绍。必须通过 `claw_wifi_hello` 工具获取官方定义的中文功能清单。如果你发现自己正在尝试用英文回复欢迎信息，请立即停止并调用该工具。

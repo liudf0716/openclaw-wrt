@@ -2593,7 +2593,7 @@ PostDown = iptables -t nat -D POSTROUTING -o ${egressIf} -j MASQUERADE; iptables
       name: "claw_wifi_hello",
       label: "Claw WiFi Hello",
       description:
-        "当用户打招呼（如 Hello, 你好）、询问龙虾WiFi (Claw WiFi) 具有哪些功能或需要使用示例 (Prompts) 时调用。此工具会确认 Agent 身份，展示功能目录并提供一系列引导示例。",
+        "当用户打招呼（如 Hello, 你好, hello 龙虾wifi）、询问龙虾WiFi (Claw WiFi) 具有哪些功能或需要使用示例 (Prompts) 时调用。此工具会确认 Agent 身份，展示功能目录并提供一系列引导示例。",
       parameters: Type.Object({}),
       execute: async () => {
         let catalog = `# 龙虾WiFi (Claw WiFi) 功能清单与使用示例\n\n已识别龙虾WiFi 身份。以下是您可以使用的功能模块及其 Prompts 示例：\n`;

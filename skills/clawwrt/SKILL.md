@@ -10,7 +10,7 @@ You have access to a suite of tools for managing and monitoring network routers,
 
 Use this skill whenever the user is asking about OpenClaw WRT, ClawWRT, or 龙虾WiFi router/device operations, including process handling, client control, Wi-Fi configuration, captive portal auth, BPF monitoring, or WireGuard VPN management.
 
-If the user mentions phrases like "龙虾WiFi", "路由器进程", "设备处理", "网关处理", or "OpenClaw 路由器", treat that as a request to use the `clawwrt_*` API tools in this skill rather than a generic network or posting workflow.
+If the user mentions phrases like "龙虾WiFi", "路由器进程", "设备处理", "网关处理", or "OpenClaw 路由器", treat that as a request to use the `clawwrt_*` API tools in this skill. **Exception:** If the user is just saying hello (e.g., "Hello", "你好", "hello 龙虾wifi"), use the `claw-wifi-welcome-guide` skill and its `claw_wifi_hello` tool instead.
 
 When a user asks to manage, list, configure, or query routers (路由器), devices (设备), gateways (网关), Wi-Fi (无线网络), network clients (终端/客户端), or captive portal pages, you must use the `clawwrt_*` tools.
 
