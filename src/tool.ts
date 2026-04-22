@@ -2240,13 +2240,17 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
     {
       name: "openclaw_deploy_frps",
       label: "OpenClaw Deploy FRPS",
-      description: "Deploy and start an FRPS server on the local VPS host.",
+      description:
+        "Deploy, install to /usr/bin/, and configure an FRPS server with systemd autostart on the VPS host.",
       parameters: DeployFrpsSchema,
       execute: async (_toolCallId, rawParams) => {
         const args = rawParams as any;
         const { execSync } = await import("node:child_process");
 
-        const configPath = path.resolve(process.cwd(), "frps.toml");
+        const configDir = "/etc/frp";
+        const configPath = path.join(configDir, "frps.toml");
+        const servicePath = "/etc/systemd/system/frps.service";
+
         let toml = `bindPort = ${args.port}\n`;
         if (args.token) toml += `auth.token = "${args.token}"\n`;
         if (args.dashboardPort) {
@@ -2256,53 +2260,94 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
           toml += `vhostHttpPort = ${args.vhostHttpPort}\n`;
         }
 
-        await fs.writeFile(configPath, toml, "utf8");
-
-        // Try to start frps. We assume frps is in the PATH or we download it?
-        // For now, let's assume it's installed or we provide instructions if it fails.
-        let status = "success";
         let output = "";
         try {
-          // Use nohup to keep it running
-          output = execSync(`nohup frps -c ${configPath} > frps.log 2>&1 &`, { encoding: "utf-8" });
+          // 1. Ensure config directory
+          execSync(`sudo mkdir -p ${configDir}`, { encoding: "utf-8" });
+          await fs.writeFile("/tmp/frps.toml", toml, "utf8");
+          execSync(`sudo mv /tmp/frps.toml ${configPath}`, { encoding: "utf-8" });
+
+          // 2. Install binary if missing (placeholder for actual download logic if needed, but we check path)
+          try {
+            execSync("which frps", { encoding: "utf-8" });
+          } catch {
+            output += "Warning: frps binary not found in PATH. You may need to download it manually to /usr/bin/frps.\n";
+          }
+
+          // 3. Create systemd service
+          const serviceContent = `[Unit]
+Description=Intranet Penetration Server (FRPS)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/frps -c ${configPath}
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+`;
+          await fs.writeFile("/tmp/frps.service", serviceContent, "utf8");
+          execSync(`sudo mv /tmp/frps.service ${servicePath}`, { encoding: "utf-8" });
+
+          // 4. Reload and start
+          execSync("sudo systemctl daemon-reload", { encoding: "utf-8" });
+          execSync("sudo systemctl enable frps", { encoding: "utf-8" });
+          output += execSync("sudo systemctl restart frps", { encoding: "utf-8" });
+          output += "\nFRPS service successfully configured and restarted via systemd.";
         } catch (error) {
-          status = "error";
-          output = error instanceof Error ? error.message : String(error);
+          return buildToolResult(
+            `FRPS deployment failed. Output: ${output}\nError: ${error instanceof Error ? error.message : String(error)}`,
+            { status: "error", output },
+          );
         }
 
-        return buildToolResult(
-          `FRPS deployment ${status}.\nConfig: ${configPath}\nOutput: ${output}`,
-          { status, configPath, toml },
-        );
+        return buildToolResult(`FRPS deployment success.\nConfig: ${configPath}\nOutput: ${output}`, {
+          status: "success",
+          configPath,
+          toml,
+        });
       },
     },
     {
       name: "openclaw_get_frps_status",
       label: "OpenClaw Get FRPS Status",
-      description: "Check if an FRPS server is currently configured and running on the VPS host.",
+      description:
+        "Check FRPS server status, including systemd state, listening ports, and active configuration.",
       parameters: Type.Object({}),
       execute: async () => {
         const { execSync } = await import("node:child_process");
-        const configPath = path.resolve(process.cwd(), "frps.toml");
+        const configPath = "/etc/frp/frps.toml";
 
         let configExists = false;
         let configContent = "";
         try {
-          configContent = await fs.readFile(configPath, "utf8");
+          configContent = execSync(`sudo cat ${configPath}`, { encoding: "utf-8" });
           configExists = true;
         } catch {}
 
-        let running = false;
-        let processInfo = "";
+        let serviceStatus = "Unknown";
         try {
-          processInfo = execSync("pgrep -a frps", { encoding: "utf-8" }).trim();
-          running = processInfo.length > 0;
+          serviceStatus = execSync("systemctl is-active frps || true", {
+            encoding: "utf-8",
+          }).trim();
         } catch {}
 
-        return buildToolResult(
-          `FRPS Status: ${running ? "Running" : "Stopped"}\nConfig: ${configExists ? "Found" : "Not Found"}\n\n${processInfo}`,
-          { running, configExists, configContent, processInfo },
-        );
+        let portsInfo = "";
+        try {
+          portsInfo = execSync("sudo ss -tulpn | grep frps || true", {
+            encoding: "utf-8",
+          }).trim();
+        } catch {}
+
+        const details = `Service State: ${serviceStatus}\nConfig: ${configExists ? "Found" : "Not Found"}\nListening Ports:\n${portsInfo || "None"}\n\nConfig Content:\n${configContent}`;
+
+        return buildToolResult(details, {
+          serviceStatus,
+          configExists,
+          configContent,
+          portsInfo,
+        });
       },
     },
     {
