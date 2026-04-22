@@ -540,6 +540,8 @@ const DeployFrpsSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const ResetFrpsSchema = Type.Object({}, { additionalProperties: false });
+
 const SetVpnRoutesSchema = Type.Object(
   {
     deviceId: DeviceIdField,
@@ -2404,6 +2406,33 @@ WantedBy=multi-user.target
           configContent,
           portsInfo,
         });
+      },
+    },
+    {
+      name: "openclaw_reset_frps",
+      label: "OpenClaw Reset FRPS",
+      description: "Stop and disable nwct-server, remove its binary, config directory, and systemd service file from the VPS.",
+      parameters: ResetFrpsSchema,
+      execute: async () => {
+        const { execSync } = await import("node:child_process");
+        let output = "";
+        try {
+          execSync("sudo systemctl stop nwct-server || true", { encoding: "utf-8" });
+          execSync("sudo systemctl disable nwct-server || true", { encoding: "utf-8" });
+          output += "Stopped and disabled systemd service.\\n";
+          
+          execSync("sudo rm -f /etc/systemd/system/nwct-server.service", { encoding: "utf-8" });
+          execSync("sudo systemctl daemon-reload", { encoding: "utf-8" });
+          output += "Removed systemd service file.\\n";
+
+          execSync("sudo rm -f /usr/bin/nwct-server", { encoding: "utf-8" });
+          execSync("sudo rm -rf /etc/nwct", { encoding: "utf-8" });
+          output += "Removed binary and configuration directory.\\n";
+          
+          return buildToolResult(output + "FRPS has been successfully reset.", { status: "success" });
+        } catch (error) {
+          return buildToolResult(`Reset failed. Output: ${output}\\nError: ${error instanceof Error ? error.message : String(error)}`, { status: "error" });
+        }
       },
     },
     {
