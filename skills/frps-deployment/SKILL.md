@@ -49,9 +49,5 @@ user-invocable: true
 | `clawwrt_set_xfrpc_common` | 配置客户端连接。 |
 | `clawwrt_add_xfrpc_tcp_service` | 添加端口映射服务。 |
 
-## 使用示例 (Suggested Prompts)
-
-- **自动部署**: "我的 VPS 还没装内网穿透服务端，请帮我下载最新版并以 nwct-server 名义安装到 /usr/bin/，配置好 systemd 自启动。然后把 101 房间路由器的 SSH 映射到 6022 端口，并确认端口是否已经在 VPS 上监听了。"
-- **状态自检**: "检查一下现在的内网穿透服务（nwct-server）是否正常？包括服务端进程、客户端连接，以及公网端口是否已经开启监听。"
 
 > **⚠️ 防火墙提醒**: 务必引导用户开启 VPS 的相应 UDP/TCP 端口防火墙。

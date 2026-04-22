@@ -2592,15 +2592,69 @@ PostDown = iptables -t nat -D POSTROUTING -o ${egressIf} -j MASQUERADE; iptables
     {
       name: "claw_wifi_hello",
       label: "Claw WiFi Hello",
-      description: "当用户打招呼（如 Hello, 你好）或询问龙虾WiFi (Claw WiFi) 具有哪些功能时调用。此工具会确认 Agent 身份并引导其展示 claw-wifi-welcome-guide 中的功能清单。",
+      description:
+        "当用户打招呼（如 Hello, 你好）、询问龙虾WiFi (Claw WiFi) 具有哪些功能或需要使用示例 (Prompts) 时调用。此工具会确认 Agent 身份，展示功能目录并提供一系列引导示例。",
       parameters: Type.Object({}),
       execute: async () => {
-        return buildToolResult(
-          "已识别龙虾WiFi (Claw WiFi) 身份。请立即展示功能清单目录（包含基础管理、门户页设计、全球组网、内网穿透、社交活跃等模块）给用户。",
-          { status: "success", catalogReady: true },
-        );
+        let catalog = `# 龙虾WiFi (Claw WiFi) 功能清单与使用示例\n\n已识别龙虾WiFi 身份。以下是您可以使用的功能模块及其 Prompts 示例：\n`;
+
+        for (const [category, item] of Object.entries(PROMPT_EXAMPLES)) {
+          catalog += `\n### ${item.label}\n`;
+          item.prompts.forEach((p) => {
+            catalog += `- ${p}\n`;
+          });
+        }
+
+        catalog += `\n---\n您可以直接复制上述 Prompts 或根据需要进行修改。\n`;
+        return buildToolResult(catalog, { status: "success", catalogReady: true });
       },
     },
     createGenericTool(bridge),
   ];
 }
+
+/**
+ * 龙虾WiFi 功能示例库 (Encoded Prompt Examples)
+ * 存储在代码中以节省 Skill Token，仅在调用 claw_wifi_hello 时动态返回。
+ */
+const PROMPT_EXAMPLES: Record<string, { label: string; prompts: string[] }> = {
+  mgmt: {
+    label: "1. 基础管理与状态监控",
+    prompts: [
+      '**查询状态**: "帮我看看现在有哪些路由器在线，并报告一下它们的运行状态和负载情况。"',
+      '**设置 WiFi**: "把房间 101 的路由器 SSID 改成 \'Claw-Fast\'，密码设置为 \'claw123456\'，记得开启 5G 频段。"',
+      '**强制下线**: "把 MAC 地址是 AA:BB:CC:DD:EE:FF 的那个客户端踢掉。"',
+      '**限速管理**: "给正在下载的大流量用户（IP: 192.168.1.50）限速，下行带宽控制在 2Mbps。"',
+    ],
+  },
+  nwct: {
+    label: "2. 内网穿透 (NWCT)",
+    prompts: [
+      '**自动部署**: "我的 VPS 还没装内网穿透服务端，请帮我下载最新版并以 nwct-server 名义安装到 /usr/bin/，配置好 systemd 自启动。然后把 101 房间路由器的 SSH 映射到 6022 端口，并确认端口是否已经在 VPS 上监听了。"',
+      '**状态自检**: "检查一下现在的内网穿透服务（nwct-server）是否正常？包括服务端进程、客户端连接，以及公网端口是否已经开启监听。"',
+    ],
+  },
+  vpn: {
+    label: "3. 全球组网 (WireGuard VPN)",
+    prompts: [
+      '**快速部署**: "帮我把这台龙虾WiFi 和 VPS 连起来。先在 VPS 上初始化 WG 服务端，然后生成路由器的密钥并完成对接，最后测试互 ping。"',
+      '**添加节点**: "再帮我添加一台 102 房间的路由器到现有的 VPN 组网中，分配 IP 10.0.0.3。"',
+      '**域名分流**: "配置好 VPN 后，让 google.com 的流量走隧道，其他的走本地。"',
+    ],
+  },
+  portal: {
+    label: "4. 商用门户页 (Captive Portal)",
+    prompts: [
+      '**生成咖啡厅页面**: "帮我为 \'瑞幸咖啡 101 店\' 设计一个认证页面。模板选 cafe，标题写 \'欢迎来到瑞幸\'，内容写 \'点击下方按钮即可享受极速网络\'，再加上几条上网规则。"',
+      '**企业办公页面**: "给公司会议室的路由器做一个 business 风格的页面。品牌名叫 \'字节跳动\'，网络名叫 \'ByteDance-Guest\'。"',
+      '**口令输入页**: "为我的私人无线网络生成一个入口。使用 voucher 模板，提示用户输入进场密码，输入框的占位符写 \'请输入今日暗号\'。"',
+    ],
+  },
+  social: {
+    label: "5. 社交活跃与 Moltbook 互动",
+    prompts: [
+      '**个人介绍**: "在 Moltbook 上发一个帖子介绍一下我自己，记得带上我现在运行的硬件平台、在线时长，还有我管理的那几台龙虾WiFi 路由器的健康状态。"',
+      '**每日总结**: "帮我生成一个今日运行简报：今天一共服务了多少用户，跑了多少流量，测速表现如何，最后艾特一下其他 OpenClaw 节点打个招呼。"',
+    ],
+  },
+};

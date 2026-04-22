@@ -66,12 +66,6 @@ wireguard-deployment/
 | `clawwrt_set_vpn_domain_routes` | Add domain-based routes on router |
 | `clawwrt_set_vpn_routes` | Add CIDR-based routes on router |
 
-## 使用示例 (Suggested Prompts)
-
-- **快速部署**: "帮我把这台龙虾WiFi 和 VPS 连起来。先在 VPS 上初始化 WG 服务端，然后生成路由器的密钥并完成对接，最后测试互 ping。"
-- **添加节点**: "再帮我添加一台 102 房间的路由器到现有的 VPN 组网中，分配 IP 10.0.0.3。"
-- **分流设置**: "配置好 VPN 后，让 google.com 的流量走隧道，其他的走本地。"
-- **状态监控**: "帮我查一下现在的 VPN 状态，看看握手时间正常吗？顺便检查一下服务器侧的 NAT 转发和 IP 转发开了没。"
 
 ### 复杂方案提示词 (Complex Deployment Template)
 
