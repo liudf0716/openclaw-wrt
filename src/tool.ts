@@ -536,12 +536,6 @@ const DeployFrpsSchema = Type.Object(
   {
     port: Type.Integer({ minimum: 1, maximum: 65535, description: "FRPS listen port." }),
     token: Type.Optional(Type.String({ description: "Authentication token." })),
-    dashboardPort: Type.Optional(
-      Type.Integer({ minimum: 1, maximum: 65535, description: "FRPS dashboard port." }),
-    ),
-    vhostHttpPort: Type.Optional(
-      Type.Integer({ minimum: 1, maximum: 65535, description: "FRPS vhost HTTP port." }),
-    ),
   },
   { additionalProperties: false },
 );
@@ -2283,12 +2277,6 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
 
         let toml = `bindPort = ${args.port}\n`;
         if (args.token) toml += `auth.token = "${args.token}"\n`;
-        if (args.dashboardPort) {
-          toml += `dashboardAddr = "0.0.0.0"\ndashboardPort = ${args.dashboardPort}\n`;
-        }
-        if (args.vhostHttpPort) {
-          toml += `vhostHttpPort = ${args.vhostHttpPort}\n`;
-        }
 
         let output = "";
         try {
