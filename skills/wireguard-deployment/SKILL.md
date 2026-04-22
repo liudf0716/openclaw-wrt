@@ -23,16 +23,6 @@ This skill is server-side only. If you need a router/client WireGuard tunnel, us
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Module Structure
-
-```text
-wireguard-deployment/
-├── server/          # VPS-side WireGuard installation, peers, NAT, and forwarding
-├── routing-engine/  # Selective / full-tunnel / domain-based routing
-├── policy/          # Security, anti-lockout, and operational rules
-└── observability/   # Verification checklist and troubleshooting
-```
-
 ## Quick Start (E2E Deployment)
 
 ### Phase 1: Server Setup (VPS)
@@ -45,13 +35,19 @@ wireguard-deployment/
 
 ### Phase 3: Client Configuration (Router)
 1. **Push Config**: Use `clawwrt_set_wireguard_vpn` to configure the router. Use the Server PublicKey, VPS Public IP, and the assigned tunnel IP.
+   - **CRITICAL**: Never set `route_allowed_ips: 1` with `allowed_ips: 0.0.0.0/0`. Always set `route_allowed_ips: 0` and manage routes explicitly via `clawwrt_set_vpn_routes`.
 2. **Set Routes**: Apply routing policies via `clawwrt_set_vpn_routes` or `clawwrt_set_vpn_domain_routes`.
 
 ### Phase 4: Verification
-1. **Check Status**: Use `clawwrt_get_wireguard_vpn_status` and `openclaw_get_wg_status` to confirm the tunnel is up.
+1. **Check Status**: Use `clawwrt_get_wireguard_vpn_status` and `openclaw_get_wg_status` to confirm the tunnel is up. (Expected: Handshake within last 2 minutes, RX/TX bytes increasing).
 2. **Ping Test**: Attempt bidirectional pings between the VPS tunnel IP and router tunnel IP.
 
-> **⚠️ CRITICAL SAFETY RULE**: Never use `full_tunnel` mode without first adding the VPS public IP to `excludeIps`.
+## ⚠️ Anti-Lockout Rules (MANDATORY)
+
+These rules **must** be followed to prevent loss of connectivity to the router agent:
+1. **Always start with `selective` mode.** Route only specific IPs/CIDRs first.
+2. **Never use `full_tunnel` mode without first adding the VPS public IP to `excludeIps`.** This prevents a routing loop that breaks the WebSocket.
+3. **Emergency Recovery**: If locked out by `full_tunnel`, you can reboot the router (VPN routes are kernel-only and won't persist) or run `clawwrt_delete_vpn_routes` with `flush_all: true` once reconnected.
 
 ## API Tools Reference
 
@@ -66,26 +62,3 @@ wireguard-deployment/
 | `clawwrt_set_vpn_domain_routes` | Add domain-based routes on router |
 | `clawwrt_set_vpn_routes` | Add CIDR-based routes on router |
 
-
-### 复杂方案提示词 (Complex Deployment Template)
-
-如果您需要 Agent 处理完整的双向 VPN 方案，建议使用以下固定格式：
-
-```text
-请把这次 WG VPN 方案拆成两部分：
-1. OpenClaw VPS/云主机侧的 WireGuard 服务器、中转、peer、防火墙（必须开启 UDP 端口）、NAT 和转发。
-2. 龙虾WiFi 路由器侧的客户端配置、认证和路由设置，统一使用相关的 clawwrt_* 工具。
-
-要求：
-- 首先检查 VPS 侧是否安装服务端，未安装则先安装并开启对应的防火墙端口。
-- 然后执行路由器侧的 key 生成和配置下发。
-- 部署完成后，通过两端互 ping wg0 接口 IP 来验证隧道是否连通。
-- 如果是多个龙虾WiFi 组网，请确保服务器端的 AllowedIPs 包含各子网，并提醒用户下发准确的静态路由以实现跨节点互通。
-- 默认使用 selective 模式；full_tunnel 必须带 excludeIps。
-
-请输出：
-- VPS 侧和路由器侧的详细执行步骤
-- 互 ping 验证结果预期
-- 跨节点互通的路由规则说明
-- 风险点和回滚方式
-```
