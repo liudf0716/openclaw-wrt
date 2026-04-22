@@ -26,6 +26,8 @@ user-invocable: true
 
 1.  **连接设置**：
     - 调用 `clawwrt_set_xfrpc_common` 配置路由器的连接参数。
+    - **强规则**：配置 `server_addr` 时，必须要求用户明确提供 VPS 的公网 IP 地址或域名，绝对不能自行猜测或获取本地 IP 填充。
+    - **强规则**：配置 `token` 时，需提示用户提供；如果用户未提供，请自行生成一个随机字符串作为 token。
 2.  **服务添加**：
     - 使用 `clawwrt_add_xfrpc_tcp_service` 创建所需的映射（例如 SSH 22 -> 远程 6000）。
 3.  **运行检查**：
