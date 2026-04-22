@@ -509,9 +509,9 @@ const SetXfrpcCommonSchema = Type.Object(
     deviceId: DeviceIdField,
     enabled: Type.Optional(Type.String({ description: "'0' or '1'." })),
     loglevel: Type.Optional(Type.String({ description: "Log level, e.g., '7'." })),
-    server_addr: Type.Optional(Type.String({ description: "FRPS server address." })),
+    server_addr: Type.Optional(Type.String({ description: "FRPS server public IP or domain. MUST be explicitly provided by the user. Do not guess or use local IP." })),
     server_port: Type.Optional(Type.String({ description: "FRPS server port." })),
-    token: Type.Optional(Type.String({ description: "Authentication token." })),
+    token: Type.Optional(Type.String({ description: "Authentication token. Ask user, or generate a random string if not provided." })),
     timeoutMs: TimeoutField,
   },
   { additionalProperties: false },
@@ -535,7 +535,7 @@ const AddXfrpcTcpServiceSchema = Type.Object(
 const DeployFrpsSchema = Type.Object(
   {
     port: Type.Integer({ minimum: 1, maximum: 65535, description: "FRPS listen port." }),
-    token: Type.Optional(Type.String({ description: "Authentication token." })),
+    token: Type.Optional(Type.String({ description: "Authentication token. Ask user, or generate a random string if not provided." })),
   },
   { additionalProperties: false },
 );
