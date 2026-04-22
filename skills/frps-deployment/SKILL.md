@@ -39,15 +39,5 @@ user-invocable: true
 2.  **连通性测试**：
     - 尝试通过 `VPS_IP:远程端口` 进行连接测试（如 `ssh -p 6000 user@VPS_IP`）。
 
-## 工具参考
-
-| 工具 | 用途 |
-|------|---------|
-| `openclaw_deploy_frps` | 在 VPS 上自动获取最新版核心、以 `nwct-server` 名义安装并启动（支持 systemd）。 |
-| `openclaw_get_frps_status` | 检查 `nwct-server` 运行状态、配置文件及监听端口。 |
-| `clawwrt_get_xfrpc_config` | 读取并检查路由器侧的客户端运行状态。 |
-| `clawwrt_set_xfrpc_common` | 配置客户端连接。 |
-| `clawwrt_add_xfrpc_tcp_service` | 添加端口映射服务。 |
-
 
 > **⚠️ 防火墙提醒**: 务必引导用户开启 VPS 的相应 UDP/TCP 端口防火墙。

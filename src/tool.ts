@@ -146,7 +146,7 @@ const SetAuthServerSchema = Type.Object(
 const PortalTemplateField = stringEnum(
   PORTAL_TEMPLATE_VALUES,
   {
-    description: "Portal page template to render when html is not provided.",
+    description: "Portal page template. default:通用弹出页, welcome:品牌承接/品宣, business:企业/办公网络, cafe:餐饮场景, hotel:酒店宾客, terms:条款确认, voucher:券码口令输入, event:活动推广页. 不明确时默认用 default.",
   },
 );
 

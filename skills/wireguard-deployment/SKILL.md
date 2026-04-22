@@ -49,16 +49,3 @@ These rules **must** be followed to prevent loss of connectivity to the router a
 2. **Never use `full_tunnel` mode without first adding the VPS public IP to `excludeIps`.** This prevents a routing loop that breaks the WebSocket.
 3. **Emergency Recovery**: If locked out by `full_tunnel`, you can reboot the router (VPN routes are kernel-only and won't persist) or run `clawwrt_delete_vpn_routes` with `flush_all: true` once reconnected.
 
-## API Tools Reference
-
-| Tool | Purpose |
-|------|---------|
-| `openclaw_deploy_wg_server` | Install WG, enable forwarding, and setup wg0 on VPS |
-| `openclaw_add_wg_peer` | Register a router peer on the VPS server |
-| `openclaw_get_wg_status` | Check server-side tunnel and peer status |
-| `clawwrt_generate_wireguard_keys` | Generate keypair on router (client side) |
-| `clawwrt_set_wireguard_vpn` | Push client config to router |
-| `clawwrt_get_wireguard_vpn_status` | Check router-side tunnel status |
-| `clawwrt_set_vpn_domain_routes` | Add domain-based routes on router |
-| `clawwrt_set_vpn_routes` | Add CIDR-based routes on router |
-
