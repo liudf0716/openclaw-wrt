@@ -112,7 +112,7 @@ export function resolveClawWRTConfig(input: unknown): ResolvedClawWRTConfig {
     maxPayloadBytes:
       readIntegerInRange(parsed?.maxPayloadBytes, 1024, 1_048_576) ?? DEFAULT_MAX_PAYLOAD_BYTES,
     token: parsed?.token === "" ? undefined : (readNonEmptyString(parsed?.token) || DEFAULT_TOKEN),
-    aliasFile: readNonEmptyString(parsed?.aliasFile) || "device-aliases.json",
+    aliasFile: readNonEmptyString(parsed?.aliasFile) || ".openclaw/wificlaw/device-aliases.json",
     awas: {
       enabled: readBoolean(parsed?.awasEnabled) === true,
       host: readNonEmptyString(parsed?.awasHost) || DEFAULT_AWAS_HOST,

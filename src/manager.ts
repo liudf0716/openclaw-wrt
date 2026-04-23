@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 import http from "node:http";
 import https from "node:https";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
@@ -792,6 +793,7 @@ export class ClawWRTBridge {
       for (const [deviceId, alias] of this.deviceAliases.entries()) {
         json[deviceId] = alias;
       }
+      fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, JSON.stringify(json, null, 2), "utf8");
     } catch (error) {
       this.logger.warn(`openclaw-wrt: failed to save device aliases: ${String(error)}`);
