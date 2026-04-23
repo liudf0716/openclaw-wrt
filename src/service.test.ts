@@ -66,7 +66,8 @@ describe("ClawWRTBridge", () => {
     await once(ws, "open");
     ws.send(
       JSON.stringify({
-        op: "connect", token: "clawwrt",
+        op: "connect",
+        token: "clawwrt",
         device_id: "dev-1",
         device_info: { ap_device_id: "ap-1" },
         gateway: [{ gw_id: "gw-1" }],
@@ -130,7 +131,7 @@ describe("ClawWRTBridge", () => {
     await once(ws, "open");
     ws.send(
       JSON.stringify({
-        op: "connect", token: "clawwrt",
+        op: "connect",
         device_id: "dev-redact",
         token: "secret-token",
         command: "sensitive-command",
@@ -186,7 +187,8 @@ describe("ClawWRTBridge", () => {
     await once(ws, "open");
     ws.send(
       JSON.stringify({
-        op: "connect", token: "clawwrt",
+        op: "connect",
+        token: "clawwrt",
         device_id: "dev-non-cloud",
         mode: 1,
         gateway: [],
@@ -218,7 +220,9 @@ describe("ClawWRTBridge", () => {
 
     const wsBeforeRestart = new WebSocket("ws://127.0.0.1:19215/ws/clawwrt");
     await once(wsBeforeRestart, "open");
-    wsBeforeRestart.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-before", gateway: [] }));
+    wsBeforeRestart.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-before", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(bridge.getDevice("dev-before")?.deviceId).toBe("dev-before");
 
@@ -234,7 +238,9 @@ describe("ClawWRTBridge", () => {
 
     const wsAfterRestart = new WebSocket("ws://127.0.0.1:19215/ws/clawwrt");
     await once(wsAfterRestart, "open");
-    wsAfterRestart.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-after", gateway: [] }));
+    wsAfterRestart.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-after", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(bridge.getDevice("dev-after")?.deviceId).toBe("dev-after");
@@ -285,7 +291,14 @@ describe("ClawWRTBridge", () => {
 
     const ws = new WebSocket("ws://127.0.0.1:19216/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-malformed-path", gateway: [] }));
+    ws.send(
+      JSON.stringify({
+        op: "connect",
+        token: "clawwrt",
+        device_id: "dev-malformed-path",
+        gateway: [],
+      }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(bridge.getDevice("dev-malformed-path")?.deviceId).toBe("dev-malformed-path");
 
@@ -357,7 +370,9 @@ describe("ClawWRTBridge", () => {
 
     const ws = new WebSocket("ws://127.0.0.1:19218/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-nested", gateway: [] }));
+    ws.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-nested", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const responsePromise = bridge.callDevice({
@@ -408,7 +423,9 @@ describe("ClawWRTBridge", () => {
 
     const ws = new WebSocket("ws://127.0.0.1:19213/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-skip", gateway: [] }));
+    ws.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-skip", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const responsePromise = bridge.callDevice({
@@ -450,7 +467,9 @@ describe("ClawWRTBridge", () => {
 
     const ws = new WebSocket("ws://127.0.0.1:19212/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-alias", gateway: [] }));
+    ws.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-alias", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(bridge.listDevices()[0]?.alias).toBe("Router-1");
@@ -483,12 +502,16 @@ describe("ClawWRTBridge", () => {
 
     const wsRealId = new WebSocket("ws://127.0.0.1:19217/ws/clawwrt");
     await once(wsRealId, "open");
-    wsRealId.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "Router-1", gateway: [] }));
+    wsRealId.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "Router-1", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const wsAlias = new WebSocket("ws://127.0.0.1:19217/ws/clawwrt");
     await once(wsAlias, "open");
-    wsAlias.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-alias-safe", gateway: [] }));
+    wsAlias.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-alias-safe", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(bridge.getDevice("Router-1")?.deviceId).toBe("Router-1");
@@ -519,13 +542,17 @@ describe("ClawWRTBridge", () => {
 
     const wsAlias = new WebSocket("ws://127.0.0.1:19218/ws/clawwrt");
     await once(wsAlias, "open");
-    wsAlias.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-first", gateway: [] }));
+    wsAlias.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-first", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(bridge.getDevice("Router-1")?.deviceId).toBe("dev-first");
 
     const wsRealId = new WebSocket("ws://127.0.0.1:19218/ws/clawwrt");
     await once(wsRealId, "open");
-    wsRealId.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "Router-1", gateway: [] }));
+    wsRealId.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "Router-1", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(bridge.getDevice("Router-1")?.deviceId).toBe("Router-1");
@@ -556,7 +583,9 @@ describe("ClawWRTBridge", () => {
 
     const ws = new WebSocket("ws://127.0.0.1:19216/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-stop-alias", gateway: [] }));
+    ws.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-stop-alias", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(bridge.getDevice("Router-1")?.deviceId).toBe("dev-stop-alias");
@@ -598,7 +627,9 @@ describe("ClawWRTBridge", () => {
     ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }));
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    ws.send(JSON.stringify({ op: "heartbeat", token: "clawwrt", device_id: "dev-new", gateway: [] }));
+    ws.send(
+      JSON.stringify({ op: "heartbeat", token: "clawwrt", device_id: "dev-new", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const devices = bridge.listDevices();
@@ -634,7 +665,8 @@ describe("ClawWRTBridge", () => {
 
     ws.send(
       JSON.stringify({
-        op: "connect", token: "clawwrt",
+        op: "connect",
+        token: "clawwrt",
         device_id: "dev-preserve",
         device_info: { ap_device_id: "ap-1" },
         gateway: [{ gw_id: "gw-1" }],
@@ -644,7 +676,8 @@ describe("ClawWRTBridge", () => {
 
     ws.send(
       JSON.stringify({
-        op: "heartbeat", token: "clawwrt",
+        op: "heartbeat",
+        token: "clawwrt",
         device_id: "dev-preserve",
       }),
     );
@@ -720,7 +753,9 @@ describe("ClawWRTBridge", () => {
 
     const ws = new WebSocket("ws://127.0.0.1:19219/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-timeout", gateway: [] }));
+    ws.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-timeout", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     await expect(
@@ -888,8 +923,12 @@ describe("ClawWRTBridge", () => {
     await once(wsA, "open");
     await once(wsB, "open");
 
-    wsA.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-roll-a", gateway: [] }));
-    wsB.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-roll-b", gateway: [] }));
+    wsA.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-roll-a", gateway: [] }),
+    );
+    wsB.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-roll-b", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const responsePromiseA = bridge.callDevice({
@@ -955,7 +994,9 @@ describe("ClawWRTBridge", () => {
 
     const ws = new WebSocket("ws://127.0.0.1:19220/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-serial", gateway: [] }));
+    ws.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-serial", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const firstPromise = bridge.callDevice({
@@ -1031,7 +1072,9 @@ describe("ClawWRTBridge", () => {
 
     const wsOld = new WebSocket("ws://127.0.0.1:19221/ws/clawwrt");
     await once(wsOld, "open");
-    wsOld.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-supersede", gateway: [] }));
+    wsOld.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-supersede", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const firstPromise = bridge.callDevice({
@@ -1061,7 +1104,14 @@ describe("ClawWRTBridge", () => {
 
     const wsNew = new WebSocket("ws://127.0.0.1:19221/ws/clawwrt");
     await once(wsNew, "open");
-    wsNew.send(JSON.stringify({ op: "heartbeat", token: "clawwrt", device_id: "dev-supersede", gateway: [] }));
+    wsNew.send(
+      JSON.stringify({
+        op: "heartbeat",
+        token: "clawwrt",
+        device_id: "dev-supersede",
+        gateway: [],
+      }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(closeSpy).toHaveBeenCalled();
@@ -1180,7 +1230,9 @@ describe("ClawWRTBridge", () => {
 
     const ws = new WebSocket("ws://127.0.0.1:19214/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-collision", gateway: [] }));
+    ws.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-collision", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
     awasForward.mockClear();
 
@@ -1248,8 +1300,12 @@ describe("ClawWRTBridge", () => {
     await once(wsActive, "open");
     await once(wsForged, "open");
 
-    wsActive.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-aws", gateway: [] }));
-    wsForged.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-other", gateway: [] }));
+    wsActive.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-aws", gateway: [] }),
+    );
+    wsForged.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-other", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
     awasForward.mockClear();
 
@@ -1314,7 +1370,9 @@ describe("ClawWRTBridge", () => {
 
     const ws = new WebSocket("ws://127.0.0.1:19205/ws/clawwrt");
     await once(ws, "open");
-    ws.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-zero", gateway: [] }));
+    ws.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-zero", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
     awasForward.mockClear();
 
@@ -1493,12 +1551,16 @@ describe("ClawWRTBridge", () => {
 
     const wsOld = new WebSocket("ws://127.0.0.1:19204/ws/clawwrt");
     await once(wsOld, "open");
-    wsOld.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-reconnect", gateway: [] }));
+    wsOld.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-reconnect", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const wsNew = new WebSocket("ws://127.0.0.1:19204/ws/clawwrt");
     await once(wsNew, "open");
-    wsNew.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-reconnect", gateway: [] }));
+    wsNew.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-reconnect", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const responsePromise = bridge.callDevice({
@@ -1547,13 +1609,17 @@ describe("ClawWRTBridge", () => {
 
     const wsOld = new WebSocket("ws://127.0.0.1:19208/ws/clawwrt");
     await once(wsOld, "open");
-    wsOld.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-aways", gateway: [] }));
+    wsOld.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-aways", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
     removeProxy.mockClear();
 
     const wsNew = new WebSocket("ws://127.0.0.1:19208/ws/clawwrt");
     await once(wsNew, "open");
-    wsNew.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-aways", gateway: [] }));
+    wsNew.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-aways", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     wsOld.terminate();
@@ -1588,13 +1654,19 @@ describe("ClawWRTBridge", () => {
     await once(wsActive, "open");
     await once(wsSuperseded, "open");
 
-    wsSuperseded.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }));
+    wsSuperseded.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
-    wsActive.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }));
+    wsActive.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
     removeProxy.mockClear();
 
-    wsSuperseded.send(JSON.stringify({ op: "heartbeat", token: "clawwrt", device_id: "dev-new", gateway: [] }));
+    wsSuperseded.send(
+      JSON.stringify({ op: "heartbeat", token: "clawwrt", device_id: "dev-new", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(removeProxy).not.toHaveBeenCalled();
@@ -1623,14 +1695,22 @@ describe("ClawWRTBridge", () => {
     const wsOther = new WebSocket(`ws://127.0.0.1:${port}/ws/clawwrt`);
     await Promise.all([once(wsCurrent, "open"), once(wsSuperseded, "open"), once(wsOther, "open")]);
 
-    wsSuperseded.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }));
+    wsSuperseded.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
-    wsCurrent.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }));
+    wsCurrent.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-old", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
-    wsOther.send(JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-new", gateway: [] }));
+    wsOther.send(
+      JSON.stringify({ op: "connect", token: "clawwrt", device_id: "dev-new", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    wsSuperseded.send(JSON.stringify({ op: "heartbeat", token: "clawwrt", device_id: "dev-new", gateway: [] }));
+    wsSuperseded.send(
+      JSON.stringify({ op: "heartbeat", token: "clawwrt", device_id: "dev-new", gateway: [] }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(bridge.getDevice("dev-old")?.remoteAddress).toBeDefined();

@@ -115,7 +115,9 @@ export class AwasDeviceProxy {
 
   /** Open the WebSocket connection to AWAS. */
   connect(): void {
-    if (this.stopped) return;
+    if (this.stopped) {
+      return;
+    }
     this.cleanup();
 
     const protocol = this.config.ssl ? "wss" : "ws";
@@ -186,7 +188,7 @@ export class AwasDeviceProxy {
     // If AWAS is not connected, queue the message to be sent when connection is ready
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.logger.debug?.(
-        `awas-proxy: queuing message for device=${this.deviceId} op=${String(enriched.op ?? "unknown")} req_id=${String(enriched.req_id ?? "none")}`,
+        `awas-proxy: queuing message for device=${this.deviceId} op=${(enriched.op as string) ?? "unknown"} req_id=${(enriched.req_id as string) ?? "none"}`,
       );
       this.enqueueMessage(enriched);
       return;
@@ -223,7 +225,7 @@ export class AwasDeviceProxy {
           this.enqueueMessage(payload);
         } else {
           this.logger.info?.(
-            `awas-proxy: sent to AWAS device=${this.deviceId} op=${String(payload.op ?? payload.type ?? "unknown")} req_id=${String(payload.req_id ?? payload.request_id ?? payload.reqId ?? "none")}`,
+            `awas-proxy: sent to AWAS device=${this.deviceId} op=${(payload.op as string) ?? (payload.type as string) ?? "unknown"} req_id=${(payload.req_id as string) ?? (payload.request_id as string) ?? (payload.reqId as string) ?? "none"}`,
           );
         }
       });
@@ -303,7 +305,9 @@ export class AwasDeviceProxy {
   }
 
   private scheduleReconnect(): void {
-    if (this.stopped || this.reconnectTimer) return;
+    if (this.stopped || this.reconnectTimer) {
+      return;
+    }
 
     const delay = Math.min(
       RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempts),
@@ -378,11 +382,6 @@ export class AwasProxyManager {
    * Updates the manager's configuration.
    * If config changes, all existing device proxies are stopped to force
    * reconnection with the new settings.
-   */
-  /**
-   * Updates the manager's configuration.
-   * If config changes, all existing device proxies are stopped to force
-   * reconnection with the new settings.
    * @param config The new AWAS configuration.
    * @param currentDeviceIds Optional list of device IDs that should have an active proxy.
    *                           If provided, proxies will be ensured for these IDs after update.
@@ -422,7 +421,9 @@ export class AwasProxyManager {
    * Creates a new proxy if one doesn't exist for this device.
    */
   ensureProxy(deviceId: string): void {
-    if (!this.config.enabled) return;
+    if (!this.config.enabled) {
+      return;
+    }
 
     if (this.proxies.has(deviceId)) {
       return;
@@ -442,11 +443,13 @@ export class AwasProxyManager {
    * Forward a message from a device to its AWAS proxy.
    */
   forwardToAwas(deviceId: string, message: JsonRecord): void {
-    if (!this.config.enabled) return;
-    const rid = (message.req_id ?? message.request_id ?? message.reqId) as unknown;
+    if (!this.config.enabled) {
+      return;
+    }
+    const rid = message.req_id ?? message.request_id ?? message.reqId;
     const type = typeof message.type === "string" ? message.type : "unknown";
     this.logger.debug?.(
-      `awas-proxy: forwardToAwas device=${deviceId} req_id=${String(rid ?? "none")} type=${type}`,
+      `awas-proxy: forwardToAwas device=${deviceId} req_id=${(rid as string) ?? "none"} type=${type}`,
     );
     const proxy = this.proxies.get(deviceId);
     if (proxy) {

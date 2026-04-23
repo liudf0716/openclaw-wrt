@@ -1,4 +1,4 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import type { OpenClawPluginConfigSchema } from "openclaw/plugin-sdk/plugin-entry";
 import type { AwasConfig } from "./awas-proxy.js";
@@ -37,8 +37,6 @@ export const ClawWRTConfigSchema = Type.Object(
   },
   { additionalProperties: false },
 );
-
-type ClawWRTConfigInput = Static<typeof ClawWRTConfigSchema>;
 
 export type ResolvedClawWRTConfig = {
   enabled: boolean;
@@ -96,9 +94,7 @@ function readStringArray(value: unknown): string[] | undefined {
 }
 
 export function resolveClawWRTConfig(input: unknown): ResolvedClawWRTConfig {
-  const parsed = Value.Check(ClawWRTConfigSchema, input)
-    ? (input as ClawWRTConfigInput)
-    : asConfigObject(input);
+  const parsed = Value.Check(ClawWRTConfigSchema, input) ? input : asConfigObject(input);
 
   return {
     // Keep bridge enabled by default when plugin is loaded unless explicitly disabled.
@@ -111,7 +107,7 @@ export function resolveClawWRTConfig(input: unknown): ResolvedClawWRTConfig {
       readIntegerInRange(parsed?.requestTimeoutMs, 1000, 120_000) ?? DEFAULT_TIMEOUT_MS,
     maxPayloadBytes:
       readIntegerInRange(parsed?.maxPayloadBytes, 1024, 1_048_576) ?? DEFAULT_MAX_PAYLOAD_BYTES,
-    token: parsed?.token === "" ? undefined : (readNonEmptyString(parsed?.token) || DEFAULT_TOKEN),
+    token: parsed?.token === "" ? undefined : readNonEmptyString(parsed?.token) || DEFAULT_TOKEN,
     aliasFile: readNonEmptyString(parsed?.aliasFile) || ".openclaw/wificlaw/device-aliases.json",
     awas: {
       enabled: readBoolean(parsed?.awasEnabled) === true,

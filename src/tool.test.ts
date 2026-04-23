@@ -1,7 +1,6 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-
 import { describe, expect, it } from "vitest";
 import { createClawWRTTools } from "./tool.js";
 
@@ -264,7 +263,11 @@ describe("openclaw-wrt intent tools", () => {
       getDevice() {
         return null;
       },
-      async callDevice(params: { deviceId: string; op: string; payload?: Record<string, unknown> }) {
+      async callDevice(params: {
+        deviceId: string;
+        op: string;
+        payload?: Record<string, unknown>;
+      }) {
         calls.push(params);
         return { type: "set_local_portal_response", status: "success" };
       },
@@ -311,7 +314,11 @@ describe("openclaw-wrt intent tools", () => {
       getDevice() {
         return null;
       },
-      async callDevice(params: { deviceId: string; op: string; payload?: Record<string, unknown> }) {
+      async callDevice(params: {
+        deviceId: string;
+        op: string;
+        payload?: Record<string, unknown>;
+      }) {
         calls.push(params);
         return { type: "set_local_portal_response", status: "success" };
       },
@@ -366,7 +373,11 @@ describe("openclaw-wrt intent tools", () => {
       getDevice() {
         return null;
       },
-      async callDevice(params: { deviceId: string; op: string; payload?: Record<string, unknown> }) {
+      async callDevice(params: {
+        deviceId: string;
+        op: string;
+        payload?: Record<string, unknown>;
+      }) {
         calls.push(params);
         return { type: "set_local_portal_response", status: "success" };
       },
@@ -417,7 +428,11 @@ describe("openclaw-wrt intent tools", () => {
       getDevice() {
         return null;
       },
-      async callDevice(params: { deviceId: string; op: string; payload?: Record<string, unknown> }) {
+      async callDevice(params: {
+        deviceId: string;
+        op: string;
+        payload?: Record<string, unknown>;
+      }) {
         calls.push(params);
         return { type: "set_local_portal_response", status: "success" };
       },

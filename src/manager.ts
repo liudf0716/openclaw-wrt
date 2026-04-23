@@ -1,8 +1,7 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
-import path from "node:path";
 import http from "node:http";
-import https from "node:https";
+import path from "node:path";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import { AwasProxyManager } from "./awas-proxy.js";
 import type { ResolvedClawWRTConfig } from "./config.js";
@@ -143,7 +142,7 @@ function normalizeDeviceResponseForCaller(message: JsonRecord, op: string | unde
   return {
     ...message,
     ...data,
-    ...(nestedData ?? {}),
+    ...nestedData,
     op:
       op ??
       asString(data.op) ??
@@ -209,10 +208,7 @@ export class ClawWRTBridge {
   // jiti module re-evaluation across separate plugin registry loads.
   private static readonly INSTANCE_KEY = Symbol.for("openclaw.openclaw-wrt.bridge");
 
-  static getOrCreate(params: {
-    config: ResolvedClawWRTConfig;
-    logger: Logger;
-  }): ClawWRTBridge {
+  static getOrCreate(params: { config: ResolvedClawWRTConfig; logger: Logger }): ClawWRTBridge {
     const g = globalThis as Record<symbol, ClawWRTBridge | undefined>;
     const existing = g[ClawWRTBridge.INSTANCE_KEY];
     if (existing) {
@@ -273,7 +269,7 @@ export class ClawWRTBridge {
         requestPath = (req.url ? new URL(req.url, "http://localhost").pathname : "/") || "/";
       } catch (error) {
         this.logger.warn(
-          `openclaw-wrt: rejected upgrade request with invalid url target=${String(req.url ?? "")} err=${String(error)}`,
+          `openclaw-wrt: rejected upgrade request with invalid url target=${req.url ?? ""} err=${String(error)}`,
         );
         socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
         socket.destroy();
@@ -440,7 +436,7 @@ export class ClawWRTBridge {
 
   listDevices(): DeviceSnapshot[] {
     return [...this.sessions.values()]
-      .map((entry) => ({ ...entry.snapshot }))
+      .map((entry) => Object.assign({}, entry.snapshot))
       .toSorted((a, b) => a.deviceId.localeCompare(b.deviceId));
   }
 
@@ -557,9 +553,9 @@ export class ClawWRTBridge {
       }
 
       const reqId = this.generateReqIdForDevice(deviceId);
-      const reqKey = String(reqId);
+      const reqKey = reqId;
       const payload: JsonRecord = {
-        ...(params.payload ?? {}),
+        ...params.payload,
         req_id: reqId,
         op: op,
       };
@@ -662,7 +658,7 @@ export class ClawWRTBridge {
     this.deviceSendQueue.set(deviceId, chainedPromise);
     // Clean up the queue entry after completion (if it's still the one we set).
     // This prevents unbounded growth in long-lived processes with many device IDs.
-    chainedPromise.finally(() => {
+    void chainedPromise.finally(() => {
       if (this.deviceSendQueue.get(deviceId) === chainedPromise) {
         this.deviceSendQueue.delete(deviceId);
       }
@@ -779,7 +775,9 @@ export class ClawWRTBridge {
             }
           }
         }
-        this.logger.info(`openclaw-wrt: loaded ${this.deviceAliases.size} device aliases from ${file}`);
+        this.logger.info(
+          `openclaw-wrt: loaded ${this.deviceAliases.size} device aliases from ${file}`,
+        );
       }
     } catch (error) {
       this.logger.warn(`openclaw-wrt: failed to load device aliases: ${String(error)}`);
@@ -805,7 +803,7 @@ export class ClawWRTBridge {
     rawData: RawData,
     remoteAddress: string | undefined,
   ): Promise<void> {
-    const rawText = typeof rawData === "string" ? rawData : rawData.toString("utf8");
+    const rawText = typeof rawData === "string" ? rawData : (rawData as Buffer).toString("utf8");
     let message: JsonRecord;
     try {
       const parsed = JSON.parse(rawText) as unknown;
@@ -834,7 +832,7 @@ export class ClawWRTBridge {
     // Log incoming device message for diagnostics (op and req_id)
     const incomingReqId = message.req_id ?? message.request_id ?? message.reqId;
     this.logger.info?.(
-      `openclaw-wrt: received from device remote=${remoteAddress ?? "unknown"} device=${String(deviceId ?? this.socketToDeviceId.get(socket) ?? "unknown")} op=${String(op ?? "unknown")} req_id=${String(incomingReqId ?? "none")}`,
+      `openclaw-wrt: received from device remote=${remoteAddress ?? "unknown"} device=${deviceId ?? this.socketToDeviceId.get(socket) ?? "unknown"} op=${op ?? "unknown"} req_id=${String((incomingReqId as string | number) ?? "none")}`,
     );
 
     if (op === "connect" || op === "heartbeat") {
@@ -918,7 +916,7 @@ export class ClawWRTBridge {
           authMode,
         },
       });
-      const alias = this.assignAlias(deviceId);
+      this.assignAlias(deviceId);
       const snapshot = this.sessions.get(deviceId)!.snapshot;
       this.socketToDeviceId.set(socket, deviceId);
 
@@ -984,7 +982,7 @@ export class ClawWRTBridge {
         try {
           this.awasProxy.forwardToAwas(resolvedDeviceId, message);
           this.logger.info?.(
-            `openclaw-wrt: forwarded device response back to AWAS device=${resolvedDeviceId} req_id=${String(reqId)} op=${String((message as JsonRecord).op)}`,
+            `openclaw-wrt: forwarded device response back to AWAS device=${resolvedDeviceId} req_id=${String(reqId)} op=${String(message.op)}`,
           );
         } catch (e) {
           this.logger.warn(
@@ -1095,7 +1093,7 @@ export class ClawWRTBridge {
       const reqIdCandidate =
         normalizedCommand.req_id ?? normalizedCommand.request_id ?? normalizedCommand.reqId;
       this.logger.debug?.(
-        `awas-proxy: handleAwasCommand device=${deviceId} op=${op} req_id=${String(reqIdCandidate ?? "none")}`,
+        `awas-proxy: handleAwasCommand device=${deviceId} op=${op} req_id=${String((reqIdCandidate as string | number) ?? "none")}`,
       );
       if (typeof reqIdCandidate === "string" || typeof reqIdCandidate === "number") {
         const reqId = String(reqIdCandidate);
@@ -1130,7 +1128,7 @@ export class ClawWRTBridge {
             this.logger.info?.(
               `awas-proxy: sent request_error back to AWAS device=${deviceId} req_id=${reqId}`,
             );
-          } catch (e) {
+          } catch {
             this.logger.warn(`openclaw-wrt: failed to send timeout error to AWAS for ${reqId}`);
           }
         }, this.config.requestTimeoutMs);

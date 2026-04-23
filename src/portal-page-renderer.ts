@@ -42,7 +42,7 @@ function escapeHtml(input: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
+    .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
 
@@ -66,16 +66,26 @@ function portalColor(template?: PortalTemplate, accentColor?: string): string {
   }
   // template-specific professional defaults
   switch (template) {
-    case "business": return "#1e40af"; // Deep blue
-    case "cafe": return "#d97706"; // Warm amber
-    case "hotel": return "#059669"; // Sophisticated emerald
-    case "event": return "#7c3aed"; // Vibrant violet
-    case "welcome": return "#db2777"; // Friendly pink
-    default: return "#3182ce"; // Standard blue
+    case "business":
+      return "#1e40af"; // Deep blue
+    case "cafe":
+      return "#d97706"; // Warm amber
+    case "hotel":
+      return "#059669"; // Sophisticated emerald
+    case "event":
+      return "#7c3aed"; // Vibrant violet
+    case "welcome":
+      return "#db2777"; // Friendly pink
+    default:
+      return "#3182ce"; // Standard blue
   }
 }
 
-function buildPortalContext(params: { deviceId: string; template?: PortalTemplate; content?: PortalContent }) {
+function buildPortalContext(params: {
+  deviceId: string;
+  template?: PortalTemplate;
+  content?: PortalContent;
+}) {
   const content = params.content ?? {};
   const networkName = pickPortalText(content.networkName, content.brandName, "访客网络");
   const venueName = pickPortalText(content.venueName, content.brandName, networkName);
@@ -97,7 +107,9 @@ function buildPortalContext(params: { deviceId: string; template?: PortalTemplat
     supportText: readPortalText(content.supportText),
     voucherLabel: pickPortalText(content.voucherLabel, "接入券码"),
     voucherHint: pickPortalText(content.voucherHint, "请输入现场提供的券码"),
-    rules: Array.isArray(content.rules) ? content.rules.map((rule) => rule.trim()).filter(Boolean) : [],
+    rules: Array.isArray(content.rules)
+      ? content.rules.map((rule) => rule.trim()).filter(Boolean)
+      : [],
     accentColor,
   };
 }
@@ -109,8 +121,7 @@ export function renderPortalPageHtml(params: {
 }): string {
   const ctx = buildPortalContext(params);
   const escapedNetwork = escapeHtml(ctx.networkName);
-  const escapedVenue = escapeHtml(ctx.venueName);
-  
+
   const templateIconKey = ctx.template === "default" ? "wifi" : ctx.template;
   const iconSvg = ICONS[templateIconKey] || ICONS.wifi;
 
@@ -181,7 +192,10 @@ export function renderPortalPageHtml(params: {
                   : "由 OpenClaw 提供安全驱动."),
   );
   const supportText = escapeHtml(ctx.supportText);
-  const rules = ctx.rules.length > 0 ? ctx.rules : ["请遵守当地法律法规 and 网络使用守则。", "请勿分发违法违规内容。"];
+  const rules =
+    ctx.rules.length > 0
+      ? ctx.rules
+      : ["请遵守当地法律法规 and 网络使用守则。", "请勿分发违法违规内容。"];
   const rulesHtml = rules.map((rule) => `<li>${escapeHtml(rule)}</li>`).join("");
 
   const sharedStyles = `

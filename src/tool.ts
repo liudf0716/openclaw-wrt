@@ -1,6 +1,5 @@
-import path from "node:path";
 import { promises as fs, constants as fsConstants } from "node:fs";
-
+import path from "node:path";
 import { Type, type Static } from "@sinclair/typebox";
 import { optionalStringEnum, stringEnum } from "openclaw/plugin-sdk/core";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
@@ -143,12 +142,10 @@ const SetAuthServerSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const PortalTemplateField = stringEnum(
-  PORTAL_TEMPLATE_VALUES,
-  {
-    description: "Portal page template. default:通用弹出页, welcome:品牌承接/品宣, business:企业/办公网络, cafe:餐饮场景, hotel:酒店宾客, terms:条款确认, voucher:券码口令输入, event:活动推广页. 不明确时默认用 default.",
-  },
-);
+const PortalTemplateField = stringEnum(PORTAL_TEMPLATE_VALUES, {
+  description:
+    "Portal page template. default:通用弹出页, welcome:品牌承接/品宣, business:企业/办公网络, cafe:餐饮场景, hotel:酒店宾客, terms:条款确认, voucher:券码口令输入, event:活动推广页. 不明确时默认用 default.",
+});
 
 const PortalContentSchema = Type.Object(
   {
@@ -159,9 +156,15 @@ const PortalContentSchema = Type.Object(
     body: Type.Optional(Type.String({ minLength: 1, description: "Primary supporting copy." })),
     buttonText: Type.Optional(Type.String({ minLength: 1, description: "Primary action label." })),
     footerText: Type.Optional(Type.String({ minLength: 1, description: "Footer support text." })),
-    supportText: Type.Optional(Type.String({ minLength: 1, description: "Additional helper copy." })),
-    voucherLabel: Type.Optional(Type.String({ minLength: 1, description: "Voucher or code field label." })),
-    voucherHint: Type.Optional(Type.String({ minLength: 1, description: "Voucher input hint text." })),
+    supportText: Type.Optional(
+      Type.String({ minLength: 1, description: "Additional helper copy." }),
+    ),
+    voucherLabel: Type.Optional(
+      Type.String({ minLength: 1, description: "Voucher or code field label." }),
+    ),
+    voucherHint: Type.Optional(
+      Type.String({ minLength: 1, description: "Voucher input hint text." }),
+    ),
     rules: Type.Optional(Type.Array(Type.String({ minLength: 1, description: "Rule item." }))),
     accentColor: Type.Optional(Type.String({ minLength: 1, description: "Primary accent color." })),
   },
@@ -509,9 +512,18 @@ const SetXfrpcCommonSchema = Type.Object(
     deviceId: DeviceIdField,
     enabled: Type.Optional(Type.String({ description: "'0' or '1'." })),
     loglevel: Type.Optional(Type.String({ description: "Log level, e.g., '7'." })),
-    server_addr: Type.Optional(Type.String({ description: "FRPS server public IP or domain. MUST be explicitly provided by the user. Do not guess or use local IP." })),
+    server_addr: Type.Optional(
+      Type.String({
+        description:
+          "FRPS server public IP or domain. MUST be explicitly provided by the user. Do not guess or use local IP.",
+      }),
+    ),
     server_port: Type.Optional(Type.String({ description: "FRPS server port." })),
-    token: Type.Optional(Type.String({ description: "Authentication token. Ask user, or generate a random string if not provided." })),
+    token: Type.Optional(
+      Type.String({
+        description: "Authentication token. Ask user, or generate a random string if not provided.",
+      }),
+    ),
     timeoutMs: TimeoutField,
   },
   { additionalProperties: false },
@@ -535,7 +547,11 @@ const AddXfrpcTcpServiceSchema = Type.Object(
 const DeployFrpsSchema = Type.Object(
   {
     port: Type.Integer({ minimum: 1, maximum: 65535, description: "FRPS listen port." }),
-    token: Type.Optional(Type.String({ description: "Authentication token. Ask user, or generate a random string if not provided." })),
+    token: Type.Optional(
+      Type.String({
+        description: "Authentication token. Ask user, or generate a random string if not provided.",
+      }),
+    ),
   },
   { additionalProperties: false },
 );
@@ -771,7 +787,8 @@ function sanitizePortalHtmlRoot(root: string): string {
 }
 
 async function resolvePortalWebRoot(explicitRoot?: string): Promise<string> {
-  const envRoot = process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT?.trim() ?? process.env.OPENCLAW_WRT_WEB_ROOT?.trim();
+  const envRoot =
+    process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT?.trim() ?? process.env.OPENCLAW_WRT_WEB_ROOT?.trim();
   const candidates = [explicitRoot?.trim(), envRoot, ...PORTAL_WEB_ROOT_CANDIDATES].filter(
     (value): value is string => typeof value === "string" && value.trim() !== "",
   );
@@ -810,7 +827,11 @@ function buildPortalPageName(deviceId: string, explicitPageName?: string): strin
     }
   }
 
-  const deviceSlug = deviceId.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const deviceSlug = deviceId
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
   if (!deviceSlug) {
     throw new Error("unable to derive portal page name from deviceId");
   }
@@ -868,11 +889,13 @@ async function publishPortalPage(params: {
   const pageName = buildPortalPageName(params.deviceId, params.pageName);
   const root = await resolvePortalWebRoot(params.webRoot);
   const filePath = path.join(root, pageName);
-  const html = params.html?.trim() || renderPortalPageHtml({
-    deviceId: params.deviceId,
-    template: params.template,
-    content: params.content,
-  });
+  const html =
+    params.html?.trim() ||
+    renderPortalPageHtml({
+      deviceId: params.deviceId,
+      template: params.template,
+      content: params.content,
+    });
 
   await fs.writeFile(filePath, html, "utf8");
 
@@ -946,24 +969,20 @@ function createSimpleOperationTool(params: {
         deviceId: fallbackArgs.deviceId ? fallbackArgs.deviceId.trim() : "",
         timeoutMs: fallbackArgs.timeoutMs,
       };
-      try {
-        const response = await callDeviceOp({
-          bridge: params.bridge,
-          deviceId: built.deviceId,
-          op: params.op,
-          payload: built.payload,
-          timeoutMs: built.timeoutMs,
-          expectResponse: built.expectResponse ?? params.expectResponse,
-        });
-        const summary =
-          params.summarize?.(response, rawParams) ??
-          `Device ${built.deviceId} responded to ${params.op}.`;
-        const responseJson = JSON.stringify(response);
-        const text = `${summary}\n\nDevice response data:\n${responseJson}`;
-        return buildToolResult(text, { response });
-      } catch (error) {
-        throw error;
-      }
+      const response = await callDeviceOp({
+        bridge: params.bridge,
+        deviceId: built.deviceId,
+        op: params.op,
+        payload: built.payload,
+        timeoutMs: built.timeoutMs,
+        expectResponse: built.expectResponse ?? params.expectResponse,
+      });
+      const summary =
+        params.summarize?.(response, rawParams) ??
+        `Device ${built.deviceId} responded to ${params.op}.`;
+      const responseJson = JSON.stringify(response);
+      const text = `${summary}\n\nDevice response data:\n${responseJson}`;
+      return buildToolResult(text, { response });
     },
   };
 }
@@ -972,8 +991,7 @@ function createPublishPortalPageTool(bridge: ClawWRTBridge): AnyAgentTool {
   return {
     name: "clawwrt_publish_portal_page",
     label: "OpenClaw WRT Publish Portal Page",
-    description:
-      "Publish a captive portal HTML page to the device-specific portal file.",
+    description: "Publish a captive portal HTML page to the device-specific portal file.",
     parameters: PublishPortalPageSchema,
     execute: async (_toolCallId, rawParams) => {
       const args = rawParams as PublishPortalPageParams;
@@ -1384,11 +1402,21 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       buildPayload: (rawParams) => {
         const args = rawParams as SetWifiRelayParams;
         const payload: JsonRecord = { ssid: args.ssid };
-        if (typeof args.key === "string") payload.key = args.key;
-        if (typeof args.band === "string") payload.band = args.band;
-        if (typeof args.encryption === "string") payload.encryption = args.encryption;
-        if (typeof args.bssid === "string") payload.bssid = args.bssid;
-        if (typeof args.apply === "boolean") payload.apply = args.apply;
+        if (typeof args.key === "string") {
+          payload.key = args.key;
+        }
+        if (typeof args.band === "string") {
+          payload.band = args.band;
+        }
+        if (typeof args.encryption === "string") {
+          payload.encryption = args.encryption;
+        }
+        if (typeof args.bssid === "string") {
+          payload.bssid = args.bssid;
+        }
+        if (typeof args.apply === "boolean") {
+          payload.apply = args.apply;
+        }
         return {
           deviceId: args.deviceId.trim(),
           payload,
@@ -1409,7 +1437,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       parameters: BpfAddSchema,
       buildPayload: (rawParams) => {
         const args = rawParams as BpfAddParams;
-        const table = args.table ?? "mac";
+        const table = typeof args.table === "string" ? args.table : "mac";
         return {
           deviceId: args.deviceId.trim(),
           payload: {
@@ -1421,7 +1449,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       },
       summarize: (_response, rawParams) => {
         const args = rawParams as BpfAddParams;
-        const table = args.table ?? "mac";
+        const table = typeof args.table === "string" ? args.table : "mac";
         return `Added ${args.address} to the ${table} BPF monitor table on ${args.deviceId}.`;
       },
     }),
@@ -1502,7 +1530,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       parameters: BpfDeleteSchema,
       buildPayload: (rawParams) => {
         const args = rawParams as BpfDeleteParams;
-        const table = args.table ?? "mac";
+        const table = typeof args.table === "string" ? args.table : "mac";
         return {
           deviceId: args.deviceId.trim(),
           payload: {
@@ -1514,7 +1542,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       },
       summarize: (_response, rawParams) => {
         const args = rawParams as BpfDeleteParams;
-        const table = args.table ?? "mac";
+        const table = typeof args.table === "string" ? args.table : "mac";
         return `Removed ${args.address} from the ${table} BPF monitor table on ${args.deviceId}.`;
       },
     }),
@@ -1537,7 +1565,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       },
       summarize: (_response, rawParams) => {
         const args = rawParams as BpfFlushParams;
-        const table = args.table ?? "mac";
+        const table = typeof args.table === "string" ? args.table : "mac";
         return `Flushed ${table} BPF monitor table on ${args.deviceId}.`;
       },
     }),
@@ -1550,7 +1578,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       parameters: BpfUpdateSchema,
       buildPayload: (rawParams) => {
         const args = rawParams as BpfUpdateParams;
-        const table = args.table ?? "mac";
+        const table = typeof args.table === "string" ? args.table : "mac";
         return {
           deviceId: args.deviceId.trim(),
           payload: {
@@ -1564,7 +1592,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       },
       summarize: (_response, rawParams) => {
         const args = rawParams as BpfUpdateParams;
-        const table = args.table ?? "mac";
+        const table = typeof args.table === "string" ? args.table : "mac";
         return `Updated ${table} BPF rate limits for ${args.target} on ${args.deviceId}.`;
       },
     }),
@@ -1589,7 +1617,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       },
       summarize: (_response, rawParams) => {
         const args = rawParams as BpfUpdateAllParams;
-        const table = args.table ?? "mac";
+        const table = typeof args.table === "string" ? args.table : "mac";
         return `Updated ${table} BPF rate limits for all monitored entries on ${args.deviceId}.`;
       },
     }),
@@ -1712,7 +1740,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         const args = rawParams as SetAuthServerParams;
         const payload: JsonRecord = { hostname: args.hostname };
         if (args.port !== undefined) {
-          payload.port = String(args.port);
+          payload.port = args.port;
         }
         if (typeof args.path === "string") {
           payload.path = args.path;
@@ -1751,11 +1779,21 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       buildPayload: (rawParams) => {
         const args = rawParams as SetMqttServerParams;
         const payload: JsonRecord = {};
-        if (typeof args.hostname === "string") payload.hostname = args.hostname;
-        if (args.port !== undefined) payload.port = String(args.port);
-        if (typeof args.username === "string") payload.username = args.username;
-        if (typeof args.password === "string") payload.password = args.password;
-        if (typeof args.useSsl === "boolean") payload.use_ssl = args.useSsl;
+        if (typeof args.hostname === "string") {
+          payload.hostname = args.hostname;
+        }
+        if (args.port !== undefined) {
+          payload.port = args.port;
+        }
+        if (typeof args.username === "string") {
+          payload.username = args.username;
+        }
+        if (typeof args.password === "string") {
+          payload.password = args.password;
+        }
+        if (typeof args.useSsl === "boolean") {
+          payload.use_ssl = args.useSsl;
+        }
         return {
           deviceId: args.deviceId.trim(),
           payload,
@@ -1788,10 +1826,18 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       buildPayload: (rawParams) => {
         const args = rawParams as SetWebsocketServerParams;
         const payload: JsonRecord = {};
-        if (typeof args.hostname === "string") payload.hostname = args.hostname;
-        if (args.port !== undefined) payload.port = String(args.port);
-        if (typeof args.path === "string") payload.path = args.path;
-        if (typeof args.useSsl === "boolean") payload.use_ssl = args.useSsl;
+        if (typeof args.hostname === "string") {
+          payload.hostname = args.hostname;
+        }
+        if (args.port !== undefined) {
+          payload.port = args.port;
+        }
+        if (typeof args.path === "string") {
+          payload.path = args.path;
+        }
+        if (typeof args.useSsl === "boolean") {
+          payload.use_ssl = args.useSsl;
+        }
         return {
           deviceId: args.deviceId.trim(),
           payload,
@@ -1824,11 +1870,9 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       parameters: SetWireguardVpnSchema,
       buildPayload: (rawParams) => {
         const args = rawParams as SetWireguardVpnParams;
-        const interfacePayload = mapWireguardInterfacePayload(
-          (asObject(args.interface) ?? {}) as JsonRecord,
-        );
+        const interfacePayload = mapWireguardInterfacePayload(asObject(args.interface) ?? {});
         const peersPayload = (args.peers ?? []).map((entry) =>
-          mapWireguardPeerPayload((asObject(entry) ?? {}) as JsonRecord),
+          mapWireguardPeerPayload(asObject(entry) ?? {}),
         );
 
         return {
@@ -1875,6 +1919,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         let serverStatus: string = "unavailable";
         let snatMissing = true;
         let ipForwardEnabled = false;
+        let probesSuccessful = false;
 
         try {
           const { execSync } = await import("node:child_process");
@@ -1897,6 +1942,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
             `--- WireGuard ---\n${wgOutput}\n` +
             `--- NAT Rules ---\n${iptablesOutput}\n` +
             `--- IP Forwarding ---\n${ipForwardEnabled ? "Enabled (1)" : "Disabled (0)"}`;
+          probesSuccessful = true;
         } catch (error) {
           serverStatus = `Error fetching server status: ${error instanceof Error ? error.message : String(error)}`;
         }
@@ -1909,12 +1955,14 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
           `\n\n--- SERVER SIDE (OpenClaw Server) ---\n` +
           serverStatus;
 
-        if (snatMissing && serverStatus !== "unavailable") {
-          text +=
-            "\n\nWARNING: SNAT (MASQUERADE) rule might be missing on the server side. Full tunnel traffic may not reach the internet.";
-        }
-        if (!ipForwardEnabled && serverStatus !== "unavailable") {
-          text += "\nWARNING: IP forwarding is disabled on the server side.";
+        if (probesSuccessful) {
+          if (snatMissing) {
+            text +=
+              "\n\nWARNING: SNAT (MASQUERADE) rule might be missing on the server side. Full tunnel traffic may not reach the internet.";
+          }
+          if (!ipForwardEnabled) {
+            text += "\nWARNING: IP forwarding is disabled on the server side.";
+          }
         }
 
         return buildToolResult(text, {
@@ -1954,10 +2002,10 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         }
 
         const setupCommand = [
-          `sysctl -w net.ipv4.ip_forward=1`,
-          `iptables -t nat -C POSTROUTING -o ${wan} -j MASQUERADE || iptables -t nat -A POSTROUTING -o ${wan} -j MASQUERADE`,
-          `iptables -C FORWARD -i wg0 -j ACCEPT || iptables -A FORWARD -i wg0 -j ACCEPT`,
-          `iptables -C FORWARD -o wg0 -j ACCEPT || iptables -A FORWARD -o wg0 -j ACCEPT`,
+          `sudo sysctl -w net.ipv4.ip_forward=1`,
+          `sudo iptables -t nat -C POSTROUTING -o ${wan} -j MASQUERADE || sudo iptables -t nat -A POSTROUTING -o ${wan} -j MASQUERADE`,
+          `sudo iptables -C FORWARD -i wg0 -j ACCEPT || sudo iptables -A FORWARD -i wg0 -j ACCEPT`,
+          `sudo iptables -C FORWARD -o wg0 -j ACCEPT || sudo iptables -A FORWARD -o wg0 -j ACCEPT`,
         ].join(" && ");
 
         const output = execSync(setupCommand, { encoding: "utf-8" });
@@ -2124,7 +2172,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
           deviceId: args.deviceId.trim(),
           payload: args.apply !== undefined ? { apply: args.apply } : undefined,
           timeoutMs: args.timeoutMs,
-        }
+        };
       },
       summarize: (_response, rawParams) => {
         const args = rawParams as Static<typeof DeleteWifiRelaySchema>;
@@ -2218,13 +2266,24 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       op: "set_xfrpc_common",
       parameters: SetXfrpcCommonSchema,
       buildPayload: (rawParams) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const args = rawParams as any;
         const payload: JsonRecord = {};
-        if (args.enabled !== undefined) payload.enabled = args.enabled;
-        if (args.loglevel !== undefined) payload.loglevel = args.loglevel;
-        if (args.server_addr !== undefined) payload.server_addr = args.server_addr;
-        if (args.server_port !== undefined) payload.server_port = args.server_port;
-        if (args.token !== undefined) payload.token = args.token;
+        if (args.enabled !== undefined) {
+          payload.enabled = args.enabled;
+        }
+        if (args.loglevel !== undefined) {
+          payload.loglevel = args.loglevel;
+        }
+        if (args.server_addr !== undefined) {
+          payload.server_addr = args.server_addr;
+        }
+        if (args.server_port !== undefined) {
+          payload.server_port = args.server_port;
+        }
+        if (args.token !== undefined) {
+          payload.token = args.token;
+        }
         return {
           deviceId: args.deviceId.trim(),
           payload,
@@ -2232,6 +2291,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         };
       },
       summarize: (_response, rawParams) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const args = rawParams as any;
         return `Updated XFRPC common config on ${args.deviceId}.`;
       },
@@ -2244,14 +2304,27 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       op: "add_xfrpc_tcp_service",
       parameters: AddXfrpcTcpServiceSchema,
       buildPayload: (rawParams) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const args = rawParams as any;
         const payload: JsonRecord = { name: args.name };
-        if (args.enabled !== undefined) payload.enabled = args.enabled;
-        if (args.local_ip !== undefined) payload.local_ip = args.local_ip;
-        if (args.local_port !== undefined) payload.local_port = args.local_port;
-        if (args.remote_port !== undefined) payload.remote_port = args.remote_port;
-        if (args.start_time !== undefined) payload.start_time = args.start_time;
-        if (args.end_time !== undefined) payload.end_time = args.end_time;
+        if (args.enabled !== undefined) {
+          payload.enabled = args.enabled;
+        }
+        if (args.local_ip !== undefined) {
+          payload.local_ip = args.local_ip;
+        }
+        if (args.local_port !== undefined) {
+          payload.local_port = args.local_port;
+        }
+        if (args.remote_port !== undefined) {
+          payload.remote_port = args.remote_port;
+        }
+        if (args.start_time !== undefined) {
+          payload.start_time = args.start_time;
+        }
+        if (args.end_time !== undefined) {
+          payload.end_time = args.end_time;
+        }
         return {
           deviceId: args.deviceId.trim(),
           payload,
@@ -2259,6 +2332,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         };
       },
       summarize: (_response, rawParams) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const args = rawParams as any;
         return `Added XFRPC TCP service '${args.name}' on ${args.deviceId}.`;
       },
@@ -2270,7 +2344,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         "Automatically fetch the latest version from GitHub, install as /usr/bin/nwct-server, and configure a service with systemd autostart on the VPS host.",
       parameters: DeployFrpsSchema,
       execute: async (_toolCallId, rawParams) => {
-        const args = rawParams as any;
+        const args = rawParams;
         const { execSync } = await import("node:child_process");
 
         const configDir = "/etc/nwct";
@@ -2278,7 +2352,9 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         const servicePath = "/etc/systemd/system/nwct-server.service";
 
         let toml = `bindPort = ${args.port}\n`;
-        if (args.token) toml += `auth.token = "${args.token}"\n`;
+        if (args.token) {
+          toml += `auth.token = ${JSON.stringify(args.token)}\n`;
+        }
 
         let output = "";
         try {
@@ -2288,9 +2364,10 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
           execSync(`sudo mv /tmp/nwct-server.toml ${configPath}`, { encoding: "utf-8" });
 
           // 2. Install binary if missing
+          let binPath = "/usr/bin/nwct-server";
           try {
-            execSync("which nwct-server", { encoding: "utf-8" });
-            output += "nwct-server binary already exists.\n";
+            binPath = execSync("which nwct-server", { encoding: "utf-8" }).trim();
+            output += `nwct-server binary already exists at ${binPath}.\n`;
           } catch {
             output += "nwct-server binary not found. Downloading latest version from GitHub...\n";
             try {
@@ -2308,7 +2385,9 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
               );
               const latestInfo = JSON.parse(latestJson);
               const tagName = latestInfo.tag_name;
-              if (!tagName) throw new Error("Could not determine latest version from GitHub API.");
+              if (!tagName) {
+                throw new Error("Could not determine latest version from GitHub API.");
+              }
 
               const version = tagName.startsWith("v") ? tagName.substring(1) : tagName;
               const folderName = `frp_${version}_linux_${arch}`;
@@ -2324,7 +2403,8 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
               });
               execSync(`sudo chmod +x /usr/bin/nwct-server`, { encoding: "utf-8" });
               execSync(`rm -rf /tmp/${filename} /tmp/${folderName}`, { encoding: "utf-8" });
-              output += "Binary installed successfully to /usr/bin/nwct-server and temporary files removed.\n";
+              output +=
+                "Binary installed successfully to /usr/bin/nwct-server and temporary files removed.\n";
             } catch (dlError) {
               output += `Error during binary download/install: ${dlError instanceof Error ? dlError.message : String(dlError)}\n`;
               output += "Please install the binary manually to /usr/bin/nwct-server.\n";
@@ -2339,7 +2419,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/nwct-server -c ${configPath}
+ExecStart=${binPath} -c ${configPath}
 Restart=on-failure
 
 [Install]
@@ -2411,7 +2491,8 @@ WantedBy=multi-user.target
     {
       name: "openclaw_reset_frps",
       label: "OpenClaw Reset FRPS",
-      description: "Stop and disable nwct-server, remove its binary, config directory, and systemd service file from the VPS.",
+      description:
+        "Stop and disable nwct-server, remove its binary, config directory, and systemd service file from the VPS.",
       parameters: ResetFrpsSchema,
       execute: async () => {
         const { execSync } = await import("node:child_process");
@@ -2420,7 +2501,7 @@ WantedBy=multi-user.target
           execSync("sudo systemctl stop nwct-server || true", { encoding: "utf-8" });
           execSync("sudo systemctl disable nwct-server || true", { encoding: "utf-8" });
           output += "Stopped and disabled systemd service.\\n";
-          
+
           execSync("sudo rm -f /etc/systemd/system/nwct-server.service", { encoding: "utf-8" });
           execSync("sudo systemctl daemon-reload", { encoding: "utf-8" });
           output += "Removed systemd service file.\\n";
@@ -2428,10 +2509,15 @@ WantedBy=multi-user.target
           execSync("sudo rm -f /usr/bin/nwct-server", { encoding: "utf-8" });
           execSync("sudo rm -rf /etc/nwct", { encoding: "utf-8" });
           output += "Removed binary and configuration directory.\\n";
-          
-          return buildToolResult(output + "FRPS has been successfully reset.", { status: "success" });
+
+          return buildToolResult(output + "FRPS has been successfully reset.", {
+            status: "success",
+          });
         } catch (error) {
-          return buildToolResult(`Reset failed. Output: ${output}\\nError: ${error instanceof Error ? error.message : String(error)}`, { status: "error" });
+          return buildToolResult(
+            `Reset failed. Output: ${output}\\nError: ${error instanceof Error ? error.message : String(error)}`,
+            { status: "error" },
+          );
         }
       },
     },
@@ -2442,10 +2528,16 @@ WantedBy=multi-user.target
         "Automatically install WireGuard, enable IP forwarding, generate server keys, and configure wg0 with NAT on the VPS host.",
       parameters: DeployWgServerSchema,
       execute: async (_toolCallId, rawParams) => {
-        const args = rawParams as any;
+        const args = rawParams;
         const { execSync } = await import("node:child_process");
         const port = args.port || 51820;
         const tunnelIp = args.tunnelIp || "10.0.0.1/24";
+        if (!/^[\w.:/,\- ]+$/.test(tunnelIp)) {
+          return buildToolResult(
+            "Invalid tunnelIp format. Only alphanumeric and basic network punctuation allowed.",
+            { status: "error" },
+          );
+        }
         let output = "";
 
         try {
@@ -2508,8 +2600,10 @@ PrivateKey = ${serverPrivKey}
 PostUp = iptables -t nat -A POSTROUTING -o ${egressIf} -j MASQUERADE; iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT
 PostDown = iptables -t nat -D POSTROUTING -o ${egressIf} -j MASQUERADE; iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT
 `;
-          await fs.writeFile("/tmp/wg0.conf", confContent, "utf8");
-          execSync(`sudo mv /tmp/wg0.conf ${confPath}`, { encoding: "utf-8" });
+          const crypto = await import("node:crypto");
+          const tempFile = `/tmp/wg0-${crypto.randomBytes(8).toString("hex")}.conf`;
+          await fs.writeFile(tempFile, confContent, { encoding: "utf8", mode: 0o600 });
+          execSync(`sudo mv ${tempFile} ${confPath}`, { encoding: "utf-8" });
           execSync(`sudo chmod 600 ${confPath}`, { encoding: "utf-8" });
 
           // 6. Open UDP port (best effort)
@@ -2558,13 +2652,18 @@ PostDown = iptables -t nat -D POSTROUTING -o ${egressIf} -j MASQUERADE; iptables
       description: "Add a new peer (router) to the VPS WireGuard server configuration and reload.",
       parameters: AddWgPeerSchema,
       execute: async (_toolCallId, rawParams) => {
-        const args = rawParams as any;
+        const args = rawParams;
         const { execSync } = await import("node:child_process");
         const confPath = "/etc/wireguard/wg0.conf";
 
         try {
           const peerBlock = `\n[Peer]\nPublicKey = ${args.publicKey}\nAllowedIPs = ${args.allowedIps.join(", ")}\n${args.endpoint ? `Endpoint = ${args.endpoint}\n` : ""}`;
-          execSync(`echo "${peerBlock}" | sudo tee -a ${confPath}`, { encoding: "utf-8" });
+          const tempFile = `/tmp/wg0-peer-${Date.now()}.conf`;
+          const existingConf = execSync(`sudo cat ${confPath}`, { encoding: "utf-8" });
+          await fs.writeFile(tempFile, existingConf + peerBlock, "utf8");
+          execSync(`sudo chmod 600 ${tempFile} && sudo mv ${tempFile} ${confPath}`, {
+            encoding: "utf-8",
+          });
 
           // Reload without downtime
           execSync(`sudo wg syncconf wg0 <(sudo wg-quick strip wg0)`, {
@@ -2615,7 +2714,7 @@ PostDown = iptables -t nat -D POSTROUTING -o ${egressIf} -j MASQUERADE; iptables
       execute: async () => {
         let catalog = `# 龙虾WiFi (Claw WiFi) 功能清单与使用示例\n\n已识别龙虾WiFi 身份。以下是您可以使用的功能模块及其 Prompts 示例：\n`;
 
-        for (const [category, item] of Object.entries(PROMPT_EXAMPLES)) {
+        for (const [, item] of Object.entries(PROMPT_EXAMPLES)) {
           catalog += `\n### ${item.label}\n`;
           item.prompts.forEach((p) => {
             catalog += `- ${p}\n`;
@@ -2639,7 +2738,7 @@ const PROMPT_EXAMPLES: Record<string, { label: string; prompts: string[] }> = {
     label: "1. 基础管理与状态监控",
     prompts: [
       '**查询状态**: "帮我看看现在有哪些路由器在线，并报告一下它们的运行状态和负载情况。"',
-      '**设置 WiFi**: "把房间 101 的路由器 SSID 改成 \'Claw-Fast\'，密码设置为 \'claw123456\'，记得开启 5G 频段。"',
+      "**设置 WiFi**: \"把房间 101 的路由器 SSID 改成 'Claw-Fast'，密码设置为 'claw123456'，记得开启 5G 频段。\"",
       '**强制下线**: "把 MAC 地址是 AA:BB:CC:DD:EE:FF 的那个客户端踢掉。"',
       '**限速管理**: "给正在下载的大流量用户（IP: 192.168.1.50）限速，下行带宽控制在 2Mbps。"',
     ],
@@ -2663,9 +2762,9 @@ const PROMPT_EXAMPLES: Record<string, { label: string; prompts: string[] }> = {
   portal: {
     label: "4. 商用门户页 (Captive Portal)",
     prompts: [
-      '**生成咖啡厅页面**: "帮我为 \'瑞幸咖啡 101 店\' 设计一个认证页面。模板选 cafe，标题写 \'欢迎来到瑞幸\'，内容写 \'点击下方按钮即可享受极速网络\'，再加上几条上网规则。"',
-      '**企业办公页面**: "给公司会议室的路由器做一个 business 风格的页面。品牌名叫 \'字节跳动\'，网络名叫 \'ByteDance-Guest\'。"',
-      '**口令输入页**: "为我的私人无线网络生成一个入口。使用 voucher 模板，提示用户输入进场密码，输入框的占位符写 \'请输入今日暗号\'。"',
+      "**生成咖啡厅页面**: \"帮我为 '瑞幸咖啡 101 店' 设计一个认证页面。模板选 cafe，标题写 '欢迎来到瑞幸'，内容写 '点击下方按钮即可享受极速网络'，再加上几条上网规则。\"",
+      "**企业办公页面**: \"给公司会议室的路由器做一个 business 风格的页面。品牌名叫 '字节跳动'，网络名叫 'ByteDance-Guest'。\"",
+      "**口令输入页**: \"为我的私人无线网络生成一个入口。使用 voucher 模板，提示用户输入进场密码，输入框的占位符写 '请输入今日暗号'。\"",
     ],
   },
   social: {
