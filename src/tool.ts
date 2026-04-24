@@ -1,4 +1,5 @@
 import { promises as fs, constants as fsConstants } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { Type, type Static } from "@sinclair/typebox";
 import { optionalStringEnum, stringEnum } from "openclaw/plugin-sdk/core";
@@ -23,6 +24,10 @@ function getClientsFromResponse(response: JsonRecord): unknown[] {
   }
   const data = asObject(response.data);
   return Array.isArray(data?.clients) ? data.clients : [];
+}
+
+function redactFrpsConfigContent(configContent: string): string {
+  return configContent.replace(/^(auth\.token\s*=\s*).+$/gim, '$1"[REDACTED]"');
 }
 
 const DeviceIdField = Type.String({
@@ -2350,6 +2355,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         const configDir = "/etc/nwct";
         const configPath = path.join(configDir, "nwct-server.toml");
         const servicePath = "/etc/systemd/system/nwct-server.service";
+        let tempDir: string | undefined;
 
         let toml = `bindPort = ${args.port}\n`;
         if (args.token) {
@@ -2360,8 +2366,18 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         try {
           // 1. Ensure config directory
           execSync(`sudo mkdir -p ${configDir}`, { encoding: "utf-8" });
-          await fs.writeFile("/tmp/nwct-server.toml", toml, "utf8");
-          execSync(`sudo mv /tmp/nwct-server.toml ${configPath}`, { encoding: "utf-8" });
+          tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-wrt-nwct-"));
+          const writeSecureTempFile = async (fileName: string, content: string) => {
+            const tempPath = path.join(tempDir as string, fileName);
+            await fs.writeFile(tempPath, content, "utf8");
+            await fs.chmod(tempPath, 0o600);
+            return tempPath;
+          };
+
+          const configTempPath = await writeSecureTempFile("nwct-server.toml", toml);
+          execSync(`sudo install -o root -g root -m 600 ${configTempPath} ${configPath}`, {
+            encoding: "utf-8",
+          });
 
           // 2. Install binary if missing
           let binPath = "/usr/bin/nwct-server";
@@ -2398,10 +2414,9 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
 
               execSync(`curl -L -o /tmp/${filename} ${downloadUrl}`, { encoding: "utf-8" });
               execSync(`tar -C /tmp -zxvf /tmp/${filename}`, { encoding: "utf-8" });
-              execSync(`sudo mv /tmp/${folderName}/frps /usr/bin/nwct-server`, {
+              execSync(`sudo install -o root -g root -m 755 /tmp/${folderName}/frps /usr/bin/nwct-server`, {
                 encoding: "utf-8",
               });
-              execSync(`sudo chmod +x /usr/bin/nwct-server`, { encoding: "utf-8" });
               execSync(`rm -rf /tmp/${filename} /tmp/${folderName}`, { encoding: "utf-8" });
               output +=
                 "Binary installed successfully to /usr/bin/nwct-server and temporary files removed.\n";
@@ -2425,8 +2440,10 @@ Restart=on-failure
 [Install]
 WantedBy=multi-user.target
 `;
-          await fs.writeFile("/tmp/nwct-server.service", serviceContent, "utf8");
-          execSync(`sudo mv /tmp/nwct-server.service ${servicePath}`, { encoding: "utf-8" });
+          const serviceTempPath = await writeSecureTempFile("nwct-server.service", serviceContent);
+          execSync(`sudo install -o root -g root -m 644 ${serviceTempPath} ${servicePath}`, {
+            encoding: "utf-8",
+          });
 
           // 4. Reload and start
           execSync("sudo systemctl daemon-reload", { encoding: "utf-8" });
@@ -2438,6 +2455,10 @@ WantedBy=multi-user.target
             `Deployment failed. Output: ${output}\nError: ${error instanceof Error ? error.message : String(error)}`,
             { status: "error", output },
           );
+        } finally {
+          if (tempDir) {
+            await fs.rm(tempDir, { recursive: true, force: true });
+          }
         }
 
         return buildToolResult(`Deployment success.\nConfig: ${configPath}\nOutput: ${output}`, {
@@ -2463,6 +2484,7 @@ WantedBy=multi-user.target
           configContent = execSync(`sudo cat ${configPath}`, { encoding: "utf-8" });
           configExists = true;
         } catch {}
+        const redactedConfigContent = redactFrpsConfigContent(configContent);
 
         let serviceStatus = "Unknown";
         try {
@@ -2478,12 +2500,12 @@ WantedBy=multi-user.target
           }).trim();
         } catch {}
 
-        const details = `Service State: ${serviceStatus}\nConfig: ${configExists ? "Found" : "Not Found"}\nListening Ports:\n${portsInfo || "None"}\n\nConfig Content:\n${configContent}`;
+        const details = `Service State: ${serviceStatus}\nConfig: ${configExists ? "Found" : "Not Found"}\nListening Ports:\n${portsInfo || "None"}\n\nConfig Content:\n${redactedConfigContent}`;
 
         return buildToolResult(details, {
           serviceStatus,
           configExists,
-          configContent,
+          configContent: redactedConfigContent,
           portsInfo,
         });
       },
@@ -2603,8 +2625,9 @@ PostDown = iptables -t nat -D POSTROUTING -o ${egressIf} -j MASQUERADE; iptables
           const crypto = await import("node:crypto");
           const tempFile = `/tmp/wg0-${crypto.randomBytes(8).toString("hex")}.conf`;
           await fs.writeFile(tempFile, confContent, { encoding: "utf8", mode: 0o600 });
-          execSync(`sudo mv ${tempFile} ${confPath}`, { encoding: "utf-8" });
-          execSync(`sudo chmod 600 ${confPath}`, { encoding: "utf-8" });
+          execSync(`sudo install -o root -g root -m 600 ${tempFile} ${confPath}`, {
+            encoding: "utf-8",
+          });
 
           // 6. Open UDP port (best effort)
           output += "Attempting to open UDP port in firewall...\n";
@@ -2653,22 +2676,27 @@ PostDown = iptables -t nat -D POSTROUTING -o ${egressIf} -j MASQUERADE; iptables
       parameters: AddWgPeerSchema,
       execute: async (_toolCallId, rawParams) => {
         const args = rawParams;
-        const { execSync } = await import("node:child_process");
+        const { execFileSync, execSync } = await import("node:child_process");
         const confPath = "/etc/wireguard/wg0.conf";
+        const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-wrt-wg-peer-"));
 
         try {
           const peerBlock = `\n[Peer]\nPublicKey = ${args.publicKey}\nAllowedIPs = ${args.allowedIps.join(", ")}\n${args.endpoint ? `Endpoint = ${args.endpoint}\n` : ""}`;
-          const tempFile = `/tmp/wg0-peer-${Date.now()}.conf`;
           const existingConf = execSync(`sudo cat ${confPath}`, { encoding: "utf-8" });
+          const tempFile = path.join(tempDir, "wg0.conf");
           await fs.writeFile(tempFile, existingConf + peerBlock, "utf8");
-          execSync(`sudo chmod 600 ${tempFile} && sudo mv ${tempFile} ${confPath}`, {
+          await fs.chmod(tempFile, 0o600);
+          execSync(`sudo install -o root -g root -m 600 ${tempFile} ${confPath}`, {
             encoding: "utf-8",
           });
 
           // Reload without downtime
-          execSync(`sudo wg syncconf wg0 <(sudo wg-quick strip wg0)`, {
+          const strippedConf = execFileSync("sudo", ["wg-quick", "strip", "wg0"], {
             encoding: "utf-8",
-            shell: "/bin/bash",
+          });
+          execFileSync("sudo", ["wg", "syncconf", "wg0", "/dev/stdin"], {
+            encoding: "utf-8",
+            input: strippedConf,
           });
 
           return buildToolResult(`Peer added successfully.\nPublicKey: ${args.publicKey}`, {
@@ -2679,6 +2707,8 @@ PostDown = iptables -t nat -D POSTROUTING -o ${egressIf} -j MASQUERADE; iptables
             `Failed to add peer: ${error instanceof Error ? error.message : String(error)}`,
             { status: "error" },
           );
+        } finally {
+          await fs.rm(tempDir, { recursive: true, force: true });
         }
       },
     },

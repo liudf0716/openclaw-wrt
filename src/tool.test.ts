@@ -1,8 +1,44 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { renderPortalPageHtml } from "./portal-page-renderer.js";
 import { createClawWRTTools } from "./tool.js";
+
+function defaultExecSyncMockImpl(command: string) {
+  if (command.startsWith("which nwct-server")) {
+    return "/usr/bin/nwct-server\n";
+  }
+  if (command.startsWith("sudo cat /etc/nwct/nwct-server.toml")) {
+    return 'bindPort = 7000\nauth.token = "secret-token"\n';
+  }
+  if (command.startsWith("systemctl is-active nwct-server")) {
+    return "active\n";
+  }
+  if (command.startsWith("sudo ss -tulpn | grep nwct-server")) {
+    return 'tcp LISTEN 0 4096 0.0.0.0:7000 0.0.0.0:* users:(("nwct-server",pid=1234,fd=3))\n';
+  }
+  return "";
+}
+
+const { execSyncMock, execFileSyncMock } = vi.hoisted(() => ({
+  execSyncMock: vi.fn(defaultExecSyncMockImpl),
+  execFileSyncMock: vi.fn((file: string, args: string[] = []) => {
+    if (file === "sudo" && args[0] === "wg-quick" && args[1] === "strip") {
+      return "[Interface]\nAddress = 10.0.0.1/24\n";
+    }
+    return "";
+  }),
+}));
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    execSync: execSyncMock,
+    execFileSync: execFileSyncMock,
+  };
+});
 
 describe("openclaw-wrt intent tools", () => {
   it("router discovery and detail tools mention online and wireless router wording", () => {
@@ -26,6 +62,185 @@ describe("openclaw-wrt intent tools", () => {
     expect(getDeviceTool?.description).toContain("not the full runtime detail report");
     expect(getStatusTool?.description).toContain("detailed runtime status");
     expect(getStatusTool?.description).toContain("router details");
+  });
+
+  it("deploy frps uses secure temporary files for the config and systemd unit", async () => {
+    try {
+      execSyncMock.mockClear();
+
+      const bridge = {
+        listDevices() {
+          return [];
+        },
+        getDevice() {
+          return null;
+        },
+      };
+
+      const tool = createClawWRTTools({ bridge: bridge as never }).find(
+        (entry) => entry.name === "openclaw_deploy_frps",
+      );
+      expect(tool).toBeTruthy();
+
+      await tool?.execute?.("tool-deploy", {
+        port: 7000,
+      });
+
+      const installCommands = execSyncMock.mock.calls
+        .map(([command]) => command)
+        .filter(
+          (command): command is string =>
+            typeof command === "string" && command.startsWith("sudo install -o root -g root -m "),
+        );
+
+      expect(installCommands.some((command) => command.includes("sudo install -o root -g root -m 600 "))).toBe(true);
+      expect(installCommands.some((command) => command.includes("sudo install -o root -g root -m 644 "))).toBe(true);
+    } finally {
+      execSyncMock.mockClear();
+    }
+  });
+
+  it("deploy frps installs the binary as root-owned when nwct-server is missing", async () => {
+    const originalExecSyncImpl = execSyncMock.getMockImplementation() ?? defaultExecSyncMockImpl;
+    execSyncMock.mockImplementation((command: string) => {
+      if (command.startsWith("which nwct-server")) {
+        throw new Error("not found");
+      }
+      if (command.includes("api.github.com/repos/fatedier/frp/releases/latest")) {
+        return '{"tag_name":"v1.2.3"}';
+      }
+      if (command.startsWith("curl -L -o /tmp/frp_1.2.3_linux_amd64.tar.gz")) {
+        return "";
+      }
+      if (command.startsWith("tar -C /tmp -zxvf /tmp/frp_1.2.3_linux_amd64.tar.gz")) {
+        return "";
+      }
+      if (command.startsWith("sudo install -o root -g root -m 755 /tmp/frp_1.2.3_linux_amd64/frps /usr/bin/nwct-server")) {
+        return "";
+      }
+      return originalExecSyncImpl(command);
+    });
+
+    try {
+      const bridge = {
+        listDevices() {
+          return [];
+        },
+        getDevice() {
+          return null;
+        },
+      };
+
+      const tool = createClawWRTTools({ bridge: bridge as never }).find(
+        (entry) => entry.name === "openclaw_deploy_frps",
+      );
+      expect(tool).toBeTruthy();
+
+      await tool?.execute?.("tool-deploy-binary", {
+        port: 7000,
+      });
+
+      expect(
+        execSyncMock.mock.calls.some(
+          ([command]) =>
+            typeof command === "string" &&
+            command.includes("sudo install -o root -g root -m 755 /tmp/frp_1.2.3_linux_amd64/frps /usr/bin/nwct-server"),
+        ),
+      ).toBe(true);
+    } finally {
+      execSyncMock.mockImplementation(defaultExecSyncMockImpl);
+    }
+  });
+
+  it("frps status redacts the auth token from returned config content", async () => {
+    execSyncMock.mockClear();
+
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "openclaw_get_frps_status",
+    );
+    expect(tool).toBeTruthy();
+
+    const result = await tool?.execute?.("tool-status", {});
+    const resultText = (result as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? "";
+    const details = (result as { details?: Record<string, unknown> }).details;
+    const configContent = details?.configContent as string | undefined;
+
+    expect(resultText).toContain('auth.token = "[REDACTED]"');
+    expect(resultText).not.toContain("secret-token");
+    expect(configContent).toContain('auth.token = "[REDACTED]"');
+    expect(configContent).not.toContain("secret-token");
+  });
+
+  it("add wg peer uses a secure temp path and avoids shell chaining", async () => {
+    execSyncMock.mockClear();
+    execFileSyncMock.mockClear();
+
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "openclaw_add_wg_peer",
+    );
+    expect(tool).toBeTruthy();
+
+    await tool?.execute?.("tool-wg-peer", {
+      publicKey: "PUBLIC_KEY",
+      allowedIps: ["10.10.0.2/32"],
+      endpoint: "vpn.example.com:51820",
+    });
+
+    const installCommands = execSyncMock.mock.calls
+      .map(([command]) => command)
+      .filter(
+        (command): command is string =>
+          typeof command === "string" && command.startsWith("sudo install -o root -g root -m "),
+      );
+
+    expect(installCommands).toHaveLength(1);
+    expect(
+      execSyncMock.mock.calls.some(
+        ([command]) =>
+          typeof command === "string" &&
+          command.includes("sudo install -o root -g root -m 600 /tmp/openclaw-wrt-wg-peer-"),
+      ),
+    ).toBe(true);
+    expect(execSyncMock.mock.calls.some(([command]) => typeof command === "string" && command.includes("&&"))).toBe(false);
+    expect(execSyncMock.mock.calls.some(([command]) => typeof command === "string" && command.includes("<("))).toBe(false);
+
+    expect(execFileSyncMock.mock.calls).toHaveLength(2);
+    expect(execFileSyncMock.mock.calls[0][0]).toBe("sudo");
+    expect(execFileSyncMock.mock.calls[0][1]).toEqual(["wg-quick", "strip", "wg0"]);
+    expect(execFileSyncMock.mock.calls[1][0]).toBe("sudo");
+    expect(execFileSyncMock.mock.calls[1][1]).toEqual(["wg", "syncconf", "wg0", "/dev/stdin"]);
+  });
+
+  it("portal renderer rejects accentColor values that could break out of style blocks", () => {
+    const maliciousAccent = '#123456";}</style><script>alert(1)</script><style>';
+    const html = renderPortalPageHtml({
+      deviceId: "dev-portal",
+      content: {
+        accentColor: maliciousAccent,
+      },
+    });
+
+    expect(html).not.toContain(maliciousAccent);
+    expect(html).toContain("#3182ce");
+    expect(html).not.toContain("<script>alert(1)</script>");
   });
 
   it("kickoff tool resolves client IP from get_clients and infers gwId from a single gateway", async () => {

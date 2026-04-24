@@ -60,9 +60,18 @@ function pickPortalText(...values: unknown[]): string {
   return "";
 }
 
+function isSafePortalColor(value: string): boolean {
+  return (
+    /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6,8})$/.test(value) ||
+    /^(?:rgb|rgba|hsl|hsla)\(\s*[-+0-9.%\s/,]+\)$/.test(value) ||
+    /^[a-zA-Z][a-zA-Z-]*$/.test(value)
+  );
+}
+
 function portalColor(template?: PortalTemplate, accentColor?: string): string {
-  if (readPortalText(accentColor)) {
-    return accentColor!;
+  const candidate = readPortalText(accentColor);
+  if (candidate && isSafePortalColor(candidate)) {
+    return candidate;
   }
   // template-specific professional defaults
   switch (template) {
