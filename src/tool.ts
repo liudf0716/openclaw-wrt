@@ -1127,7 +1127,7 @@ function createListDevicesTool(bridge: ClawWRTBridge): AnyAgentTool {
       const devices = bridge.listDevices();
 
       const deviceStrings = devices
-        .map((d) => `- ${d.alias || "Router"} (ID: ${d.deviceId})`)
+        .map((d) => `- ${d.alias || "WiFi"} (ID: ${d.deviceId})`)
         .join("\n");
       const textOutput = `当前 ${devices.length} 台设备在线：\n\n${deviceStrings}`;
 

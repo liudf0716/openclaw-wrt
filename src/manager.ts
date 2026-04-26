@@ -478,7 +478,7 @@ export class ClawWRTBridge {
 
   private allocateAlias(excludingDeviceId?: string, reservedDeviceId?: string): string {
     while (true) {
-      const alias = `Router-${this.nextAliasId++}`;
+      const alias = `WiFi${this.nextAliasId++}`;
       if (this.isAliasAvailable(alias, excludingDeviceId, reservedDeviceId)) {
         return alias;
       }
