@@ -2191,7 +2191,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       name: "clawwrt_execute_shell",
       label: "OpenClaw WRT Execute Shell",
       description:
-        "Execute a shell command on the router. Use only when the user explicitly requests shell-level access.",
+        "Execute a raw shell command on the router. STRICT RULES: (1) NEVER call this tool to implement any Wi-Fi/router feature — always use the dedicated clawwrt_* API tools instead. (2) ONLY call this tool when the user has EXPLICITLY typed a shell command or said something like '执行命令'/'run command'/'shell'. (3) ALWAYS show the exact command to the user and WAIT for explicit approval BEFORE calling this tool. Calling without user approval is FORBIDDEN.",
       op: "shell",
       parameters: ShellCommandSchema,
       buildPayload: (rawParams) => {

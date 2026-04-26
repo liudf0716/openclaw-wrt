@@ -43,3 +43,42 @@ When a user explicitly asks for any of the following operations, call the low-le
 
 - `get_ipsec_vpn`, `set_ipsec_vpn`, `get_ipsec_vpn_status`.
 
+---
+
+## 🔒 Shell 接口安全策略（最高优先级）
+
+### 核心原则
+**所有路由器功能操作必须通过 `clawwrt_*` API 接口完成，严禁绕过 API 直接调用 Shell。**
+
+### `clawwrt_execute_shell` 使用条件（必须同时满足）
+
+1. **用户显式请求**：用户输入中必须包含明确的 shell/命令执行意图，例如：
+   - "执行命令 `xxx`"
+   - "run shell command"
+   - "帮我跑一下这个命令"
+   - 用户直接提供了一条 shell 命令字符串并要求执行
+
+2. **用户明确 Approve**：调用前必须向用户展示完整命令内容，并收到明确确认（"确认"/"yes"/"执行"等）后才能调用。
+
+### ❌ 绝对禁止的行为
+
+| 场景 | 错误做法 | 正确做法 |
+|------|----------|----------|
+| 踢下线客户端 | `clawwrt_execute_shell` 执行 `wdctlx reset <mac>` | `clawwrt_kickoff_client` |
+| 查看 WiFi 客户端列表 | shell 执行 `wdctlx status` | `clawwrt_get_clients` |
+| 配置 WiFi 参数 | shell 执行 `uci set wireless...` | `clawwrt_set_wifi_config` |
+| 配置 xfrpc | shell 修改配置文件 | `clawwrt_set_xfrpc_common` / `clawwrt_add_xfrpc_tcp_service` |
+| 任何 API 已覆盖的操作 | `clawwrt_execute_shell` | 对应的 `clawwrt_*` 工具 |
+
+### 判断流程
+
+```
+用户请求路由器操作
+      ↓
+是否有对应的 clawwrt_* API 工具？
+  ├─ 是 → 直接调用 API 工具，禁止用 shell
+  └─ 否 → 用户是否显式要求执行 shell 命令？
+            ├─ 否 → 告知用户该操作暂不支持，禁止用 shell
+            └─ 是 → 展示命令 → 等待用户 Approve → 调用 clawwrt_execute_shell
+```
+
