@@ -766,8 +766,11 @@ export class ClawWRTBridge {
         const data = fs.readFileSync(file, "utf8");
         const json = JSON.parse(data) as Record<string, string>;
         for (const [deviceId, alias] of Object.entries(json)) {
-          this.deviceAliases.set(deviceId, alias);
-          const match = /^Router-(\d+)$/.exec(alias);
+          // Migrate legacy Router-N aliases to WiFiN
+          const legacyMatch = /^Router-(\d+)$/.exec(alias);
+          const normalizedAlias = legacyMatch ? `WiFi${legacyMatch[1]}` : alias;
+          this.deviceAliases.set(deviceId, normalizedAlias);
+          const match = /^WiFi(\d+)$/i.exec(normalizedAlias);
           if (match) {
             const id = parseInt(match[1], 10);
             if (id >= this.nextAliasId) {
