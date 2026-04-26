@@ -414,6 +414,10 @@ const ShellCommandSchema = Type.Object(
   {
     deviceId: DeviceIdField,
     command: Type.String({ minLength: 1, maxLength: 4096 }),
+    userConfirmed: Type.Boolean({
+      description:
+        "MUST be true to execute. You MUST first show the exact command to the user and receive an explicit confirmation ('yes'/'确认'/'执行' etc.) before setting this to true. Setting this to true without user confirmation is a security violation.",
+    }),
     timeoutSeconds: Type.Optional(
       Type.Integer({
         minimum: 1,
@@ -2186,31 +2190,40 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         return `Requested Wi-Fi relay deletion on ${args.deviceId}.`;
       },
     }),
-    createSimpleOperationTool({
-      bridge,
+    {
       name: "clawwrt_execute_shell",
       label: "OpenClaw WRT Execute Shell",
       description:
         "Execute a raw shell command on the router. STRICT RULES: (1) NEVER call this tool to implement any Wi-Fi/router feature — always use the dedicated clawwrt_* API tools instead. (2) ONLY call this tool when the user has EXPLICITLY typed a shell command or said something like '执行命令'/'run command'/'shell'. (3) ALWAYS show the exact command to the user and WAIT for explicit approval BEFORE calling this tool. Calling without user approval is FORBIDDEN.",
-      op: "shell",
       parameters: ShellCommandSchema,
-      buildPayload: (rawParams) => {
+      execute: async (_toolCallId, rawParams) => {
         const args = rawParams as ShellCommandParams;
+        if (args.userConfirmed !== true) {
+          return buildToolResult(
+            `⚠️ Shell 命令需要用户确认后才能执行。\n\n` +
+            `即将在设备 ${args.deviceId.trim()} 上执行以下命令：\n\`\`\`\n${args.command}\n\`\`\`\n\n` +
+            `请向用户展示以上命令，并等待用户明确回复"确认"/"yes"/"执行"后，再以 userConfirmed=true 重新调用本工具。`,
+            { pendingApproval: true, command: args.command, deviceId: args.deviceId.trim() },
+          );
+        }
+        const device = bridge.getDevice(args.deviceId.trim());
+        if (!device) {
+          throw new Error(`Device ${args.deviceId.trim()} not found or offline`);
+        }
         const payload: JsonRecord = { command: args.command };
         if (typeof args.timeoutSeconds === "number") {
           payload.timeout = args.timeoutSeconds;
         }
-        return {
+        const response = await callDeviceOp({
+          bridge,
           deviceId: args.deviceId.trim(),
+          op: "shell",
           payload,
           timeoutMs: args.timeoutMs,
-        };
+        });
+        return buildToolResult(`Shell 命令已在 ${args.deviceId.trim()} 上执行。`, { response });
       },
-      summarize: (_response, rawParams) => {
-        const args = rawParams as ShellCommandParams;
-        return `Executed shell command on ${args.deviceId}.`;
-      },
-    }),
+    },
     createSimpleOperationTool({
       bridge,
       name: "clawwrt_get_speedtest_servers",
