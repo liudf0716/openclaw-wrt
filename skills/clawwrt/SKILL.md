@@ -16,6 +16,17 @@ When a user asks to manage, list, configure, or query routers (路由器), devic
 
 Prefer the specific `clawwrt_*` tools over the low-level `clawwrt` tool for router management.
 
+## ⚠️ 任务专属工作流委派（优先级高于本 Skill 的通用规则）
+
+以下任务有独立的专属 Skill，**必须完全遵循该 Skill 的流程**，禁止回退到本 Skill 的通用路由器操作逻辑：
+
+| 用户意图 | 专属 Skill | 第一步 |
+|---------|-----------|--------|
+| 内网穿透 / 穿透 / 映射端口 / 远程访问路由器 / xfrpc 配置 | `frps-deployment` | 立即调用 `openclaw_get_frps_status`，禁止先列设备 |
+| WireGuard VPN 部署 / 组网 / VPN 隧道 | `wireguard-deployment` | 遵循该 Skill 的入口步骤 |
+
+❌ **禁止**：收到上述任务请求时先调用 `clawwrt_list_devices` 或询问路由器信息。必须先执行专属 Skill 指定的服务端检查步骤。
+
 
 ## Captive Portal Page Workflow
 

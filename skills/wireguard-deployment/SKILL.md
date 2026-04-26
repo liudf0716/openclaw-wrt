@@ -23,9 +23,24 @@ This skill is server-side only. If you need a router/client WireGuard tunnel, us
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
+## ⚡ 工作流入口（收到任何 WireGuard VPN 请求后的第一步）
+
+❌ **严禁**：收到请求后先询问用户任何问题、先列出路由器设备、先询问 VPS IP 或密钥。
+
+✅ **必须**：**立即调用 `openclaw_get_wg_status`** 检查服务端当前状态，根据返回结果决定后续路径：
+
+| 返回状态 | 下一步 |
+|----------|--------|
+| 未安装 / 未运行 | → 直接进入 **Phase 1**，自动部署，不询问任何参数 |
+| 已运行，peers 正常 | → 告知用户当前状态，询问是否需要添加新路由器 peer，进入 **Phase 2** |
+| 已运行，但无 peer | → 询问目标路由器后进入 **Phase 2** |
+
+---
+
 ## Quick Start (E2E Deployment)
 
 ### Phase 1: Server Setup (VPS)
+❌ **严禁**：在调用 `openclaw_deploy_wg_server` 前向用户询问任何参数。直接使用工具默认值部署，部署完成后再将公钥告知用户。
 1. **Automated Deployment**: Use `openclaw_deploy_wg_server` to install WireGuard, enable forwarding, and set up the `wg0` interface.
 2. **Collect Public Key**: The tool will return the **Server PublicKey**. You will need this for the router configuration.
 
