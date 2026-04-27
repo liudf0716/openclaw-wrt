@@ -2407,9 +2407,12 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
           });
 
           // 2. Install binary if missing
-          let binPath = "/usr/bin/nwct-server";
+          const binPath = "/usr/bin/nwct-server";
+          let binExists = false;
           try {
-            binPath = execSync("which nwct-server", { encoding: "utf-8" }).trim();
+            // Check if binary exists and is executable
+            execSync(`test -x ${binPath}`, { encoding: "utf-8" });
+            binExists = true;
             output += `nwct-server binary already exists at ${binPath}.\n`;
           } catch {
             output += "nwct-server binary not found. Downloading latest version from GitHub...\n";
@@ -2421,10 +2424,10 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
               };
               const arch = archMap[process.arch] || "amd64";
 
-              // Get latest version via GitHub API
+              // Get latest version via GitHub API with timeout
               const latestJson = execSync(
-                "curl -s --connect-timeout 10 https://api.github.com/repos/fatedier/frp/releases/latest",
-                { encoding: "utf-8" },
+                "curl -s --max-time 30 --connect-timeout 10 https://api.github.com/repos/fatedier/frp/releases/latest",
+                { encoding: "utf-8", timeout: 35000 },
               );
               const latestInfo = JSON.parse(latestJson);
               const tagName = latestInfo.tag_name;
@@ -2439,9 +2442,9 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
 
               output += `Target version: ${tagName}, Arch: ${arch}\nDownloading from: ${downloadUrl}\n`;
 
-              execSync(`curl -L -o /tmp/${filename} ${downloadUrl}`, { encoding: "utf-8" });
+              execSync(`curl -L --max-time 120 --connect-timeout 10 -o /tmp/${filename} ${downloadUrl}`, { encoding: "utf-8", timeout: 125000 });
               execSync(`tar -C /tmp -zxvf /tmp/${filename}`, { encoding: "utf-8" });
-              execSync(`sudo install -o root -g root -m 755 /tmp/${folderName}/frps /usr/bin/nwct-server`, {
+              execSync(`sudo install -o root -g root -m 755 /tmp/${folderName}/frps ${binPath}`, {
                 encoding: "utf-8",
               });
               execSync(`rm -rf /tmp/${filename} /tmp/${folderName}`, { encoding: "utf-8" });
@@ -2449,7 +2452,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
                 "Binary installed successfully to /usr/bin/nwct-server and temporary files removed.\n";
             } catch (dlError) {
               output += `Error during binary download/install: ${dlError instanceof Error ? dlError.message : String(dlError)}\n`;
-              output += "Please install the binary manually to /usr/bin/nwct-server.\n";
+              output += "Please install the binary manually to /usr/bin/nwct-server or check network connectivity.\n";
               throw dlError;
             }
           }
@@ -2541,7 +2544,7 @@ WantedBy=multi-user.target
       name: "openclaw_reset_frps",
       label: "OpenClaw Reset FRPS",
       description:
-        "Stop and disable nwct-server, remove its binary, config directory, and systemd service file from the VPS.",
+        "Stop and disable nwct-server, remove config directory and systemd service file from the VPS. Binary is preserved for future deployments.",
       parameters: ResetFrpsSchema,
       execute: async () => {
         const { execSync } = await import("node:child_process");
@@ -2555,9 +2558,8 @@ WantedBy=multi-user.target
           execSync("sudo systemctl daemon-reload", { encoding: "utf-8" });
           output += "Removed systemd service file.\\n";
 
-          execSync("sudo rm -f /usr/bin/nwct-server", { encoding: "utf-8" });
           execSync("sudo rm -rf /etc/nwct", { encoding: "utf-8" });
-          output += "Removed binary and configuration directory.\\n";
+          output += "Removed configuration directory. Binary preserved at /usr/bin/nwct-server for future deployments.\\n";
 
           return buildToolResult(output + "FRPS has been successfully reset.", {
             status: "success",
