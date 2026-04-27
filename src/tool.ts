@@ -2357,6 +2357,18 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         return `Added XFRPC TCP service '${args.name}' on ${args.deviceId}.`;
       },
     }),
+    createSimpleOperationTool({
+      bridge,
+      name: "clawwrt_restart_xfrpc",
+      label: "OpenClaw WRT Restart XFRPC",
+      description:
+        "Restart router XFRPC intranet penetration client service by running /etc/init.d/xfrpc restart.",
+      op: "restart_xfrpc",
+      summarize: (_response, rawParams) => {
+        const args = rawParams as DeviceOnlyParams;
+        return `Restarted XFRPC service on ${args.deviceId}.`;
+      },
+    }),
     {
       name: "openclaw_deploy_frps",
       label: "OpenClaw Deploy FRPS",

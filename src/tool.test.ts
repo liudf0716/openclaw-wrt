@@ -1530,4 +1530,41 @@ describe("openclaw-wrt intent tools", () => {
       },
     });
   });
+
+  it("restart xfrpc tool sends restart_xfrpc op", async () => {
+    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+      async callDevice(params: {
+        deviceId: string;
+        op: string;
+        payload?: Record<string, unknown>;
+      }) {
+        calls.push(params);
+        return {
+          type: "restart_xfrpc_response",
+          status: "ok",
+        };
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "clawwrt_restart_xfrpc",
+    );
+
+    await tool?.execute?.("tool-restart-xfrpc", {
+      deviceId: "dev-1",
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      deviceId: "dev-1",
+      op: "restart_xfrpc",
+    });
+  });
 });
