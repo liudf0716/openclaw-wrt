@@ -569,6 +569,22 @@ const DeployFrpsSchema = Type.Object(
 
 const ResetFrpsSchema = Type.Object({}, { additionalProperties: false });
 
+const ResetWireguardVpnSchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    interface: Type.Optional(
+      Type.String({ minLength: 1, description: "WireGuard interface name to reset. Defaults to wg0." }),
+    ),
+    flushRoutes: Type.Optional(
+      Type.Boolean({
+        description: "Whether to flush static routes bound to the WireGuard interface. Defaults to true.",
+      }),
+    ),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
 const SetVpnRoutesSchema = Type.Object(
   {
     deviceId: DeviceIdField,
@@ -664,6 +680,20 @@ const AddWgPeerSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const ResetWgServerSchema = Type.Object(
+  {
+    interface: Type.Optional(
+      Type.String({ minLength: 1, description: "WireGuard interface name to reset. Defaults to wg0." }),
+    ),
+    removeKeys: Type.Optional(
+      Type.Boolean({
+        description: "Whether to remove server key files under /etc/wireguard. Defaults to true.",
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 const RunSpeedtestSchema = Type.Object(
   {
     deviceId: DeviceIdField,
@@ -703,6 +733,8 @@ type BpfUpdateAllParams = Static<typeof BpfUpdateAllSchema>;
 type SetVpnRoutesParams = Static<typeof SetVpnRoutesSchema>;
 type SetVpnDomainRoutesParams = Static<typeof SetVpnDomainRoutesSchema>;
 type DeleteVpnRoutesParams = Static<typeof DeleteVpnRoutesSchema>;
+type ResetWireguardVpnParams = Static<typeof ResetWireguardVpnSchema>;
+type ResetWgServerParams = Static<typeof ResetWgServerSchema>;
 
 type BpfJsonTable = "ipv4" | "ipv6" | "mac" | "sid" | "l7";
 
@@ -1902,6 +1934,34 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         return `Updated WireGuard VPN config for ${args.deviceId}.`;
       },
     }),
+    createSimpleOperationTool({
+      bridge,
+      name: "clawwrt_reset_wireguard_vpn",
+      label: "OpenClaw WRT Reset WireGuard VPN",
+      description:
+        "Reset router-side WireGuard VPN configuration (default interface wg0), including peer definitions and tunnel routes.",
+      op: "reset_wireguard_vpn",
+      parameters: ResetWireguardVpnSchema,
+      buildPayload: (rawParams) => {
+        const args = rawParams as ResetWireguardVpnParams;
+        const payload: JsonRecord = {};
+        if (typeof args.interface === "string") {
+          payload.interface = args.interface;
+        }
+        if (typeof args.flushRoutes === "boolean") {
+          payload.flush_routes = args.flushRoutes;
+        }
+        return {
+          deviceId: args.deviceId.trim(),
+          payload: { data: payload },
+          timeoutMs: args.timeoutMs,
+        };
+      },
+      summarize: (_response, rawParams) => {
+        const args = rawParams as ResetWireguardVpnParams;
+        return `Reset WireGuard VPN config on ${args.deviceId}.`;
+      },
+    }),
     {
       name: "clawwrt_get_wireguard_vpn_status",
       label: "OpenClaw WRT Get WireGuard VPN Status",
@@ -2568,6 +2628,59 @@ WantedBy=multi-user.target
           return buildToolResult(
             `Reset failed. Output: ${output}\\nError: ${error instanceof Error ? error.message : String(error)}`,
             { status: "error" },
+          );
+        }
+      },
+    },
+    {
+      name: "openclaw_reset_wg_server",
+      label: "OpenClaw Reset WireGuard Server",
+      description:
+        "Reset VPS-side WireGuard server configuration by stopping wg-quick, removing interface config, and optionally removing server key files.",
+      parameters: ResetWgServerSchema,
+      execute: async (_toolCallId, rawParams) => {
+        const args = rawParams as ResetWgServerParams;
+        const { execSync } = await import("node:child_process");
+        const iface = (args.interface ?? "wg0").trim() || "wg0";
+        const removeKeys = args.removeKeys ?? true;
+
+        if (!/^[a-zA-Z0-9_.@-]+$/.test(iface)) {
+          return buildToolResult("Invalid WireGuard interface name.", { status: "error" });
+        }
+
+        let output = "";
+        try {
+          execSync(`sudo systemctl stop wg-quick@${iface} || true`, { encoding: "utf-8" });
+          execSync(`sudo systemctl disable wg-quick@${iface} || true`, { encoding: "utf-8" });
+          execSync(`sudo wg-quick down ${iface} >/dev/null 2>&1 || true`, { encoding: "utf-8" });
+          output += `Stopped and disabled wg-quick@${iface}.\n`;
+
+          execSync(`sudo rm -f /etc/wireguard/${iface}.conf`, { encoding: "utf-8" });
+          output += `Removed /etc/wireguard/${iface}.conf.\n`;
+
+          if (removeKeys) {
+            execSync("sudo rm -f /etc/wireguard/server_private.key /etc/wireguard/server_public.key", {
+              encoding: "utf-8",
+            });
+            output += "Removed server key files.\n";
+          }
+
+          execSync("sudo rm -f /etc/sysctl.d/99-wireguard.conf", { encoding: "utf-8" });
+          output += "Removed WireGuard sysctl config file.\n";
+
+          return buildToolResult(`WireGuard server reset success.\n${output}`, {
+            status: "success",
+            interface: iface,
+            removeKeys,
+          });
+        } catch (error) {
+          return buildToolResult(
+            `WireGuard server reset failed. Output: ${output}\nError: ${error instanceof Error ? error.message : String(error)}`,
+            {
+              status: "error",
+              interface: iface,
+              removeKeys,
+            },
           );
         }
       },

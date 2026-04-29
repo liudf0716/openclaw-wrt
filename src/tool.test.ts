@@ -1026,6 +1026,79 @@ describe("openclaw-wrt intent tools", () => {
     });
   });
 
+  it("wireguard reset tool maps payload to reset_wireguard_vpn data schema", async () => {
+    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+      async callDevice(params: {
+        deviceId: string;
+        op: string;
+        payload?: Record<string, unknown>;
+      }) {
+        calls.push(params);
+        return { type: "reset_wireguard_vpn_response", status: "success" };
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "clawwrt_reset_wireguard_vpn",
+    );
+
+    await tool?.execute?.("tool-wg-reset", {
+      deviceId: "dev-wg",
+      interface: "wg0",
+      flushRoutes: true,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      deviceId: "dev-wg",
+      op: "reset_wireguard_vpn",
+      payload: {
+        data: {
+          interface: "wg0",
+          flush_routes: true,
+        },
+      },
+    });
+  });
+
+  it("openclaw reset wg server runs stop/disable and removes wg config", async () => {
+    execSyncMock.mockClear();
+
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "openclaw_reset_wg_server",
+    );
+    expect(tool).toBeTruthy();
+
+    await tool?.execute?.("tool-wg-server-reset", {
+      interface: "wg0",
+      removeKeys: true,
+    });
+
+    const commands = execSyncMock.mock.calls
+      .map(([command]) => command)
+      .filter((command): command is string => typeof command === "string");
+
+    expect(commands).toContain("sudo systemctl stop wg-quick@wg0 || true");
+    expect(commands).toContain("sudo systemctl disable wg-quick@wg0 || true");
+    expect(commands).toContain("sudo rm -f /etc/wireguard/wg0.conf");
+  });
+
   it("bpf flush tool targets the selected table", async () => {
     const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
     const bridge = {

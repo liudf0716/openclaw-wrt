@@ -1,66 +1,190 @@
 ---
 name: wireguard-deployment
-description: VPS and cloud-host WireGuard server deployment guide for OpenClaw. Covers server setup, peer management, NAT/forwarding, route policy, and observability. Router/client setup is handled by clawwrt.
+description: 龙虾WiFi WireGuard VPN 组网部署指南。涵盖 VPS 服务端部署、路由器客户端配置、peer 管理、NAT/转发、路由策略及状态验证。路由器侧操作由 clawwrt 工具集完成。
 user-invocable: true
 ---
 
-# WireGuard Server Deployment Guide
+# WireGuard VPN 组网部署指南
 
-Build and operate the WireGuard server on an **OpenClaw VPS host** or other cloud Linux host so it can relay traffic for connected 龙虾WiFi routers. Router/client setup is handled separately by `clawwrt`.
+在 **OpenClaw VPS / 云主机**上部署 WireGuard 服务端，龙虾WiFi路由器作为客户端接入，客户端之间的流量通过 VPS 中转。路由器侧配置由 `clawwrt` 工具集完成。
 
-This skill is server-side only. If you need a router/client WireGuard tunnel, use the `clawwrt` workflow. If you need a single host to act as both a WireGuard server and an upstream WireGuard client, treat that as two separate configurations and keep the server-side and client-side steps isolated.
-
-## Architecture
+## 网络拓扑
 
 ```text
-┌──────────────────────────────────────────────────────────────────────────┐
-│  OpenClaw VPS / Cloud Host                                               │
-│                                                                          │
-│  WireGuard server (wg0)                                                  │
-│  - peers from router/client side                                        │
-│  - NAT / forwarding                                                       │
-│  - selective / full-tunnel / domain route policy                         │
-└──────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│  OpenClaw VPS / 云主机                              │
+│                                                     │
+│  WireGuard 服务端 (wg0)                             │
+│  - 接受路由器 peer 连接                             │
+│  - NAT / IP 转发                                    │
+│  - 支持分流 / 全隧道 / 域名路由策略                 │
+└─────────────────────────────────────────────────────┘
+              ↑ WireGuard 隧道
+┌─────────────────────────────────────────────────────┐
+│  龙虾WiFi 路由器（clawwrt 客户端）                  │
+│  - 生成密钥对，作为 peer 注册到服务端               │
+│  - 配置隧道 IP 及路由策略                           │
+└─────────────────────────────────────────────────────┘
 ```
-
-## ⚡ 工作流入口（收到任何 WireGuard VPN 请求后的第一步）
-
-❌ **严禁**：收到请求后先询问用户任何问题、先列出路由器设备、先询问 VPS IP 或密钥。
-
-✅ **必须**：**立即调用 `openclaw_get_wg_status`** 检查服务端当前状态，根据返回结果决定后续路径：
-
-| 返回状态 | 下一步 |
-|----------|--------|
-| 未安装 / 未运行 | → 直接进入 **Phase 1**，自动部署，不询问任何参数 |
-| 已运行，peers 正常 | → 告知用户当前状态，询问是否需要添加新路由器 peer，进入 **Phase 2** |
-| 已运行，但无 peer | → 询问目标路由器后进入 **Phase 2** |
 
 ---
 
-## Quick Start (E2E Deployment)
+## ⚡ 工作流入口（收到任何 WireGuard VPN 请求后的第一步）
 
-### Phase 1: Server Setup (VPS)
-❌ **严禁**：在调用 `openclaw_deploy_wg_server` 前向用户询问任何参数。直接使用工具默认值部署，部署完成后再将公钥告知用户。
-1. **Automated Deployment**: Use `openclaw_deploy_wg_server` to install WireGuard, enable forwarding, and set up the `wg0` interface.
-2. **Collect Public Key**: The tool will return the **Server PublicKey**. You will need this for the router configuration.
+❌ **严禁**：收到请求后先向用户询问 VPS IP、密钥或设备信息等参数。
 
-### Phase 2: Peer Registration (VPS)
-1. **Generate Router Keys**: Use `clawwrt_generate_wireguard_keys` on the target router to get its **PublicKey**.
-2. **Add Peer to Server**: Call `openclaw_add_wg_peer` on the VPS with the router's PublicKey and assigned tunnel IP (e.g., `10.0.0.2/32`).
+✅ **必须**：同时并行执行以下两步：
+1. **调用 `openclaw_get_wg_status`** 检查 VPS 服务端当前状态。
+2. **调用 `clawwrt_list_devices`** 获取当前在线的龙虾WiFi设备列表。
 
-### Phase 3: Client Configuration (Router)
-1. **Push Config**: Use `clawwrt_set_wireguard_vpn` to configure the router. Use the Server PublicKey, VPS Public IP, and the assigned tunnel IP.
-   - **CRITICAL**: Never set `route_allowed_ips: 1` with `allowed_ips: 0.0.0.0/0`. Always set `route_allowed_ips: 0` and manage routes explicitly via `clawwrt_set_vpn_routes`.
-2. **Set Routes**: Apply routing policies via `clawwrt_set_vpn_routes` or `clawwrt_set_vpn_domain_routes`.
+根据两步结果综合决策后续路径：
 
-### Phase 4: Verification
-1. **Check Status**: Use `clawwrt_get_wireguard_vpn_status` and `openclaw_get_wg_status` to confirm the tunnel is up. (Expected: Handshake within last 2 minutes, RX/TX bytes increasing).
-2. **Ping Test**: Attempt bidirectional pings between the VPS tunnel IP and router tunnel IP.
+| 服务端状态 | 在线设备数 | 下一步 |
+|------------|------------|--------|
+| 未安装 / 未运行 | 任意 | → 展示在线设备列表 → 进入**第一阶段**部署服务端 |
+| 已运行，peers 正常 | ≥ 1 | → 展示在线设备列表，告知当前 VPN 运行状态，询问是否为新设备添加 peer → 进入**第二阶段** |
+| 已运行，但无 peer | ≥ 1 | → 展示在线设备列表，引导用户选择哪台设备作为 VPN 客户端 → 进入**第二阶段** |
+| 任意 | 0 | → 告知用户：当前无龙虾WiFi设备在线，无法执行客户端配置。请先确保路由器已上电并连接到 OpenClaw |
 
-## ⚠️ Anti-Lockout Rules (MANDATORY)
+### 在线设备展示格式
 
-These rules **must** be followed to prevent loss of connectivity to the router agent:
-1. **Always start with `selective` mode.** Route only specific IPs/CIDRs first.
-2. **Never use `full_tunnel` mode without first adding the VPS public IP to `excludeIps`.** This prevents a routing loop that breaks the WebSocket.
-3. **Emergency Recovery**: If locked out by `full_tunnel`, you can reboot the router (VPN routes are kernel-only and won't persist) or run `clawwrt_delete_vpn_routes` with `flush_all: true` once reconnected.
+调用 `clawwrt_list_devices` 后，以表格形式向用户展示结果，便于识别目标设备：
+
+```
+当前在线龙虾WiFi设备：
+┌─────────────────────────────┬──────────────────────┬──────────────────┐
+│ 设备ID                      │ 最近在线时间         │ 网关IP           │
+├─────────────────────────────┼──────────────────────┼──────────────────┤
+│ device-abc123               │ 2分钟前              │ 192.168.1.1      │
+│ device-def456               │ 5分钟前              │ 192.168.2.1      │
+└─────────────────────────────┴──────────────────────┴──────────────────┘
+请问您希望将哪台（或哪几台）设备配置为 WireGuard VPN 客户端？
+```
+
+**设备选择规则：**
+- 仅一台在线：默认选择该设备，但须明确告知用户并等待确认。
+- 多台在线：明确询问用户，支持多选（可批量配置）。
+- 用户无法通过设备ID识别：引导用户通过网关IP（路由器LAN地址）辨认。
+
+---
+
+## 部署流程
+
+### 第零阶段：重置（可选）
+
+> 适用场景：用户要求清除现有 WireGuard 配置、重新部署，或排查隧道故障。
+
+⚠️ **重置为不可逆操作，执行前必须向用户展示目标设备并获得明确确认。**
+
+1. **确认重置范围**：调用 `clawwrt_list_devices` 展示在线设备，询问用户需要重置哪台或哪几台路由器的客户端配置。
+   > 引导语示例：「当前在线设备如下，请确认需要重置 WireGuard 配置的路由器（可多选）：」
+2. **重置服务端**：调用 `openclaw_reset_wg_server`，清除 VPS 侧 `wg0` 接口、服务端密钥及 IP 转发配置。
+3. **重置客户端**：对用户确认的每台设备调用 `clawwrt_reset_wireguard_vpn`，清除该路由器的 WireGuard 配置及隧道路由。
+
+---
+
+### 第一阶段：部署服务端（VPS）
+
+❌ **严禁**：调用 `openclaw_deploy_wg_server` 前向用户询问任何参数，直接使用工具默认值自动部署。
+
+> ☁️ **云平台安全组提醒**
+>
+> 若 VPS 托管在阿里云、腾讯云、AWS、Azure 等云平台，**必须在云控制台的安全组/防火墙规则中手动放行 UDP 51820 端口**（入站方向，来源 `0.0.0.0/0`），否则路由器将无法穿透云平台网络层与服务端建立隧道。VPS 系统内的防火墙规则由工具自动处理，无需手动操作。
+>
+> 请向用户确认：**是否已在云平台控制台放行 UDP 51820？** 确认后再继续。
+
+1. **自动部署**：调用 `openclaw_deploy_wg_server`，自动完成 WireGuard 安装、IP 转发开启及 `wg0` 接口初始化。
+2. **获取公钥**：工具返回**服务端公钥（Server PublicKey）**，后续路由器配置需要用到，请记录并告知用户。
+
+---
+
+### 第二阶段：注册 Peer（VPS 侧）
+
+> **设备选择（必须先确认）**：若已在入口步骤获取在线设备列表，直接复用结果；否则先调用 `clawwrt_list_devices` 并引导用户指定目标设备。
+>
+> 多台设备时，逐台执行以下步骤，为每台分配**独立的隧道 IP**（如 `10.0.0.2/32`、`10.0.0.3/32`），避免 IP 冲突。
+
+1. **生成路由器密钥**：在目标路由器（按用户确认的 deviceId）上调用 `clawwrt_generate_wireguard_keys`，获取该路由器的**客户端公钥**。
+2. **向服务端注册 peer**：调用 `openclaw_add_wg_peer`，传入客户端公钥及 `allowedIps`，将路由器注册为服务端 peer。
+   - **仅隧道互通**（默认）：`allowedIps = ["10.0.0.2/32"]`
+   - **需要 LAN 子网互通**：`allowedIps = ["10.0.0.2/32", "192.168.1.0/24"]`，将该路由器的 LAN 段一并声明，VPS 才能将目标为该 LAN 的包转发给此 peer。
+
+---
+
+### 第三阶段：配置客户端（路由器侧）
+
+> **设备确认**：基于第二阶段用户已确认的设备列表，依次对每台设备操作。每次操作前明确告知用户：「正在配置设备：<deviceId>（网关：<gateway>）」，避免混淆。
+
+1. **推送隧道配置**：对目标设备调用 `clawwrt_set_wireguard_vpn`，传入服务端公钥、VPS 公网 IP 及该设备的隧道 IP。
+   - ⚠️ **严禁**：同时设置 `route_allowed_ips: 1` 与 `allowed_ips: 0.0.0.0/0`，否则会导致路由环路断连。务必设置 `route_allowed_ips: 0`，通过 `clawwrt_set_vpn_routes` 手动管理路由。
+2. **配置路由策略**：调用 `clawwrt_set_vpn_routes` 或 `clawwrt_set_vpn_domain_routes` 应用分流或域名路由策略。
+   - **需要 LAN 子网互通时**：还需为每台路由器添加指向**其他路由器 LAN 段**的隧道路由（详见第五阶段）。
+3. **批量进度报告**：若配置多台设备，每完成一台向用户报告进度，如「✅ device-abc123 配置完成（1/2）」，完成所有设备后汇总结果。
+
+---
+
+### 第四阶段：验证连通性
+
+1. **检查隧道状态**：
+   - 调用 `clawwrt_get_wireguard_vpn_status` 检查路由器侧隧道状态（预期：握手时间在 2 分钟内，RX/TX 字节数持续增长）。
+   - 调用 `openclaw_get_wg_status` 检查服务端 peer 状态。
+2. **连通性测试**：在 VPS 隧道 IP 与路由器隧道 IP 之间进行双向 ping 测试，确认数据包正常转发。
+
+---
+
+### 第五阶段：LAN 子网互通（可选）
+
+> 适用场景：用户希望不同龙虾WiFi路由器下挂的局域网设备（如 `192.168.1.x` 与 `192.168.2.x`）能够互相访问，流量经 VPS 中转。
+
+#### 数据流示意
+
+```
+192.168.1.100
+  → [路由器A wg0 隧道]
+    → VPS (IP转发: peer A allowed_ips 含 192.168.1.0/24,  peer B allowed_ips 含 192.168.2.0/24)
+      → [路由器B wg0 隧道]
+        → 192.168.2.100
+```
+
+#### 配置步骤
+
+**步骤 1：收集信息**
+
+向用户确认每台路由器的 LAN 网段（即 br-lan 地址段），例如：
+- 路由器A（device-abc123）：`192.168.1.0/24`，隧道 IP `10.0.0.2/32`
+- 路由器B（device-def456）：`192.168.2.0/24`，隧道 IP `10.0.0.3/32`
+
+**步骤 2：更新 VPS 侧 peer 的 allowed_ips**
+
+若在第二阶段注册 peer 时未包含 LAN 段，需重新调用 `openclaw_add_wg_peer` 并补充各路由器的 LAN 网段：
+
+```
+路由器A peer：allowedIps = ["10.0.0.2/32", "192.168.1.0/24"]
+路由器B peer：allowedIps = ["10.0.0.3/32", "192.168.2.0/24"]
+```
+
+> 这告诉 VPS 内核：目标为 `192.168.1.x` 的包应转发给路由器A，目标为 `192.168.2.x` 的包应转发给路由器B。
+
+**步骤 3：为每台路由器添加对向 LAN 的隧道路由**
+
+对路由器A 调用 `clawwrt_set_vpn_routes`，添加指向路由器B LAN 段的路由：
+- 目标：`192.168.2.0/24`，经由隧道（wg0）
+
+对路由器B 调用 `clawwrt_set_vpn_routes`，添加指向路由器A LAN 段的路由：
+- 目标：`192.168.1.0/24`，经由隧道（wg0）
+
+**步骤 4：验证**
+
+- 在 `192.168.1.x` 网段的设备上 ping `192.168.2.x` 网段的设备，确认互通。
+- 若 ping 不通，优先排查：VPS peer `allowed_ips` 是否包含对应 LAN 段；路由器侧路由是否生效（可用 `clawwrt_get_wireguard_vpn_status` 查看）。
+
+---
+
+## ⚠️ 防断连规则（必须遵守）
+
+违反以下规则可能导致与路由器 WebSocket 连接断开，造成无法远程恢复：
+
+1. **始终从分流模式（`selective`）开始**：仅路由特定 IP/CIDR，不要一开始就使用全隧道。
+2. **全隧道模式前必须排除 VPS 公网 IP**：使用 `full_tunnel` 前，务必先将 VPS 公网 IP 加入 `excludeIps`，防止 WebSocket 连接路由到隧道内形成环路。
+3. **紧急恢复**：若因全隧道导致断连，可重启路由器（内核路由不持久化，重启后自动清除），或重连后执行 `clawwrt_delete_vpn_routes`（参数 `flush_all: true`）清除所有隧道路由。
 
