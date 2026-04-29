@@ -35,6 +35,14 @@ type PendingRequest = {
   createdAtMs: number;
 };
 
+export type DeviceEvent = {
+  op: string;
+  deviceId: string;
+  data: JsonRecord;
+};
+
+type DeviceEventHandler = (event: DeviceEvent) => void;
+
 type DeviceSession = {
   socket: WebSocket;
   snapshot: DeviceSnapshot;
@@ -235,6 +243,7 @@ export class ClawWRTBridge {
   private readonly deviceSendQueue = new Map<string, Promise<void>>();
   private nextAliasId = 1;
   private started = false;
+  private readonly deviceEventHandlers = new Set<DeviceEventHandler>();
 
   constructor(params: { config: ResolvedClawWRTConfig; logger: Logger }) {
     this.config = params.config;
@@ -438,6 +447,24 @@ export class ClawWRTBridge {
     return [...this.sessions.values()]
       .map((entry) => Object.assign({}, entry.snapshot))
       .toSorted((a, b) => a.deviceId.localeCompare(b.deviceId));
+  }
+
+  /** Register a handler for unsolicited push events from devices. Returns an unsubscribe function. */
+  onDeviceEvent(handler: DeviceEventHandler): () => void {
+    this.deviceEventHandlers.add(handler);
+    return () => {
+      this.deviceEventHandlers.delete(handler);
+    };
+  }
+
+  private emitDeviceEvent(event: DeviceEvent): void {
+    for (const handler of this.deviceEventHandlers) {
+      try {
+        handler(event);
+      } catch (error) {
+        this.logger.warn(`openclaw-wrt: device event handler threw: ${String(error)}`);
+      }
+    }
   }
 
   private findDeviceIdByAlias(
@@ -1034,6 +1061,13 @@ export class ClawWRTBridge {
     this.logger.debug?.(
       `openclaw-wrt: unsolicited message op=${op ?? "unknown"} device=${deviceId ?? this.socketToDeviceId.get(socket) ?? "unknown"}`,
     );
+
+    // Emit as a device push event so registered handlers (e.g. channel notifiers) can act on it.
+    const resolvedDeviceId = deviceId ?? this.socketToDeviceId.get(socket);
+    if (op && resolvedDeviceId) {
+      const eventData = asObject(message.data) ?? (message as JsonRecord);
+      this.emitDeviceEvent({ op, deviceId: resolvedDeviceId, data: eventData });
+    }
   }
 
   private handleClose(socket: WebSocket): void {
