@@ -3063,6 +3063,9 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       parameters: ReconcileWireguardLanMeshSchema,
       execute: async (_toolCallId, rawParams) => {
         const args = rawParams as ReconcileWireguardLanMeshParams;
+        const debugLogs: string[] = [];
+        const dbg = (msg: string) => debugLogs.push(`[reconcile] ${msg}`);
+
         const providedNodes = Array.isArray(args.nodes) ? args.nodes : [];
         type MeshNodeInput = {
           deviceId: string;
@@ -3070,6 +3073,9 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
           peerPublicKey?: string;
           lanCidr?: string;
         };
+
+        dbg(`input: providedNodes=${providedNodes.length}, updateServerPeers=${args.updateServerPeers ?? true}, timeoutMs=${args.timeoutMs ?? "default"}`);
+
         const baseNodes =
           providedNodes.length > 0
             ? providedNodes.map((entry): MeshNodeInput => ({
@@ -3082,16 +3088,22 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
                 .listDevices()
                 .map((entry): MeshNodeInput => ({ deviceId: entry.deviceId.trim() }));
 
+        dbg(`baseNodes after source: ${baseNodes.map((n) => n.deviceId).join(", ")}`);
+
         const uniqueNodeMap = new Map<string, MeshNodeInput>();
         for (const node of baseNodes) {
           if (!node.deviceId) {
+            dbg(`skipped node with empty deviceId`);
             continue;
           }
           if (!uniqueNodeMap.has(node.deviceId)) {
             uniqueNodeMap.set(node.deviceId, node);
+          } else {
+            dbg(`duplicate deviceId dropped: ${node.deviceId}`);
           }
         }
         const nodes = [...uniqueNodeMap.values()];
+        dbg(`unique nodes: ${nodes.length} — ${nodes.map((n) => n.deviceId).join(", ")}`);
 
         if (nodes.length < 2) {
           throw new Error("at least two online devices (or two explicit nodes) are required");
@@ -3105,9 +3117,13 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
           peerPublicKey?: string;
         }> = [];
 
+        // ── Phase 1: LAN CIDR collection ───────────────────────────────────
+        dbg(`--- Phase 1: LAN CIDR collection (${nodes.length} nodes) ---`);
         for (const node of nodes) {
           let lanCidr = node.lanCidr ?? null;
+          const lanSource = lanCidr ? "provided" : "auto-detect";
           if (!lanCidr) {
+            dbg(`[${node.deviceId}] lanCidr not provided — calling get_status`);
             try {
               const status = await callDeviceOp({
                 bridge,
@@ -3116,34 +3132,34 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
                 timeoutMs: args.timeoutMs,
               });
               lanCidr = extractLanCidrFromStatusResponse(status);
+              dbg(`[${node.deviceId}] get_status ok — extracted lanCidr="${lanCidr ?? "(null)"}"`);
             } catch (error) {
-              blocked.push({
-                deviceId: node.deviceId,
-                reason: `failed_to_fetch_status: ${error instanceof Error ? error.message : String(error)}`,
-              });
+              const reason = `failed_to_fetch_status: ${error instanceof Error ? error.message : String(error)}`;
+              dbg(`[${node.deviceId}] get_status FAILED — ${reason}`);
+              blocked.push({ deviceId: node.deviceId, reason });
               continue;
             }
+          } else {
+            dbg(`[${node.deviceId}] lanCidr provided="${lanCidr}"`);
           }
 
           const parsedLan = lanCidr ? parseIPv4Cidr(lanCidr) : null;
           if (!parsedLan) {
-            blocked.push({
-              deviceId: node.deviceId,
-              reason: "missing_or_invalid_br_lan_cidr",
-              lanCidr: lanCidr ?? undefined,
-            });
+            const reason = "missing_or_invalid_br_lan_cidr";
+            dbg(`[${node.deviceId}] parseIPv4Cidr("${lanCidr}") failed (source=${lanSource}) — blocked: ${reason}`);
+            blocked.push({ deviceId: node.deviceId, reason, lanCidr: lanCidr ?? undefined });
             continue;
           }
+          dbg(`[${node.deviceId}] parsedLan="${parsedLan.normalized}" (source=${lanSource})`);
 
           const parsedTunnel = node.tunnelIp ? parseIPv4Cidr(node.tunnelIp) : null;
           if (node.tunnelIp && !parsedTunnel) {
-            blocked.push({
-              deviceId: node.deviceId,
-              reason: "invalid_tunnel_ip_cidr",
-              lanCidr: parsedLan.normalized,
-            });
+            const reason = "invalid_tunnel_ip_cidr";
+            dbg(`[${node.deviceId}] parseIPv4Cidr(tunnelIp="${node.tunnelIp}") failed — blocked: ${reason}`);
+            blocked.push({ deviceId: node.deviceId, reason, lanCidr: parsedLan.normalized });
             continue;
           }
+          dbg(`[${node.deviceId}] parsedTunnel="${parsedTunnel?.normalized ?? "(none)"}", peerPublicKey="${node.peerPublicKey ? node.peerPublicKey.substring(0, 8) + "..." : "(none)"}"`);
 
           candidates.push({
             deviceId: node.deviceId,
@@ -3152,13 +3168,18 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
             peerPublicKey: node.peerPublicKey,
           });
         }
+        dbg(`Phase 1 done: candidates=${candidates.length}, blocked so far=${blocked.length}`);
 
+        // ── Phase 2: Conflict detection ────────────────────────────────────
+        dbg(`--- Phase 2: Conflict detection (${candidates.length} candidates) ---`);
         const conflictMap = new Map<string, Set<string>>();
         for (let i = 0; i < candidates.length; i += 1) {
           for (let j = i + 1; j < candidates.length; j += 1) {
-            const left = candidates[i];
-            const right = candidates[j];
-            if (!cidrOverlaps(left.lan, right.lan)) {
+            const left = candidates[i]!;
+            const right = candidates[j]!;
+            const overlaps = cidrOverlaps(left.lan, right.lan);
+            dbg(`  cidrOverlaps(${left.deviceId}:${left.lan.normalized}, ${right.deviceId}:${right.lan.normalized}) = ${overlaps}`);
+            if (!overlaps) {
               continue;
             }
             const leftSet = conflictMap.get(left.deviceId) ?? new Set<string>();
@@ -3179,6 +3200,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
             reason: `conflicting_subnet_with:${[...peers].join(",")}`,
           });
         }
+        dbg(`Phase 2 done: accepted=${accepted.length} [${accepted.map((n) => `${n.deviceId}(${n.lan.normalized})`).join(", ")}], newly blocked by conflict=${conflictMap.size}`);
 
         const routeUpdates: Array<{ deviceId: string; routes: string[]; status: "success" | "error"; error?: string }> = [];
         const serverPeerUpdates: Array<{
@@ -3188,57 +3210,52 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
           allowedIps?: string[];
         }> = [];
 
+        // ── Phase 3: VPS peer AllowedIPs upsert ───────────────────────────
+        dbg(`--- Phase 3: VPS peer AllowedIPs upsert (updateServerPeers=${args.updateServerPeers ?? true}) ---`);
         if (accepted.length >= 2 && args.updateServerPeers !== false) {
           for (const node of accepted) {
             if (!node.peerPublicKey) {
-              serverPeerUpdates.push({
-                deviceId: node.deviceId,
-                status: "skipped",
-                reason: "missing_peer_public_key",
-              });
+              dbg(`[${node.deviceId}] skip VPS upsert — no peerPublicKey`);
+              serverPeerUpdates.push({ deviceId: node.deviceId, status: "skipped", reason: "missing_peer_public_key" });
               continue;
             }
             if (!node.tunnel) {
-              serverPeerUpdates.push({
-                deviceId: node.deviceId,
-                status: "skipped",
-                reason: "missing_tunnel_ip",
-              });
+              dbg(`[${node.deviceId}] skip VPS upsert — no tunnelIp`);
+              serverPeerUpdates.push({ deviceId: node.deviceId, status: "skipped", reason: "missing_tunnel_ip" });
               continue;
             }
             const allowedIps = [node.tunnel.normalized, node.lan.normalized];
+            dbg(`[${node.deviceId}] upsertWireguardPeerOnServer publicKey=${node.peerPublicKey.substring(0, 8)}... allowedIps=${JSON.stringify(allowedIps)}`);
             try {
-              await upsertWireguardPeerOnServer({
-                publicKey: node.peerPublicKey,
-                allowedIps,
-              });
-              serverPeerUpdates.push({
-                deviceId: node.deviceId,
-                status: "updated",
-                allowedIps,
-              });
+              await upsertWireguardPeerOnServer({ publicKey: node.peerPublicKey, allowedIps });
+              dbg(`[${node.deviceId}] VPS upsert ok`);
+              serverPeerUpdates.push({ deviceId: node.deviceId, status: "updated", allowedIps });
             } catch (error) {
-              serverPeerUpdates.push({
-                deviceId: node.deviceId,
-                status: "error",
-                reason: error instanceof Error ? error.message : String(error),
-                allowedIps,
-              });
+              const reason = error instanceof Error ? error.message : String(error);
+              dbg(`[${node.deviceId}] VPS upsert FAILED — ${reason}`);
+              serverPeerUpdates.push({ deviceId: node.deviceId, status: "error", reason, allowedIps });
             }
           }
+        } else {
+          dbg(`Phase 3 skipped: accepted=${accepted.length} (need >=2) or updateServerPeers=false`);
         }
 
+        // ── Phase 4: Route push ────────────────────────────────────────────
+        dbg(`--- Phase 4: Route push (${accepted.length} accepted nodes) ---`);
         if (accepted.length >= 2) {
           for (const node of accepted) {
             const newLanRoutes = accepted
               .filter((entry) => entry.deviceId !== node.deviceId)
               .map((entry) => entry.lan.normalized);
+            dbg(`[${node.deviceId}] newLanRoutes from peers: ${JSON.stringify(newLanRoutes)}`);
             if (newLanRoutes.length === 0) {
+              dbg(`[${node.deviceId}] no peer LAN routes — skip`);
               continue;
             }
 
             // Preserve existing /32 routes (e.g. VPS anti-loop) so reconcile does not wipe them.
             let preservedRoutes: string[] = [];
+            dbg(`[${node.deviceId}] calling get_vpn_routes to find existing /32 routes to preserve`);
             try {
               const existing = await callDeviceOp({
                 bridge,
@@ -3247,39 +3264,44 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
                 timeoutMs: args.timeoutMs,
               });
               const existingRoutes = (existing as JsonRecord)?.routes;
+              dbg(`[${node.deviceId}] get_vpn_routes raw routes type=${Array.isArray(existingRoutes) ? "array" : typeof existingRoutes}, length=${Array.isArray(existingRoutes) ? existingRoutes.length : "N/A"}`);
               if (Array.isArray(existingRoutes)) {
                 const newLanSet = new Set(newLanRoutes);
                 for (const r of existingRoutes as JsonRecord[]) {
                   const dest =
                     typeof r.dest === "string" ? r.dest : typeof r === "string" ? r : "";
-                  if (dest && dest.endsWith("/32") && !newLanSet.has(dest)) {
+                  const keep = dest && dest.endsWith("/32") && !newLanSet.has(dest);
+                  dbg(`[${node.deviceId}]   existing route dest="${dest}" endsWith(/32)=${dest.endsWith("/32")} inNewLanSet=${newLanSet.has(dest)} → ${keep ? "PRESERVE" : "skip"}`);
+                  if (keep) {
                     preservedRoutes.push(dest);
                   }
                 }
               }
-            } catch {
-              // Best-effort; proceed without preserved routes.
+            } catch (err) {
+              dbg(`[${node.deviceId}] get_vpn_routes FAILED (ignored, no /32 preserved) — ${err instanceof Error ? err.message : String(err)}`);
             }
+            dbg(`[${node.deviceId}] preservedRoutes: ${JSON.stringify(preservedRoutes)}`);
 
             const routes = [...preservedRoutes, ...newLanRoutes];
+            dbg(`[${node.deviceId}] calling set_vpn_routes mode=selective routes=${JSON.stringify(routes)}`);
             try {
-              await callDeviceOp({
+              const setResult = await callDeviceOp({
                 bridge,
                 deviceId: node.deviceId,
                 op: "set_vpn_routes",
                 payload: { data: { mode: "selective", routes } },
                 timeoutMs: args.timeoutMs,
               });
+              dbg(`[${node.deviceId}] set_vpn_routes ok — response=${JSON.stringify(setResult)}`);
               routeUpdates.push({ deviceId: node.deviceId, routes, status: "success" });
             } catch (error) {
-              routeUpdates.push({
-                deviceId: node.deviceId,
-                routes,
-                status: "error",
-                error: error instanceof Error ? error.message : String(error),
-              });
+              const errMsg = error instanceof Error ? error.message : String(error);
+              dbg(`[${node.deviceId}] set_vpn_routes FAILED — ${errMsg}`);
+              routeUpdates.push({ deviceId: node.deviceId, routes, status: "error", error: errMsg });
             }
           }
+        } else {
+          dbg(`Phase 4 skipped: accepted=${accepted.length} (need >=2)`);
         }
 
         const summaryLines = [
@@ -3302,6 +3324,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
           blocked,
           routeUpdates,
           serverPeerUpdates,
+          debugLogs,
         });
       },
     },
