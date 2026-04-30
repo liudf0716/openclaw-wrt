@@ -1080,12 +1080,20 @@ function buildWireguardPeerBlock(params: {
   return `\n[Peer]\nPublicKey = ${params.publicKey}\nAllowedIPs = ${params.allowedIps.join(", ")}${endpointLine}\n`;
 }
 
+function isValidWireGuardPublicKey(key: string): boolean {
+  // WireGuard keys are 32-byte values encoded as 44-character base64 (with trailing =).
+  return /^[A-Za-z0-9+/]{43}=$/.test(key.trim());
+}
+
 function upsertWireguardPeerConfig(params: {
   existingConfig: string;
   publicKey: string;
   allowedIps: string[];
   endpoint?: string;
 }) {
+  if (!isValidWireGuardPublicKey(params.publicKey)) {
+    throw new Error(`Invalid WireGuard public key format: ${params.publicKey.substring(0, 12)}…`);
+  }
   const lines = params.existingConfig.split(/\r?\n/);
   const sections: string[][] = [];
   let current: string[] = [];
@@ -2718,34 +2726,42 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         // Step 4: Routes — VPS /32 anti-loop + mesh LAN selective (or full-tunnel exclusion)
         log("\n## Step 4: Push routes");
         for (const node of tunnelOkNodes) {
-          const routePayload: JsonRecord = { mode: "selective" };
-          const routes: string[] = [];
-
-          if (args.fullTunnel && isValidIp) {
-            // Full-tunnel: must exclude VPS public IP to prevent loop
-            routePayload.mode = "full_tunnel";
-            routePayload.exclude_ips = [endpointHost];
-            log(`  ✅ ${node.deviceId}: full-tunnel with excludeIp=${endpointHost}`);
-          } else {
-            // Selective: add VPS /32 protection route only
-            if (isValidIp) {
-              routes.push(`${endpointHost}/32`);
+          if (args.fullTunnel) {
+            if (!isValidIp) {
+              log(`  ⚠️  ${node.deviceId}: full-tunnel skipped — serverEndpoint must be an IPv4 address (not hostname) to set exclude_ips safely`);
+              continue;
             }
-            routePayload.routes = routes;
-          }
-
-          try {
-            await callDeviceOp({
-              bridge,
-              deviceId: node.deviceId,
-              op: "set_vpn_routes",
-              payload: { data: routePayload },
-              timeoutMs: args.timeoutMs,
-            });
-            log(`  ✅ ${node.deviceId}: base routes set`);
-          } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
-            log(`  ⚠️  ${node.deviceId}: set_vpn_routes warning: ${msg}`);
+            // Full-tunnel: must exclude VPS public IP to prevent loop
+            try {
+              await callDeviceOp({
+                bridge,
+                deviceId: node.deviceId,
+                op: "set_vpn_routes",
+                payload: { data: { mode: "full_tunnel", exclude_ips: [endpointHost] } },
+                timeoutMs: args.timeoutMs,
+              });
+              log(`  ✅ ${node.deviceId}: full-tunnel routes set (excludeIp=${endpointHost})`);
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error);
+              log(`  ⚠️  ${node.deviceId}: full-tunnel set_vpn_routes warning: ${msg}`);
+            }
+          } else if (isValidIp) {
+            // Selective: add VPS /32 protection route only; skip if no IP to protect
+            try {
+              await callDeviceOp({
+                bridge,
+                deviceId: node.deviceId,
+                op: "set_vpn_routes",
+                payload: { data: { mode: "selective", routes: [`${endpointHost}/32`] } },
+                timeoutMs: args.timeoutMs,
+              });
+              log(`  ✅ ${node.deviceId}: anti-loop VPS route set (${endpointHost}/32)`);
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error);
+              log(`  ⚠️  ${node.deviceId}: set_vpn_routes warning: ${msg}`);
+            }
+          } else {
+            log(`  ℹ️  ${node.deviceId}: skipping base routes — serverEndpoint is a hostname, VPS /32 anti-loop route cannot be added automatically`);
           }
         }
 
@@ -2789,7 +2805,8 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
             return resolved;
           })();
 
-          // Fan-out: for each node push all other nodes' LAN CIDRs
+          // Fan-out: for each node push all other nodes' LAN CIDRs.
+          // Preserve VPS /32 anti-loop route set in Step 4 by prepending it when known.
           const validForMesh = reconcileResult.filter(
             (n): n is typeof n & { lanCidr: string } => typeof n.lanCidr === "string",
           );
@@ -2800,15 +2817,17 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
             if (otherLans.length === 0) {
               continue;
             }
+            // Include VPS /32 anti-loop route so flush+re-add does not lose it.
+            const meshRoutes = isValidIp ? [`${endpointHost}/32`, ...otherLans] : otherLans;
             try {
               await callDeviceOp({
                 bridge,
                 deviceId: node.deviceId,
                 op: "set_vpn_routes",
-                payload: { data: { mode: "selective", routes: otherLans } },
+                payload: { data: { mode: "selective", routes: meshRoutes } },
                 timeoutMs: args.timeoutMs,
               });
-              log(`  ✅ ${node.deviceId}: mesh routes set → [${otherLans.join(", ")}]`);
+              log(`  ✅ ${node.deviceId}: mesh routes set → [${meshRoutes.join(", ")}]`);
             } catch (error) {
               const msg = error instanceof Error ? error.message : String(error);
               log(`  ⚠️  ${node.deviceId}: mesh routes warning: ${msg}`);
@@ -2940,9 +2959,10 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
           );
         }
 
+        const natRuleComment = "OPENCLAW_WG_wg0";
         const setupCommand = [
           `sudo sysctl -w net.ipv4.ip_forward=1`,
-          `sudo iptables -t nat -C POSTROUTING -o ${wan} -j MASQUERADE || sudo iptables -t nat -A POSTROUTING -o ${wan} -j MASQUERADE`,
+          `sudo iptables -t nat -C POSTROUTING -m comment --comment ${natRuleComment} -o ${wan} -j MASQUERADE || sudo iptables -t nat -A POSTROUTING -m comment --comment ${natRuleComment} -o ${wan} -j MASQUERADE`,
           `sudo iptables -C FORWARD -i wg0 -j ACCEPT || sudo iptables -A FORWARD -i wg0 -j ACCEPT`,
           `sudo iptables -C FORWARD -o wg0 -j ACCEPT || sudo iptables -A FORWARD -o wg0 -j ACCEPT`,
         ].join(" && ");
@@ -3210,12 +3230,38 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
 
         if (accepted.length >= 2) {
           for (const node of accepted) {
-            const routes = accepted
+            const newLanRoutes = accepted
               .filter((entry) => entry.deviceId !== node.deviceId)
               .map((entry) => entry.lan.normalized);
-            if (routes.length === 0) {
+            if (newLanRoutes.length === 0) {
               continue;
             }
+
+            // Preserve existing /32 routes (e.g. VPS anti-loop) so reconcile does not wipe them.
+            let preservedRoutes: string[] = [];
+            try {
+              const existing = await callDeviceOp({
+                bridge,
+                deviceId: node.deviceId,
+                op: "get_vpn_routes",
+                timeoutMs: args.timeoutMs,
+              });
+              const existingRoutes = (existing as JsonRecord)?.routes;
+              if (Array.isArray(existingRoutes)) {
+                const newLanSet = new Set(newLanRoutes);
+                for (const r of existingRoutes as JsonRecord[]) {
+                  const dest =
+                    typeof r.dest === "string" ? r.dest : typeof r === "string" ? r : "";
+                  if (dest && dest.endsWith("/32") && !newLanSet.has(dest)) {
+                    preservedRoutes.push(dest);
+                  }
+                }
+              }
+            } catch {
+              // Best-effort; proceed without preserved routes.
+            }
+
+            const routes = [...preservedRoutes, ...newLanRoutes];
             try {
               await callDeviceOp({
                 bridge,
@@ -3586,13 +3632,18 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
               if (!tagName) {
                 throw new Error("Could not determine latest version from GitHub API.");
               }
+              // Validate tagName before interpolating into shell commands.
+              if (!/^v?\d+\.\d+\.\d+$/.test(tagName)) {
+                throw new Error(`Unexpected tag format from GitHub API: ${tagName}`);
+              }
+              const safeArch = /^[a-z0-9]+$/.test(arch) ? arch : "amd64";
 
               const version = tagName.startsWith("v") ? tagName.substring(1) : tagName;
-              const folderName = `frp_${version}_linux_${arch}`;
+              const folderName = `frp_${version}_linux_${safeArch}`;
               const filename = `${folderName}.tar.gz`;
               const downloadUrl = `https://github.com/fatedier/frp/releases/download/${tagName}/${filename}`;
 
-              output += `Target version: ${tagName}, Arch: ${arch}\nDownloading from: ${downloadUrl}\n`;
+              output += `Target version: ${tagName}, Arch: ${safeArch}\nDownloading from: ${downloadUrl}\n`;
 
               execSync(`curl -L --max-time 120 --connect-timeout 10 -o /tmp/${filename} ${downloadUrl}`, { encoding: "utf-8", timeout: 125000 });
               execSync(`tar -C /tmp -zxvf /tmp/${filename}`, { encoding: "utf-8" });

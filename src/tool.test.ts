@@ -199,7 +199,7 @@ describe("openclaw-wrt intent tools", () => {
     expect(tool).toBeTruthy();
 
     await tool?.execute?.("tool-wg-peer", {
-      publicKey: "PUBLIC_KEY",
+      publicKey: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
       allowedIps: ["10.10.0.2/32"],
       endpoint: "vpn.example.com:51820",
     });
@@ -920,7 +920,7 @@ describe("openclaw-wrt intent tools", () => {
       },
       peers: [
         {
-          publicKey: "PUBLIC_KEY_BASE64",
+          publicKey: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
           presharedKey: "PRESHARED_BASE64",
           allowedIps: ["0.0.0.0/0", "::/0"],
           endpointHost: "vpn.example.com",
@@ -943,7 +943,7 @@ describe("openclaw-wrt intent tools", () => {
           },
           peers: [
             {
-              public_key: "PUBLIC_KEY_BASE64",
+              public_key: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
               preshared_key: "PRESHARED_BASE64",
               allowed_ips: ["0.0.0.0/0", "::/0"],
               endpoint_host: "vpn.example.com",
