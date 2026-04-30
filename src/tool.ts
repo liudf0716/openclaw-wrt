@@ -2780,7 +2780,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
                   server_endpoint: args.serverEndpoint,
                   tunnel_ip: node.tunnelIp,
                   route_allowed_ips: 0,
-                  allowed_ips: args.fullTunnel ? "0.0.0.0/1,128.0.0.0/1" : node.tunnelIp,
+                  allowed_ips: "0.0.0.0/0",
                   keepalive: 25,
                 },
               },

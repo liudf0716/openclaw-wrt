@@ -32,7 +32,15 @@ user-invocable: true
 
 1. 若在线设备数为 0：停止并提示用户先让设备上线。
 2. 若服务端未安装或未运行：进入“服务端部署”步骤。
-3. 其余情况：进入“客户端接入”步骤。
+3. 其余情况：先进入“设备选择确认”步骤，再进入“客户端接入”步骤。
+
+## 设备选择确认（必须）
+
+1. 先调用 `clawwrt_list_devices` 获取当前在线设备。
+2. 向用户展示在线设备清单，要求用户明确确认“要加入当前 WG VPN 的设备ID列表”。
+3. 仅允许处理用户确认的设备，不允许默认将所有在线设备自动加入。
+4. 若用户未确认或确认列表为空：停止流程并提示用户先选择设备。
+5. 多设备场景下，按用户确认列表顺序逐台执行，不得擅自增减设备。
 
 ## 标准流程（API 状态机）
 
@@ -44,7 +52,7 @@ user-invocable: true
 
 ### B. 客户端接入（逐设备）
 
-对每个目标设备按顺序执行：
+仅对“设备选择确认”步骤中用户明确确认的设备，按顺序执行：
 
 1. `clawwrt_generate_wireguard_keys`
 2. `openclaw_add_wg_peer`
@@ -52,10 +60,17 @@ user-invocable: true
 4. `clawwrt_set_vpn_routes` 或 `clawwrt_set_vpn_domain_routes`
 5. `clawwrt_get_wireguard_vpn_status`
 
+`clawwrt_set_wireguard_vpn` 参数约束（固定策略）：
+
+1. `peer.allowedIps` 必须为 `["0.0.0.0/0"]`。
+2. `peer.routeAllowedIps` 必须为 `false`（即 `route_allowed_ips=0`）。
+3. 通过 `clawwrt_set_vpn_routes` / `clawwrt_set_vpn_domain_routes` 决定哪些流量走 `wg0`。
+
 规则：
 
 1. 任一步失败即停止该设备流程，报告错误。
 2. 不允许跳过失败步骤继续后续步骤。
+3. 不允许在未获用户确认的情况下新增设备到 WG VPN。
 
 ### C. 多设备 LAN 互通（在线设备 >= 2）
 
