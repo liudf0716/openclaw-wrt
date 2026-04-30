@@ -3569,21 +3569,43 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
           results.serverPeerUpdate = { status: "skipped", reason: "updateServerPeers=false" };
         }
 
-        // Step B-2: Push all existing LAN CIDRs to new device
+        // Step B-2: Push all existing LAN CIDRs to new device, preserving its current routes
         const existingCidrs = [...existingLanMap.values()];
+        let newDeviceCurrentRoutes: string[] = [];
+        try {
+          const existingOnNew = await callDeviceOp({
+            bridge,
+            deviceId: newDeviceId,
+            op: "get_vpn_routes",
+            timeoutMs: args.timeoutMs,
+          });
+          const existingRoutes = (existingOnNew as JsonRecord)?.routes;
+          if (Array.isArray(existingRoutes)) {
+            const existingCidrSet = new Set(existingCidrs);
+            for (const r of existingRoutes as JsonRecord[]) {
+              const dest = typeof r.dest === "string" ? r.dest : typeof r === "string" ? r : "";
+              if (dest && !existingCidrSet.has(dest)) {
+                newDeviceCurrentRoutes.push(dest);
+              }
+            }
+          }
+        } catch {
+          // no prior routes to preserve
+        }
+        const newDeviceRoutes = [...newDeviceCurrentRoutes, ...existingCidrs];
         try {
           await callDeviceOp({
             bridge,
             deviceId: newDeviceId,
             op: "set_vpn_routes",
-            payload: { data: { mode: "selective", routes: existingCidrs } },
+            payload: { data: { mode: "selective", routes: newDeviceRoutes } },
             timeoutMs: args.timeoutMs,
           });
-          results.newDeviceRoutes = { status: "success", routes: existingCidrs };
+          results.newDeviceRoutes = { status: "success", routes: newDeviceRoutes };
         } catch (error) {
           results.newDeviceRoutes = {
             status: "error",
-            routes: existingCidrs,
+            routes: newDeviceRoutes,
             error: error instanceof Error ? error.message : String(error),
           };
         }
@@ -3592,6 +3614,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         const newLanNorm = parseIPv4Cidr(newLanCidr)?.normalized ?? newLanCidr;
         for (const [deviceId] of existingLanMap) {
           let currentRoutes: string[] = [];
+          let getRoutesFailed = false;
           try {
             const existing = await callDeviceOp({
               bridge,
@@ -3606,9 +3629,17 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
                 if (dest && dest !== newLanNorm) currentRoutes.push(dest);
               }
             }
-          } catch {
-            // proceed with empty current routes
+          } catch (err) {
+            getRoutesFailed = true;
+            results.existingDeviceRoutes.push({
+              deviceId,
+              status: "error",
+              routes: [],
+              error: `get_vpn_routes failed, skipped set to avoid wiping existing routes: ${err instanceof Error ? err.message : String(err)}`,
+            });
           }
+
+          if (getRoutesFailed) continue;
 
           const updatedRoutes = [...currentRoutes, newLanNorm];
           try {
