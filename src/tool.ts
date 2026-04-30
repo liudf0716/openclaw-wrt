@@ -822,6 +822,48 @@ const VerifyWireguardConnectivitySchema = Type.Object(
   { additionalProperties: false },
 );
 
+const FullMeshDeployNodeSchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    tunnelIp: Type.String({
+      minLength: 1,
+      description: "Tunnel IP/CIDR assigned to this router on the VPS side, e.g. 10.0.0.2/32.",
+    }),
+    lanCidr: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description: "Optional override for br-lan CIDR. Auto-detected from device status if omitted.",
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+const FullMeshDeploySchema = Type.Object(
+  {
+    nodes: Type.Array(FullMeshDeployNodeSchema, {
+      minItems: 1,
+      description: "List of routers to configure. Each needs a deviceId and a unique tunnelIp.",
+    }),
+    serverPublicKey: Type.String({
+      minLength: 1,
+      description: "VPS WireGuard server public key (from openclaw_deploy_wg_server output).",
+    }),
+    serverEndpoint: Type.String({
+      minLength: 1,
+      description: "VPS public IP or hostname with port, e.g. 43.143.232.185:51820.",
+    }),
+    fullTunnel: Type.Optional(
+      Type.Boolean({
+        description:
+          "When true, configures each router in full-tunnel mode (0.0.0.0/1 + 128.0.0.0/1) and automatically adds a VPS /32 direct route. Defaults to false (selective/mesh-only).",
+      }),
+    ),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
 const ResetWgServerSchema = Type.Object(
   {
     interface: Type.Optional(
@@ -2568,6 +2610,300 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       },
     },
     {
+      name: "clawwrt_deploy_wireguard_full_mesh",
+      label: "OpenClaw WRT Deploy WireGuard Full Mesh",
+      description:
+        "Full end-to-end WireGuard mesh deployment in the correct order: (1) generate keys on each router, (2) register/upsert each peer on VPS, (3) push tunnel config to each router, (4) add VPS /32 protection route + selective LAN routes (or full-tunnel with excludeIp), (5) reconcile LAN mesh routes and update VPS peer AllowedIPs, (6) verify connectivity. Requires openclaw_deploy_wg_server to have been run already so that serverPublicKey is known.",
+      parameters: FullMeshDeploySchema,
+      execute: async (_toolCallId, rawParams) => {
+        const args = rawParams as {
+          nodes: Array<{ deviceId: string; tunnelIp: string; lanCidr?: string }>;
+          serverPublicKey: string;
+          serverEndpoint: string;
+          fullTunnel?: boolean;
+          timeoutMs?: number;
+        };
+
+        const steps: string[] = [];
+        const log = (msg: string) => {
+          steps.push(msg);
+        };
+
+        // Parse server endpoint to extract VPS public IP for anti-loop route
+        const endpointHost = args.serverEndpoint.split(":")[0] ?? "";
+        const isValidIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(endpointHost);
+
+        type NodeResult = {
+          deviceId: string;
+          tunnelIp: string;
+          peerPublicKey?: string;
+          lanCidr?: string;
+          error?: string;
+        };
+        const results: NodeResult[] = [];
+
+        // Step 1 & 2: Per-device key generation + peer registration
+        log("## Step 1+2: Generate keys and register peers");
+        for (const node of args.nodes) {
+          const deviceId = node.deviceId.trim();
+          const tunnelIp = node.tunnelIp.trim();
+          const entry: NodeResult = { deviceId, tunnelIp, lanCidr: node.lanCidr?.trim() };
+          try {
+            // Generate keys on router
+            const keyResp = await callDeviceOp({
+              bridge,
+              deviceId,
+              op: "generate_wireguard_keys",
+              timeoutMs: args.timeoutMs,
+            });
+            const pubKey =
+              ((keyResp as JsonRecord)?.public_key as string) ??
+              ((keyResp as JsonRecord)?.publicKey as string) ??
+              ((keyResp as JsonRecord)?.data as JsonRecord)?.public_key as string;
+            if (!pubKey) {
+              throw new Error("public_key not found in generate_wireguard_keys response");
+            }
+            entry.peerPublicKey = pubKey;
+            log(`  ✅ ${deviceId}: public key obtained`);
+
+            // Register/upsert peer on VPS
+            const allowedIps = [tunnelIp];
+            if (entry.lanCidr) {
+              allowedIps.push(entry.lanCidr);
+            }
+            await upsertWireguardPeerOnServer({
+              publicKey: pubKey,
+              allowedIps,
+            });
+            log(`  ✅ ${deviceId}: peer upserted (allowedIps: ${allowedIps.join(", ")})`);
+          } catch (error) {
+            entry.error = error instanceof Error ? error.message : String(error);
+            log(`  ❌ ${deviceId}: ${entry.error}`);
+          }
+          results.push(entry);
+        }
+
+        const okNodes = results.filter((r) => !r.error);
+
+        // Step 3: Push tunnel config to each router
+        log("\n## Step 3: Push tunnel config to routers");
+        for (const node of okNodes) {
+          try {
+            await callDeviceOp({
+              bridge,
+              deviceId: node.deviceId,
+              op: "set_wireguard_vpn",
+              payload: {
+                data: {
+                  server_public_key: args.serverPublicKey,
+                  server_endpoint: args.serverEndpoint,
+                  tunnel_ip: node.tunnelIp,
+                  route_allowed_ips: 0,
+                  allowed_ips: args.fullTunnel ? "0.0.0.0/1,128.0.0.0/1" : node.tunnelIp,
+                  keepalive: 25,
+                },
+              },
+              timeoutMs: args.timeoutMs,
+            });
+            log(`  ✅ ${node.deviceId}: tunnel config pushed`);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            node.error = msg;
+            log(`  ❌ ${node.deviceId}: ${msg}`);
+          }
+        }
+
+        const tunnelOkNodes = okNodes.filter((r) => !r.error);
+
+        // Step 4: Routes — VPS /32 anti-loop + mesh LAN selective (or full-tunnel exclusion)
+        log("\n## Step 4: Push routes");
+        for (const node of tunnelOkNodes) {
+          const routePayload: JsonRecord = { mode: "selective" };
+          const routes: string[] = [];
+
+          if (args.fullTunnel && isValidIp) {
+            // Full-tunnel: must exclude VPS public IP to prevent loop
+            routePayload.mode = "full_tunnel";
+            routePayload.exclude_ips = [endpointHost];
+            log(`  ✅ ${node.deviceId}: full-tunnel with excludeIp=${endpointHost}`);
+          } else {
+            // Selective: add VPS /32 protection route only
+            if (isValidIp) {
+              routes.push(`${endpointHost}/32`);
+            }
+            routePayload.routes = routes;
+          }
+
+          try {
+            await callDeviceOp({
+              bridge,
+              deviceId: node.deviceId,
+              op: "set_vpn_routes",
+              payload: { data: routePayload },
+              timeoutMs: args.timeoutMs,
+            });
+            log(`  ✅ ${node.deviceId}: base routes set`);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            log(`  ⚠️  ${node.deviceId}: set_vpn_routes warning: ${msg}`);
+          }
+        }
+
+        // Step 5: Reconcile LAN mesh (also upserts VPS peer AllowedIPs with LAN CIDRs)
+        log("\n## Step 5: Reconcile LAN mesh");
+        try {
+          const meshNodes = tunnelOkNodes.map((n) => ({
+            deviceId: n.deviceId,
+            tunnelIp: n.tunnelIp,
+            peerPublicKey: n.peerPublicKey,
+            lanCidr: n.lanCidr,
+          }));
+          // Re-use the reconcile logic by calling it directly
+          const reconcileResult = await (async () => {
+            const pseudoBridge = bridge;
+            // Build candidates: fetch lanCidr for nodes that don't have it
+            const resolved: Array<{
+              deviceId: string;
+              tunnelIp: string;
+              peerPublicKey?: string;
+              lanCidr?: string;
+            }> = [];
+            for (const n of meshNodes) {
+              if (!n.lanCidr) {
+                try {
+                  const status = await callDeviceOp({
+                    bridge: pseudoBridge,
+                    deviceId: n.deviceId,
+                    op: "get_status",
+                    timeoutMs: args.timeoutMs,
+                  });
+                  const detected = extractLanCidrFromStatusResponse(status);
+                  resolved.push({ ...n, lanCidr: detected ?? undefined });
+                } catch {
+                  resolved.push(n);
+                }
+              } else {
+                resolved.push(n);
+              }
+            }
+            return resolved;
+          })();
+
+          // Fan-out: for each node push all other nodes' LAN CIDRs
+          const validForMesh = reconcileResult.filter(
+            (n): n is typeof n & { lanCidr: string } => typeof n.lanCidr === "string",
+          );
+          for (const node of validForMesh) {
+            const otherLans = validForMesh
+              .filter((o) => o.deviceId !== node.deviceId)
+              .map((o) => o.lanCidr);
+            if (otherLans.length === 0) {
+              continue;
+            }
+            try {
+              await callDeviceOp({
+                bridge,
+                deviceId: node.deviceId,
+                op: "set_vpn_routes",
+                payload: { data: { mode: "selective", routes: otherLans } },
+                timeoutMs: args.timeoutMs,
+              });
+              log(`  ✅ ${node.deviceId}: mesh routes set → [${otherLans.join(", ")}]`);
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error);
+              log(`  ⚠️  ${node.deviceId}: mesh routes warning: ${msg}`);
+            }
+
+            // Upsert VPS peer AllowedIPs to include LAN
+            if (node.peerPublicKey) {
+              try {
+                await upsertWireguardPeerOnServer({
+                  publicKey: node.peerPublicKey,
+                  allowedIps: [node.tunnelIp, node.lanCidr],
+                });
+                log(`  ✅ ${node.deviceId}: VPS peer AllowedIPs updated with LAN`);
+              } catch (error) {
+                const msg = error instanceof Error ? error.message : String(error);
+                log(`  ⚠️  ${node.deviceId}: VPS peer update warning: ${msg}`);
+              }
+            }
+          }
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          log(`  ❌ mesh reconcile failed: ${msg}`);
+        }
+
+        // Step 6: Connectivity verification
+        log("\n## Step 6: Verify connectivity");
+        let verifyReport = "";
+        try {
+          const { execSync } = await import("node:child_process");
+          let serverSummary = "unavailable";
+          let snatOk = false;
+          let ipForwardOk = false;
+          try {
+            const wgOut = String(
+              execSync("sudo wg show 2>&1 || echo 'wg not found'", {
+                encoding: "utf-8",
+                timeout: 5000,
+              }),
+            ).trim();
+            const natOut = String(
+              execSync("sudo iptables -t nat -S POSTROUTING 2>/dev/null", {
+                encoding: "utf-8",
+                timeout: 5000,
+              }),
+            );
+            const fwdOut = String(
+              execSync("sysctl -n net.ipv4.ip_forward", { encoding: "utf-8", timeout: 2000 }),
+            );
+            snatOk = natOut.includes("-j MASQUERADE");
+            ipForwardOk = fwdOut.trim() === "1";
+            serverSummary = wgOut;
+          } catch {}
+
+          verifyReport += `Server: ipForward=${ipForwardOk ? "✅" : "❌"} snat=${snatOk ? "✅" : "❌"}\n`;
+          verifyReport += `WG peers:\n${serverSummary}\n`;
+
+          for (const node of tunnelOkNodes) {
+            try {
+              const status = await callDeviceOp({
+                bridge,
+                deviceId: node.deviceId,
+                op: "get_wireguard_vpn_status",
+                timeoutMs: args.timeoutMs,
+              });
+              const peers = (status as JsonRecord)?.peers as JsonRecord[] | undefined;
+              const first = Array.isArray(peers) ? peers[0] : undefined;
+              const handshake = (first as JsonRecord | undefined)?.last_handshake_time ?? "unknown";
+              verifyReport += `  ${node.deviceId}: handshake=${handshake}\n`;
+            } catch (error) {
+              verifyReport += `  ${node.deviceId}: ❌ ${error instanceof Error ? error.message : String(error)}\n`;
+            }
+          }
+          log(verifyReport);
+        } catch (error) {
+          log(`  ❌ verification error: ${error instanceof Error ? error.message : String(error)}`);
+        }
+
+        const failedNodes = results.filter((r) => r.error);
+        const summary =
+          `\n## Summary\n` +
+          `Configured: ${tunnelOkNodes.length}/${args.nodes.length} routers\n` +
+          (failedNodes.length > 0
+            ? `Failed: ${failedNodes.map((r) => `${r.deviceId}: ${r.error}`).join("; ")}\n`
+            : "") +
+          `Mode: ${args.fullTunnel ? "full-tunnel" : "selective/mesh"}\n`;
+
+        return buildToolResult(steps.join("\n") + summary, {
+          nodes: results,
+          tunnelOkCount: tunnelOkNodes.length,
+          totalCount: args.nodes.length,
+          fullTunnel: args.fullTunnel ?? false,
+        });
+      },
+    },
+    {
       name: "clawwrt_setup_server_vpn_nat",
       label: "OpenClaw WRT Setup Server VPN NAT",
       description: "Automate server-side SNAT (MASQUERADE) configuration and enable IP forwarding.",
@@ -3399,6 +3735,7 @@ WantedBy=multi-user.target
         const { execSync } = await import("node:child_process");
         const iface = (args.interface ?? "wg0").trim() || "wg0";
         const removeKeys = args.removeKeys ?? true;
+        const natRuleComment = `OPENCLAW_WG_${iface}`;
 
         if (!/^[a-zA-Z0-9_.@-]+$/.test(iface)) {
           return buildToolResult("Invalid WireGuard interface name.", { status: "error" });
@@ -3406,10 +3743,46 @@ WantedBy=multi-user.target
 
         let output = "";
         try {
+          let legacyEgressIf = "";
+          try {
+            const confContent = String(
+              execSync(`sudo cat /etc/wireguard/${iface}.conf 2>/dev/null || true`, {
+                encoding: "utf-8",
+              }),
+            );
+            const match = confContent.match(/POSTROUTING\s+-o\s+([^\s;]+)\s+-j\s+MASQUERADE/);
+            legacyEgressIf = match?.[1] ?? "";
+          } catch {
+            // Best-effort only.
+          }
+
           execSync(`sudo systemctl stop wg-quick@${iface} || true`, { encoding: "utf-8" });
           execSync(`sudo systemctl disable wg-quick@${iface} || true`, { encoding: "utf-8" });
           execSync(`sudo wg-quick down ${iface} >/dev/null 2>&1 || true`, { encoding: "utf-8" });
           output += `Stopped and disabled wg-quick@${iface}.\n`;
+
+          // Explicitly clean up NAT/FORWARD leftovers in case PostDown didn't run.
+          execSync(
+            `while sudo iptables -t nat -C POSTROUTING -m comment --comment ${natRuleComment} -j MASQUERADE 2>/dev/null; do sudo iptables -t nat -D POSTROUTING -m comment --comment ${natRuleComment} -j MASQUERADE; done`,
+            { encoding: "utf-8" },
+          );
+          execSync(
+            "while sudo iptables -C FORWARD -i wg0 -j ACCEPT 2>/dev/null; do sudo iptables -D FORWARD -i wg0 -j ACCEPT; done",
+            { encoding: "utf-8" },
+          );
+          execSync(
+            "while sudo iptables -C FORWARD -o wg0 -j ACCEPT 2>/dev/null; do sudo iptables -D FORWARD -o wg0 -j ACCEPT; done",
+            { encoding: "utf-8" },
+          );
+
+          if (legacyEgressIf && /^[a-zA-Z0-9.\-_@]+$/.test(legacyEgressIf)) {
+            execSync(
+              `while sudo iptables -t nat -C POSTROUTING -o ${legacyEgressIf} -j MASQUERADE 2>/dev/null; do sudo iptables -t nat -D POSTROUTING -o ${legacyEgressIf} -j MASQUERADE; done`,
+              { encoding: "utf-8" },
+            );
+            output += `Removed legacy MASQUERADE rules on ${legacyEgressIf}.\n`;
+          }
+          output += "Removed WireGuard NAT/FORWARD firewall rules.\n";
 
           execSync(`sudo rm -f /etc/wireguard/${iface}.conf`, { encoding: "utf-8" });
           output += `Removed /etc/wireguard/${iface}.conf.\n`;
@@ -3535,12 +3908,13 @@ WantedBy=multi-user.target
 
           // 5. Create wg0.conf
           const confPath = "/etc/wireguard/wg0.conf";
+          const natRuleComment = "OPENCLAW_WG_wg0";
           const confContent = `[Interface]
 Address = ${tunnelIp}
 ListenPort = ${port}
 PrivateKey = ${serverPrivKey}
-PostUp = iptables -t nat -A POSTROUTING -o ${egressIf} -j MASQUERADE; iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT
-PostDown = iptables -t nat -D POSTROUTING -o ${egressIf} -j MASQUERADE; iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT
+PostUp = iptables -t nat -A POSTROUTING -m comment --comment ${natRuleComment} -o ${egressIf} -j MASQUERADE; iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT
+PostDown = iptables -t nat -D POSTROUTING -m comment --comment ${natRuleComment} -o ${egressIf} -j MASQUERADE; iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT
 `;
           const crypto = await import("node:crypto");
           const tempFile = `/tmp/wg0-${crypto.randomBytes(8).toString("hex")}.conf`;

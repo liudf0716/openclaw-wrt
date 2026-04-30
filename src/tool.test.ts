@@ -1098,6 +1098,9 @@ describe("openclaw-wrt intent tools", () => {
 
     expect(commands).toContain("sudo systemctl stop wg-quick@wg0 || true");
     expect(commands).toContain("sudo systemctl disable wg-quick@wg0 || true");
+    expect(commands).toContain(
+      "while sudo iptables -t nat -C POSTROUTING -m comment --comment OPENCLAW_WG_wg0 -j MASQUERADE 2>/dev/null; do sudo iptables -t nat -D POSTROUTING -m comment --comment OPENCLAW_WG_wg0 -j MASQUERADE; done",
+    );
     expect(commands).toContain("sudo rm -f /etc/wireguard/wg0.conf");
   });
 
