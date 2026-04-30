@@ -176,40 +176,47 @@ user-invocable: true
         → 192.168.2.100
 ```
 
-#### 自动执行流程
+#### Step A：LAN 冲突检查 — 调用 `clawwrt_check_lan_conflict`
 
-直接调用 **`clawwrt_reconcile_wireguard_lan_mesh`**，该工具一次完成以下全部逻辑（无需手动拆分步骤）：
+```json
+{ "newDeviceId": "<new-device>", "existingDeviceIds": ["<device-a>", "<device-b>"] }
+```
 
-1. **自动收集 br-lan**：若未通过 `nodes` 显式传入 `lanCidr`，工具自动对每台设备调用 `get_status` 提取 `br-lan` 网段。
-2. **冲突检测门禁**：自动检测所有设备 LAN CIDR 的重叠冲突，冲突设备加入 `blocked` 列表且不做任何路由下发；冲突提示由工具返回结果携带，无需 Agent 手动计算。
-3. **更新 VPS peer AllowedIPs**（传 `updateServerPeers: true`）：对无冲突设备调用 `openclaw_add_wg_peer`，确保 AllowedIPs 包含隧道地址和 LAN 段。
-4. **下发对向 LAN 路由**：对每台无冲突设备调用 `clawwrt_set_vpn_routes`（`selective` 模式），自动将其他所有设备的 LAN 网段经 `wg0` 写入路由。
+- `existingDeviceIds` 可省略，工具自动发现所有其他在线设备。
+- 返回 `hasConflict: false` → 直接进入 Step B。
+- 返回 `hasConflict: true` → 停止，向用户展示 `conflicts` 列表，引导修改新设备 LAN IP：
+  1. ⚠️ **向用户展示以下警告并等待明确确认**：「⚠️ 修改 br-lan IP 将导致该路由器 LAN 侧所有客户端断线，DHCP 将重新分配 IP。请确认是否继续？」
+  2. 用户确认后调用 `clawwrt_set_br_lan`（如改为 `192.168.10.1`）。
+  3. 重新调用 `clawwrt_check_lan_conflict`，直至 `hasConflict: false`。
 
-**调用示例（全量自动模式，nodes 省略时自动发现所有在线设备）：**
+#### Step B：增量互通下发 — 调用 `clawwrt_join_wireguard_lan_mesh`
+
 ```json
 {
+  "newDeviceId": "<new-device>",
+  "tunnelIp": "10.0.0.N/32",
+  "peerPublicKey": "<new-device-pub-key>",
+  "existingDeviceIds": ["<device-a>", "<device-b>"],
   "updateServerPeers": true
 }
 ```
 
-**调用示例（显式传入节点，已知隧道 IP 和公钥）：**
-```json
-{
-  "nodes": [
-    { "deviceId": "device-abc123", "tunnelIp": "10.0.0.2/32", "peerPublicKey": "<pub-key-a>" },
-    { "deviceId": "device-def456", "tunnelIp": "10.0.0.3/32", "peerPublicKey": "<pub-key-b>" }
-  ],
-  "updateServerPeers": true
-}
-```
+- `existingDeviceIds` 可省略，自动发现。
+- `peerPublicKey` 省略时跳过 VPS peer AllowedIPs 更新（`serverPeerUpdate: skipped`）。
+- 工具自动完成：
+  1. 通过 `get_br_lan` 获取新设备及所有已有设备 LAN CIDR；
+  2. 用 `openclaw_add_wg_peer` 更新 VPS peer AllowedIPs（新设备）；
+  3. 用 `set_vpn_routes` 向新设备下发所有已有设备 LAN 路由；
+  4. 对每台已有设备：读取现有路由 → 追加新设备 LAN CIDR → `set_vpn_routes` 全量写回。
+- 返回 `results` 含各步骤状态；`existingDeviceRoutes` 中有任何 `error` 时，需人工排查对应设备。
 
-工具返回结果包含：已接入设备列表（设备ID、隧道IP、br-lan网段、已下发路由）、被阻止设备及原因。**后续新设备上线时，重新调用本工具即可触发全量重计算 + 增量下发。**
+> **全量重算降级**：如需修复路由不一致，改调 `clawwrt_reconcile_wireguard_lan_mesh`（`updateServerPeers: true`），该工具会重新采集所有设备 br-lan 并全量重下发，但不提供冲突修复引导。
 
-**验证与结果汇报（工具调用后）**
+**验证与结果汇报（Step B 完成后）**
 
 - 逐台调用 `clawwrt_get_wireguard_vpn_status` 检查握手状态（预期握手时间 < 2 分钟）。
 - 选择至少两组跨网段地址做互 ping 验证。
-- 若 ping 不通，优先排查：VPS peer `allowed_ips` 是否包含对应 LAN 段；路由器侧路由是否生效。
+- 若 ping 不通，优先排查：VPS peer `allowed_ips` 是否包含对应 LAN 段；路由器侧路由是否生效（可用 `clawwrt_get_vpn_routes` 确认）。
 
 ---
 
