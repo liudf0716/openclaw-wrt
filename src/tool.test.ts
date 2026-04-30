@@ -103,13 +103,13 @@ describe("openclaw-wrt intent tools", () => {
   it("deploy frps installs the binary as root-owned when nwct-server is missing", async () => {
     const originalExecSyncImpl = execSyncMock.getMockImplementation() ?? defaultExecSyncMockImpl;
     execSyncMock.mockImplementation((command: string) => {
-      if (command.startsWith("which nwct-server")) {
+      if (command.startsWith("test -x ")) {
         throw new Error("not found");
       }
       if (command.includes("api.github.com/repos/fatedier/frp/releases/latest")) {
         return '{"tag_name":"v1.2.3"}';
       }
-      if (command.startsWith("curl -L -o /tmp/frp_1.2.3_linux_amd64.tar.gz")) {
+      if (command.includes("-o /tmp/frp_1.2.3_linux_amd64.tar.gz")) {
         return "";
       }
       if (command.startsWith("tar -C /tmp -zxvf /tmp/frp_1.2.3_linux_amd64.tar.gz")) {
@@ -688,7 +688,8 @@ describe("openclaw-wrt intent tools", () => {
       listDevices() {
         return [];
       },
-      getDevice() {
+      getDevice(id: string) {
+        if (id === "dev-3") return { id: "dev-3", name: "Router 3", online: true };
         return null;
       },
       async callDevice(params: {
@@ -709,6 +710,7 @@ describe("openclaw-wrt intent tools", () => {
       deviceId: "dev-3",
       command: "uci show wireless",
       timeoutSeconds: 15,
+      userConfirmed: true,
     });
 
     expect(calls).toHaveLength(1);
@@ -1513,6 +1515,144 @@ describe("openclaw-wrt intent tools", () => {
         },
       },
     });
+  });
+
+  it("wireguard lan mesh tool auto-builds cross-LAN selective routes", async () => {
+    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+    const bridge = {
+      listDevices() {
+        return [
+          { deviceId: "wifi-1", connectedAtMs: 1, lastSeenAtMs: 1 },
+          { deviceId: "wifi-2", connectedAtMs: 1, lastSeenAtMs: 1 },
+          { deviceId: "wifi-3", connectedAtMs: 1, lastSeenAtMs: 1 },
+        ];
+      },
+      getDevice() {
+        return null;
+      },
+      async callDevice(params: {
+        deviceId: string;
+        op: string;
+        payload?: Record<string, unknown>;
+      }) {
+        calls.push(params);
+        if (params.op === "get_status") {
+          if (params.deviceId === "wifi-1") {
+            return { br_lan: "192.168.1.0/24" };
+          }
+          if (params.deviceId === "wifi-2") {
+            return { br_lan: "192.168.2.0/24" };
+          }
+          return { br_lan: "192.168.3.0/24" };
+        }
+        if (params.op === "set_vpn_routes") {
+          return { type: "set_vpn_routes_response", status: "success" };
+        }
+        return { status: "ok" };
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "clawwrt_reconcile_wireguard_lan_mesh",
+    );
+
+    const result = await tool?.execute?.("tool-mesh", {
+      nodes: [
+        { deviceId: "wifi-1", tunnelIp: "10.0.0.2/32", lanCidr: "192.168.1.0/24" },
+        { deviceId: "wifi-2", tunnelIp: "10.0.0.3/32", lanCidr: "192.168.2.0/24" },
+        { deviceId: "wifi-3", tunnelIp: "10.0.0.4/32", lanCidr: "192.168.3.0/24" },
+      ],
+      updateServerPeers: false,
+    });
+
+    const routeCalls = calls.filter((entry) => entry.op === "set_vpn_routes");
+    expect(routeCalls).toHaveLength(3);
+    expect(routeCalls).toContainEqual({
+      deviceId: "wifi-1",
+      op: "set_vpn_routes",
+      payload: {
+        data: {
+          mode: "selective",
+          routes: ["192.168.2.0/24", "192.168.3.0/24"],
+        },
+      },
+    });
+    expect(routeCalls).toContainEqual({
+      deviceId: "wifi-2",
+      op: "set_vpn_routes",
+      payload: {
+        data: {
+          mode: "selective",
+          routes: ["192.168.1.0/24", "192.168.3.0/24"],
+        },
+      },
+    });
+    expect(routeCalls).toContainEqual({
+      deviceId: "wifi-3",
+      op: "set_vpn_routes",
+      payload: {
+        data: {
+          mode: "selective",
+          routes: ["192.168.1.0/24", "192.168.2.0/24"],
+        },
+      },
+    });
+
+    expect((result as { details?: Record<string, unknown> }).details?.blocked).toEqual([]);
+  });
+
+  it("wireguard lan mesh tool blocks devices with overlapping LAN subnets", async () => {
+    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+    const bridge = {
+      listDevices() {
+        return [
+          { deviceId: "wifi-a", connectedAtMs: 1, lastSeenAtMs: 1 },
+          { deviceId: "wifi-b", connectedAtMs: 1, lastSeenAtMs: 1 },
+          { deviceId: "wifi-c", connectedAtMs: 1, lastSeenAtMs: 1 },
+        ];
+      },
+      getDevice() {
+        return null;
+      },
+      async callDevice(params: {
+        deviceId: string;
+        op: string;
+        payload?: Record<string, unknown>;
+      }) {
+        calls.push(params);
+        if (params.op === "get_status") {
+          if (params.deviceId === "wifi-a") {
+            return { br_lan: "192.168.1.0/24" };
+          }
+          if (params.deviceId === "wifi-b") {
+            return { br_lan: "192.168.1.0/24" };
+          }
+          return { br_lan: "192.168.3.0/24" };
+        }
+        if (params.op === "set_vpn_routes") {
+          return { type: "set_vpn_routes_response", status: "success" };
+        }
+        return { status: "ok" };
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "clawwrt_reconcile_wireguard_lan_mesh",
+    );
+
+    const result = await tool?.execute?.("tool-mesh-conflict", {
+      updateServerPeers: false,
+    });
+
+    const routeCalls = calls.filter((entry) => entry.op === "set_vpn_routes");
+    expect(routeCalls).toHaveLength(0);
+
+    const blocked = (result as { details?: Record<string, unknown> }).details?.blocked as Array<
+      Record<string, unknown>
+    >;
+    expect(blocked.map((entry) => entry.deviceId)).toEqual(
+      expect.arrayContaining(["wifi-a", "wifi-b"]),
+    );
   });
 
   it("delete vpn routes with flushAll sends flush_all in data payload", async () => {
