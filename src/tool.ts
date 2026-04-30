@@ -31,6 +31,78 @@ function redactFrpsConfigContent(configContent: string): string {
   return configContent.replace(/^(auth\.token\s*=\s*).+$/gim, '$1"[REDACTED]"');
 }
 
+type ExecSyncRunner = (command: string, options?: unknown) => string | Uint8Array;
+
+function detectServerEgressInterface(execSync: ExecSyncRunner): string {
+  const probes = [
+    "ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\") {print $(i+1); exit}}'",
+    "ip -4 route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\") {print $(i+1); exit}}'",
+  ];
+  for (const probe of probes) {
+    try {
+      const value = String(execSync(probe, { encoding: "utf-8", timeout: 5000 })).trim();
+      if (value) {
+        return value;
+      }
+    } catch {
+      // Ignore probe failures and continue with other strategies.
+    }
+  }
+  return "";
+}
+
+function listServerInterfacesWithIp(execSync: ExecSyncRunner): string {
+  try {
+    const output = String(
+      execSync("ip -o -4 addr show scope global 2>/dev/null", {
+      encoding: "utf-8",
+      timeout: 5000,
+      }),
+    ).trim();
+    if (!output) {
+      return "(no global IPv4 interface found)";
+    }
+    const lines = output
+      .split("\n")
+      .map((line) => line.trim().split(/\s+/))
+      .filter((parts) => parts.length >= 4)
+      .map((parts) => `${parts[1]} ${parts[3]}`);
+    return lines.length > 0 ? lines.join("\n") : "(no global IPv4 interface found)";
+  } catch {
+    return "(failed to list interfaces via `ip -o -4 addr show` )";
+  }
+}
+
+function detectRecommendedServerInterface(execSync: ExecSyncRunner): string {
+  try {
+    const output = String(
+      execSync("ip -o -4 addr show scope global up 2>/dev/null", {
+        encoding: "utf-8",
+        timeout: 5000,
+      }),
+    ).trim();
+    if (!output) {
+      return "";
+    }
+    const lines = output.split("\n").map((line) => line.trim().split(/\s+/));
+    for (const parts of lines) {
+      if (parts.length < 4) {
+        continue;
+      }
+      const iface = parts[1];
+      if (!iface || iface === "lo") {
+        continue;
+      }
+      if (/^[a-zA-Z0-9.\-_@]+$/.test(iface)) {
+        return iface;
+      }
+    }
+  } catch {
+    // Ignore fallback detection errors.
+  }
+  return "";
+}
+
 const DeviceIdField = Type.String({
   minLength: 1,
   description: "Target openclaw-wrt device_id.",
@@ -662,6 +734,13 @@ const DeployWgServerSchema = Type.Object(
     ),
     tunnelIp: Type.Optional(
       Type.String({ description: "Server tunnel IP with mask. Default 10.0.0.1/24." }),
+    ),
+    egressInterface: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description:
+          "Optional VPS WAN interface used by MASQUERADE PostUp/PostDown rules (e.g. eth0). When omitted, auto-detected.",
+      }),
     ),
   },
   { additionalProperties: false },
@@ -2506,15 +2585,23 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         const args = rawParams as { wanInterface?: string };
         const { execSync } = await import("node:child_process");
 
-        let wan = args.wanInterface;
+        let wan = args.wanInterface?.trim();
         if (!wan) {
-          wan = execSync("ip route get 1.1.1.1 | awk '{print $5}' | head -1", {
-            encoding: "utf-8",
-          }).trim();
+          wan = detectServerEgressInterface(execSync);
         }
 
         if (!wan || !/^[a-zA-Z0-9.\-_@]+$/.test(wan)) {
-          throw new Error(`Invalid or missing WAN interface: ${wan ?? "null"}`);
+          const interfaces = listServerInterfacesWithIp(execSync);
+          const recommended = detectRecommendedServerInterface(execSync);
+          const recommendationLine = recommended
+            ? `Recommended outbound interface (best guess): ${recommended}\n`
+            : "";
+          throw new Error(
+            `Unable to determine WAN interface automatically.\n` +
+              recommendationLine +
+              `Detected VPS interfaces and IPv4:\n${interfaces}\n` +
+              `Please ask user to choose the outbound interface and rerun with wanInterface set explicitly.`,
+          );
         }
 
         const setupCommand = [
@@ -3361,7 +3448,11 @@ WantedBy=multi-user.target
         "Automatically install WireGuard, enable IP forwarding, generate server keys, and configure wg0 with NAT on the VPS host.",
       parameters: DeployWgServerSchema,
       execute: async (_toolCallId, rawParams) => {
-        const args = rawParams;
+        const args = rawParams as {
+          port?: number;
+          tunnelIp?: string;
+          egressInterface?: string;
+        };
         const { execSync } = await import("node:child_process");
         const port = args.port || 51820;
         const tunnelIp = args.tunnelIp || "10.0.0.1/24";
@@ -3418,10 +3509,28 @@ WantedBy=multi-user.target
           const serverPrivKey = execSync(`sudo cat ${privKeyPath}`, { encoding: "utf-8" }).trim();
           const serverPubKey = execSync(`sudo cat ${pubKeyPath}`, { encoding: "utf-8" }).trim();
 
-          // 4. Detect egress interface
-          const egressIf = execSync("ip route get 1.1.1.1 | awk '{print $5; exit}'", {
-            encoding: "utf-8",
-          }).trim();
+          // 4. Detect egress interface (or use explicit override)
+          const requestedEgress = args.egressInterface?.trim();
+          const egressIf = requestedEgress || detectServerEgressInterface(execSync);
+          if (!egressIf || !/^[a-zA-Z0-9.\-_@]+$/.test(egressIf)) {
+            const interfaces = listServerInterfacesWithIp(execSync);
+            const recommended = detectRecommendedServerInterface(execSync);
+            const recommendationLine = recommended
+              ? `Recommended outbound interface (best guess): ${recommended}\n`
+              : "";
+            return buildToolResult(
+              `WireGuard deployment failed: unable to determine VPS WAN interface automatically.\n` +
+                recommendationLine +
+                `Detected VPS interfaces and IPv4:\n${interfaces}\n` +
+                `Please ask user to choose the outbound interface, then rerun with egressInterface set (for example: \"eth0\").`,
+              {
+                status: "error",
+                output,
+                interfaces,
+                recommendedInterface: recommended || undefined,
+              },
+            );
+          }
           output += `Egress interface detected: ${egressIf}\n`;
 
           // 5. Create wg0.conf
