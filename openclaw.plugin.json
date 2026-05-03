@@ -2,6 +2,12 @@
   "id": "openclaw-wrt",
   "name": "OpenClaw WRT",
   "description": "Accept OpenClaw WRT device WebSocket connections and expose a control tool with req_id correlation.",
+  "activation": {
+    "onStartup": true,
+    "onConfigPaths": [
+      "plugins.entries.openclaw-wrt"
+    ]
+  },
   "skills": [
     "./skills"
   ],

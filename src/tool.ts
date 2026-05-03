@@ -873,6 +873,18 @@ const JoinWireguardLanMeshSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const PlanWireguardClientRoutesSchema = Type.Object(
+  {
+    deviceIds: Type.Array(Type.String({ minLength: 1 }), {
+      minItems: 1,
+      description:
+        "Selected device IDs to include in WireGuard client route planning. The tool fetches each device's br-lan CIDR, checks overlaps, and calculates per-device selective routes.",
+    }),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
 const VerifyWireguardConnectivitySchema = Type.Object(
   {
     deviceIds: Type.Optional(
@@ -993,6 +1005,7 @@ type ResetWgServerParams = Static<typeof ResetWgServerSchema>;
 type ReconcileWireguardLanMeshParams = Static<typeof ReconcileWireguardLanMeshSchema>;
 type CheckLanConflictParams = Static<typeof CheckLanConflictSchema>;
 type JoinWireguardLanMeshParams = Static<typeof JoinWireguardLanMeshSchema>;
+type PlanWireguardClientRoutesParams = Static<typeof PlanWireguardClientRoutesSchema>;
 
 type BpfJsonTable = "ipv4" | "ipv6" | "mac" | "sid" | "l7";
 
@@ -3128,6 +3141,120 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         return `Set VPN routes (${args.mode} mode) on ${args.deviceId}.`;
       },
     }),
+    {
+      name: "clawwrt_plan_wireguard_client_routes",
+      label: "OpenClaw WRT Plan WireGuard Client Routes",
+      description:
+        "For selected routers, fetch each br-lan CIDR, detect overlapping LAN subnets, and calculate the per-router selective route list for clawwrt_set_vpn_routes. Each router's routes are all selected LAN CIDRs except its own.",
+      parameters: PlanWireguardClientRoutesSchema,
+      execute: async (_toolCallId, rawParams) => {
+        const args = rawParams as PlanWireguardClientRoutesParams;
+        const deviceIds = [
+          ...new Set((Array.isArray(args.deviceIds) ? args.deviceIds : []).map((id) => id.trim()).filter(Boolean)),
+        ];
+
+        if (deviceIds.length === 0) {
+          throw new Error("At least one deviceId is required.");
+        }
+
+        const onlineDevices = new Map(
+          bridge.listDevices().map((entry) => [entry.deviceId.trim(), entry] as const),
+        );
+
+        const devices: Array<{
+          deviceId: string;
+          deviceName?: string;
+          lanCidr?: string;
+          error?: string;
+        }> = [];
+
+        for (const deviceId of deviceIds) {
+          try {
+            const result = await callDeviceOp({
+              bridge,
+              deviceId,
+              op: "get_br_lan",
+              timeoutMs: args.timeoutMs,
+            });
+            const cidr = (result as JsonRecord)?.cidr;
+            const parsed = typeof cidr === "string" ? parseIPv4Cidr(cidr) : null;
+            devices.push({
+              deviceId,
+              deviceName: onlineDevices.get(deviceId)?.deviceName,
+              lanCidr: parsed?.normalized,
+              error: parsed ? undefined : `missing_or_invalid_cidr: ${typeof cidr === "string" ? cidr : "(none)"}`,
+            });
+          } catch (error) {
+            devices.push({
+              deviceId,
+              deviceName: onlineDevices.get(deviceId)?.deviceName,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+
+        const validDevices = devices.filter(
+          (entry): entry is typeof entry & { lanCidr: string } =>
+            typeof entry.lanCidr === "string" && !entry.error,
+        );
+
+        const conflicts: Array<{
+          leftDeviceId: string;
+          leftLanCidr: string;
+          rightDeviceId: string;
+          rightLanCidr: string;
+        }> = [];
+        const blockedDeviceIds = new Set<string>();
+
+        for (let i = 0; i < validDevices.length; i += 1) {
+          for (let j = i + 1; j < validDevices.length; j += 1) {
+            const left = validDevices[i]!;
+            const right = validDevices[j]!;
+            const parsedLeft = parseIPv4Cidr(left.lanCidr);
+            const parsedRight = parseIPv4Cidr(right.lanCidr);
+            if (!parsedLeft || !parsedRight || !cidrOverlaps(parsedLeft, parsedRight)) {
+              continue;
+            }
+
+            conflicts.push({
+              leftDeviceId: left.deviceId,
+              leftLanCidr: left.lanCidr,
+              rightDeviceId: right.deviceId,
+              rightLanCidr: right.lanCidr,
+            });
+            blockedDeviceIds.add(left.deviceId);
+            blockedDeviceIds.add(right.deviceId);
+          }
+        }
+
+        const routePlans =
+          conflicts.length > 0
+            ? []
+            : validDevices.map((entry) => ({
+                deviceId: entry.deviceId,
+                deviceName: entry.deviceName,
+                lanCidr: entry.lanCidr,
+                routes: validDevices
+                  .filter((candidate) => candidate.deviceId !== entry.deviceId)
+                  .map((candidate) => candidate.lanCidr),
+              }));
+
+        const failedDevices = devices.filter((entry) => entry.error);
+        const text =
+          conflicts.length > 0
+            ? `WireGuard client route plan blocked: LAN conflicts detected for ${blockedDeviceIds.size} device(s). Resolve the LAN overlap before configuring clients.`
+            : `WireGuard client route plan ready for ${routePlans.length} device(s).`;
+
+        return buildToolResult(text, {
+          hasConflict: conflicts.length > 0,
+          devices,
+          failedDevices,
+          conflicts,
+          blockedDeviceIds: [...blockedDeviceIds],
+          routePlans,
+        });
+      },
+    },
     {
       name: "clawwrt_reconcile_wireguard_lan_mesh",
       label: "OpenClaw WRT Reconcile WireGuard LAN Mesh",
