@@ -3180,14 +3180,14 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
             const parsed = typeof cidr === "string" ? parseIPv4Cidr(cidr) : null;
             devices.push({
               deviceId,
-              deviceName: onlineDevices.get(deviceId)?.deviceName,
+              deviceName: onlineDevices.get(deviceId)?.alias,
               lanCidr: parsed?.normalized,
               error: parsed ? undefined : `missing_or_invalid_cidr: ${typeof cidr === "string" ? cidr : "(none)"}`,
             });
           } catch (error) {
             devices.push({
               deviceId,
-              deviceName: onlineDevices.get(deviceId)?.deviceName,
+              deviceName: onlineDevices.get(deviceId)?.alias,
               error: error instanceof Error ? error.message : String(error),
             });
           }
