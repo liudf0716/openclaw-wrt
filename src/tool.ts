@@ -1240,6 +1240,7 @@ async function upsertWireguardPeerOnServer(params: {
   allowedIps: string[];
   endpoint?: string;
 }) {
+  console.info("upsertWireguardPeerOnServer", params);
   const { execFileSync, execSync } = await import("node:child_process");
   const confPath = "/etc/wireguard/wg0.conf";
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-wrt-wg-peer-"));
@@ -1425,6 +1426,7 @@ async function callDeviceOp(params: {
   timeoutMs?: number;
   expectResponse?: boolean;
 }) {
+  console.info(`callDeviceOp deviceId=${params.deviceId} op=${params.op}`, params.payload);
   return await params.bridge.callDevice({
     deviceId: params.deviceId,
     op: params.op,
@@ -1444,6 +1446,10 @@ async function publishPortalPage(params: {
   webRoot?: string;
   timeoutMs?: number;
 }) {
+  console.info(`publishPortalPage deviceId=${params.deviceId} template=${params.template}`, {
+    pageName: params.pageName,
+    webRoot: params.webRoot,
+  });
   const pageName = buildPortalPageName(params.deviceId, params.pageName);
   const root = await resolvePortalWebRoot(params.webRoot);
   const filePath = path.join(root, pageName);
@@ -1475,6 +1481,7 @@ async function lookupClientByMac(params: {
   clientMac: string;
   timeoutMs?: number;
 }): Promise<JsonRecord | null> {
+  console.info(`lookupClientByMac deviceId=${params.deviceId} clientMac=${params.clientMac}`);
   const response = await callDeviceOp({
     bridge: params.bridge,
     deviceId: params.deviceId,
@@ -1522,6 +1529,7 @@ function createSimpleOperationTool(params: {
     description: params.description,
     parameters: params.parameters ?? DeviceOnlySchema,
     execute: async (_toolCallId, rawParams) => {
+      console.info(`Executing tool: ${params.name}`, rawParams);
       const fallbackArgs = rawParams as DeviceOnlyParams;
       const built = params.buildPayload?.(rawParams) ?? {
         deviceId: fallbackArgs.deviceId ? fallbackArgs.deviceId.trim() : "",
@@ -1552,6 +1560,7 @@ function createPublishPortalPageTool(bridge: ClawWRTBridge): AnyAgentTool {
     description: "Publish a captive portal HTML page to the device-specific portal file.",
     parameters: PublishPortalPageSchema,
     execute: async (_toolCallId, rawParams) => {
+      console.info("Executing tool: clawwrt_publish_portal_page", rawParams);
       const args = rawParams as PublishPortalPageParams;
       const deviceId = args.deviceId.trim();
       const result = await publishPortalPage({
@@ -1588,6 +1597,7 @@ function createGeneratePortalPageTool(bridge: ClawWRTBridge): AnyAgentTool {
       "Generate a captive portal HTML page and publish it to the device-specific portal file.",
     parameters: GeneratePortalPageSchema,
     execute: async (_toolCallId, rawParams) => {
+      console.info("Executing tool: clawwrt_generate_portal_page", rawParams);
       const args = rawParams as GeneratePortalPageParams;
       const deviceId = args.deviceId.trim();
       const result = await publishPortalPage({
@@ -1623,6 +1633,7 @@ function createGenericTool(bridge: ClawWRTBridge): AnyAgentTool {
       "Low-level fallback tool for openclaw-wrt. Prefer the more specific clawwrt_* tools when they match the user intent.",
     parameters: GenericToolSchema,
     execute: async (_toolCallId, rawParams) => {
+      console.info("Executing tool: clawwrt", rawParams);
       const toolParams = rawParams as GenericToolParams;
       if (toolParams.action === "list_devices") {
         const devices = bridge.listDevices();
@@ -1675,6 +1686,7 @@ function createListDevicesTool(bridge: ClawWRTBridge): AnyAgentTool {
       { additionalProperties: false },
     ),
     execute: async () => {
+      console.info("Executing tool: clawwrt_list_devices");
       const devices = bridge.listDevices();
 
       const deviceStrings = devices
@@ -1695,6 +1707,7 @@ function createGetDeviceTool(bridge: ClawWRTBridge): AnyAgentTool {
       "Get the current connection snapshot for one online router or wireless router. This is a quick connectivity view, not the full runtime detail report.",
     parameters: Type.Object({ deviceId: DeviceIdField }, { additionalProperties: false }),
     execute: async (_toolCallId, rawParams) => {
+      console.info("Executing tool: clawwrt_get_device", rawParams);
       const args = rawParams as { deviceId: string };
       const device = ensureDevice(bridge, args.deviceId.trim());
       return buildToolResult(`Device ${device.deviceId} is connected.`, { device });
@@ -1782,6 +1795,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
       description: "Get detailed information for one authenticated client by MAC address.",
       parameters: ClientInfoSchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: clawwrt_get_client_info", rawParams);
         const args = rawParams as ClientInfoParams;
         const normalizedMac = normalizeMac(args.clientMac);
         const response = await callDeviceOp({
@@ -1803,6 +1817,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         "Authorize one client by MAC and IP through the router-side ClawWRT API. Use this for captive portal login and AI-driven approval.",
       parameters: AuthClientSchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: clawwrt_auth_client", rawParams);
         const args = rawParams as AuthClientParams;
         const clientMac = normalizeMac(args.clientMac);
         const clientIp = args.clientIp.trim();
@@ -1829,6 +1844,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         "Disconnect an authenticated client by MAC address. If client IP is omitted, the tool looks it up from get_clients. If the router has exactly one gateway, gwId is inferred automatically.",
       parameters: KickoffClientSchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: clawwrt_kickoff_client", rawParams);
         const args = rawParams as KickoffClientParams;
         const deviceId = args.deviceId.trim();
         const device = ensureDevice(bridge, deviceId);
@@ -2484,6 +2500,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         "Get runtime WireGuard status from both the router (peer handshake/traffic) and the local OpenClaw server (tunnel presence).",
       parameters: DeviceOnlySchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: clawwrt_get_wireguard_vpn_status", rawParams);
         const args = rawParams as DeviceOnlyParams;
         const deviceId = args.deviceId.trim();
 
@@ -2565,6 +2582,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         "Batch-verify WireGuard connectivity across all (or specified) online routers. For each device, fetches router-side handshake/traffic status and server-side wg/NAT/forwarding state. Optionally pings tunnel IPs from the VPS to confirm end-to-end reachability. Returns a consolidated report.",
       parameters: VerifyWireguardConnectivitySchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: clawwrt_verify_wireguard_connectivity", rawParams);
         const args = rawParams as {
           deviceIds?: string[];
           pingTargets?: string[];
@@ -3023,6 +3041,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         { additionalProperties: false },
       ),
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: clawwrt_setup_server_vpn_nat", rawParams);
         const args = rawParams as { wanInterface?: string };
         const { execSync } = await import("node:child_process");
 
@@ -3148,6 +3167,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         "For selected routers, fetch each br-lan CIDR, detect overlapping LAN subnets, and calculate the per-router selective route list for clawwrt_set_vpn_routes. Each router's routes are all selected LAN CIDRs except its own.",
       parameters: PlanWireguardClientRoutesSchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: clawwrt_plan_wireguard_client_routes", rawParams);
         const args = rawParams as PlanWireguardClientRoutesParams;
         const deviceIds = [
           ...new Set((Array.isArray(args.deviceIds) ? args.deviceIds : []).map((id) => id.trim()).filter(Boolean)),
@@ -3262,6 +3282,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         "Auto-build LAN mesh routing for 2+ WireGuard routers. Collects each router br-lan CIDR, blocks conflicting subnets, upserts VPS peer AllowedIPs when possible, and pushes selective routes for every router to reach all other LANs through wg0.",
       parameters: ReconcileWireguardLanMeshSchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: clawwrt_reconcile_wireguard_lan_mesh", rawParams);
         const args = rawParams as ReconcileWireguardLanMeshParams;
         const debugLogs: string[] = [];
         const dbg = (msg: string) => debugLogs.push(`[reconcile] ${msg}`);
@@ -3535,6 +3556,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         "Step A of LAN mesh onboarding: fetch the new device's br-lan CIDR and compare it against all existing mesh devices. Returns hasConflict=true with conflict details if any subnet overlaps, or hasConflict=false when safe to proceed to clawwrt_join_wireguard_lan_mesh. If conflicts exist, use clawwrt_set_br_lan to change the new device IP, then re-run this check.",
       parameters: CheckLanConflictSchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: clawwrt_check_lan_conflict", rawParams);
         const args = rawParams as CheckLanConflictParams;
         const newDeviceId = args.newDeviceId.trim();
 
@@ -3615,6 +3637,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         "Step B of LAN mesh onboarding: incrementally connect a new device into the existing WireGuard LAN mesh. Requires clawwrt_check_lan_conflict to have returned hasConflict=false first. Updates VPS peer AllowedIPs for the new device, pushes all existing LAN CIDRs as routes to the new device, and appends the new device LAN CIDR to every existing device's routes.",
       parameters: JoinWireguardLanMeshSchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: clawwrt_join_wireguard_lan_mesh", rawParams);
         const args = rawParams as JoinWireguardLanMeshParams;
         const newDeviceId = args.newDeviceId.trim();
         const updateServerPeers = args.updateServerPeers !== false;
@@ -3869,6 +3892,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         "Change the router's br-lan LAN IP address and subnet. ⚠️ DESTRUCTIVE: changing the LAN IP will disconnect all LAN clients and re-issue DHCP leases. MUST obtain explicit user confirmation before calling this tool.",
       parameters: SetBrLanSchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: clawwrt_set_br_lan", rawParams);
         const args = rawParams as SetBrLanParams;
         const deviceId = args.deviceId.trim();
         const payload: Record<string, unknown> = { ipaddr: args.ipaddr.trim() };
@@ -3929,6 +3953,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         "Execute a raw shell command on the router. STRICT RULES: (1) NEVER call this tool to implement any Wi-Fi/router feature — always use the dedicated clawwrt_* API tools instead. (2) ONLY call this tool when the user has EXPLICITLY typed a shell command or said something like '执行命令'/'run command'/'shell'. (3) ALWAYS show the exact command to the user and WAIT for explicit approval BEFORE calling this tool. Calling without user approval is FORBIDDEN.",
       parameters: ShellCommandSchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: clawwrt_execute_shell", rawParams);
         const args = rawParams as ShellCommandParams;
         if (args.userConfirmed !== true) {
           return buildToolResult(
@@ -4108,6 +4133,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge }): AnyAgentT
         "Deploy intranet-penetration server: fetch latest version from GitHub, install as /usr/bin/nwct-server, configure systemd autostart. MUST be called with a non-empty token (auto-generated by Agent). Do NOT ask user for port or token — use default port 7070 and generate token automatically.",
       parameters: DeployFrpsSchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: openclaw_deploy_frps", rawParams);
         const args = rawParams;
         const { execSync } = await import("node:child_process");
 
@@ -4242,6 +4268,7 @@ WantedBy=multi-user.target
         "ENTRY POINT for all intranet-penetration tasks. Call this FIRST before asking the user anything. Returns service state, listening ports, and current token/port config. Use the result to decide next step: deploy if not installed, re-deploy if token is empty, or proceed to client config if already running.",
       parameters: Type.Object({}),
       execute: async () => {
+        console.info("Executing tool: openclaw_get_frps_status");
         const { execSync } = await import("node:child_process");
         const configPath = "/etc/nwct/nwct-server.toml";
 
@@ -4284,6 +4311,7 @@ WantedBy=multi-user.target
         "Stop and disable nwct-server, remove config directory and systemd service file from the VPS. Binary is preserved for future deployments.",
       parameters: ResetFrpsSchema,
       execute: async () => {
+        console.info("Executing tool: openclaw_reset_frps");
         const { execSync } = await import("node:child_process");
         let output = "";
         try {
@@ -4316,6 +4344,7 @@ WantedBy=multi-user.target
         "Reset VPS-side WireGuard server configuration by stopping wg-quick, removing interface config, and optionally removing server key files.",
       parameters: ResetWgServerSchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: openclaw_reset_wg_server", rawParams);
         const args = rawParams as ResetWgServerParams;
         const { execSync } = await import("node:child_process");
         const iface = (args.interface ?? "wg0").trim() || "wg0";
@@ -4406,6 +4435,7 @@ WantedBy=multi-user.target
         "Automatically install WireGuard, enable IP forwarding, generate server keys, and configure wg0 with NAT on the VPS host.",
       parameters: DeployWgServerSchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: openclaw_deploy_wg_server", rawParams);
         const args = rawParams as {
           port?: number;
           tunnelIp?: string;
@@ -4555,6 +4585,7 @@ PostDown = iptables -t nat -D POSTROUTING -m comment --comment ${natRuleComment}
         "Add or update a peer (router) in the VPS WireGuard server configuration and reload without downtime.",
       parameters: AddWgPeerSchema,
       execute: async (_toolCallId, rawParams) => {
+        console.info("Executing tool: openclaw_add_wg_peer", rawParams);
         const args = rawParams;
         try {
           const result = await upsertWireguardPeerOnServer({
@@ -4583,6 +4614,7 @@ PostDown = iptables -t nat -D POSTROUTING -m comment --comment ${natRuleComment}
       description: "Check WireGuard server runtime status, peers, and forwarding state.",
       parameters: Type.Object({}),
       execute: async () => {
+        console.info("Executing tool: openclaw_get_wg_status");
         const { execSync } = await import("node:child_process");
         try {
           const wgShow = execSync("sudo wg show", { encoding: "utf-8" });
@@ -4607,6 +4639,7 @@ PostDown = iptables -t nat -D POSTROUTING -m comment --comment ${natRuleComment}
         "当用户打招呼（如 Hello, 你好, hello 龙虾wifi）、询问龙虾WiFi (Claw WiFi) 具有哪些功能或需要使用示例 (Prompts) 时调用。此工具会确认 Agent 身份，展示功能目录并提供一系列引导示例。",
       parameters: Type.Object({}),
       execute: async () => {
+        console.info("Executing tool: claw_wifi_hello");
         let catalog = `# 龙虾WiFi (Claw WiFi) 功能清单与使用示例\n\n已识别龙虾WiFi 身份。以下是您可以使用的功能模块及其 Prompts 示例：\n`;
 
         for (const [, item] of Object.entries(PROMPT_EXAMPLES)) {
