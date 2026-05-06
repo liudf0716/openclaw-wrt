@@ -102,7 +102,7 @@ describe("openclaw-wrt intent tools", () => {
 
   it("deploy frps installs the binary as root-owned when nwct-server is missing", async () => {
     const originalExecSyncImpl = execSyncMock.getMockImplementation() ?? defaultExecSyncMockImpl;
-    execSyncMock.mockImplementation((command: string) => {
+    execSyncMock.mockImplementation(((command: string): string => {
       if (command.startsWith("test -x ")) {
         throw new Error("not found");
       }
@@ -119,7 +119,7 @@ describe("openclaw-wrt intent tools", () => {
         return "";
       }
       return originalExecSyncImpl(command);
-    });
+    }) as any);
 
     try {
       const bridge = {
@@ -227,6 +227,97 @@ describe("openclaw-wrt intent tools", () => {
     expect(execFileSyncMock.mock.calls[0][1]).toEqual(["wg-quick", "strip", "wg0"]);
     expect(execFileSyncMock.mock.calls[1][0]).toBe("sudo");
     expect(execFileSyncMock.mock.calls[1][1]).toEqual(["wg", "syncconf", "wg0", "/dev/stdin"]);
+  });
+
+  it("deploy wg server writes peer bindings into the generated server config in one pass", async () => {
+    const originalExecSyncImpl = execSyncMock.getMockImplementation() ?? defaultExecSyncMockImpl;
+    let writtenConfigSource = "";
+
+    execSyncMock.mockImplementation(((command: string): string => {
+      if (command.startsWith("command -v wg")) {
+        return "/usr/bin/wg\n";
+      }
+      if (command.startsWith("sudo ls /etc/wireguard/server_private.key")) {
+        throw new Error("missing key");
+      }
+      if (command.startsWith("wg genkey | sudo tee /etc/wireguard/server_private.key | wg pubkey | sudo tee /etc/wireguard/server_public.key")) {
+        return "";
+      }
+      if (command.startsWith("sudo cat /etc/wireguard/server_private.key")) {
+        return "server-private-key\n";
+      }
+      if (command.startsWith("sudo cat /etc/wireguard/server_public.key")) {
+        return "server-public-key\n";
+      }
+      if (command.startsWith("sudo sysctl -w net.ipv4.ip_forward=1")) {
+        return "";
+      }
+      if (command.startsWith("echo 'net.ipv4.ip_forward = 1' | sudo tee /etc/sysctl.d/99-wireguard.conf")) {
+        return "";
+      }
+      if (command.startsWith("sudo install -o root -g root -m 600 ")) {
+        const match = command.match(/^sudo install -o root -g root -m 600 (\S+) \/etc\/wireguard\/wg0\.conf$/);
+        expect(match).toBeTruthy();
+        writtenConfigSource = match?.[1] ?? "";
+        return "";
+      }
+      if (command.startsWith("sudo systemctl enable wg-quick@wg0")) {
+        return "";
+      }
+      if (command.startsWith("sudo systemctl restart wg-quick@wg0")) {
+        return "";
+      }
+      return originalExecSyncImpl(command);
+    }) as any);
+
+    try {
+      const bridge = {
+        listDevices() {
+          return [];
+        },
+        getDevice() {
+          return null;
+        },
+      };
+
+      const tool = createClawWRTTools({ bridge: bridge as never }).find(
+        (entry) => entry.name === "openclaw_deploy_wg_server",
+      );
+      expect(tool).toBeTruthy();
+
+      const result = await tool?.execute?.("tool-deploy-wg", {
+        port: 51820,
+        tunnelIp: "10.0.0.1/24",
+        egressInterface: "eth0",
+        peerBindings: [
+          {
+            deviceId: "dev-1",
+            peerPublicKey: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
+            tunnelIp: "10.0.0.2/32",
+            lanCidr: "192.168.10.0/24",
+          },
+        ],
+      });
+
+      expect(writtenConfigSource).toMatch(/^\/tmp\/wg0-[a-f0-9]+\.conf$/);
+      const config = await readFile(writtenConfigSource, "utf8");
+
+      expect(config).toContain("Address = 10.0.0.1/24");
+      expect(config).toContain("ListenPort = 51820");
+      expect(config).toContain("[Peer]");
+      expect(config).toContain("PublicKey = b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=");
+      expect(config).toContain("AllowedIPs = 10.0.0.2/32, 192.168.10.0/24");
+      expect((result as { details?: Record<string, unknown> }).details?.peerBindings).toEqual([
+        {
+          deviceId: "dev-1",
+          tunnelIp: "10.0.0.2/32",
+          lanCidr: "192.168.10.0/24",
+          endpoint: undefined,
+        },
+      ]);
+    } finally {
+      execSyncMock.mockImplementation(originalExecSyncImpl);
+    }
   });
 
   it("portal renderer rejects accentColor values that could break out of style blocks", () => {

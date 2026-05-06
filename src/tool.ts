@@ -782,6 +782,39 @@ const DeployWgServerSchema = Type.Object(
           "Optional VPS WAN interface used by MASQUERADE PostUp/PostDown rules (e.g. eth0). When omitted, auto-detected.",
       }),
     ),
+    peerBindings: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            deviceId: DeviceIdField,
+            peerPublicKey: Type.String({
+              minLength: 1,
+              description: "Peer WireGuard public key.",
+            }),
+            tunnelIp: Type.String({
+              minLength: 1,
+              description: "Peer tunnel IP CIDR on the VPS side, e.g. 10.0.0.2/32.",
+            }),
+            lanCidr: Type.String({
+              minLength: 1,
+              description: "Peer br-lan CIDR from lan collection, e.g. 192.168.10.0/24.",
+            }),
+            endpoint: Type.Optional(
+              Type.String({
+                minLength: 1,
+                description: "Optional peer endpoint host:port.",
+              }),
+            ),
+          },
+          { additionalProperties: false },
+        ),
+        {
+          minItems: 1,
+          description:
+            "Optional peer bindings from LAN collection. When provided, the tool writes all peer AllowedIPs into wg0.conf in one deployment pass.",
+        },
+      ),
+    ),
   },
   { additionalProperties: false },
 );
@@ -1017,6 +1050,7 @@ type DeleteVpnRoutesParams = Static<typeof DeleteVpnRoutesSchema>;
 type ResetWireguardVpnParams = Static<typeof ResetWireguardVpnSchema>;
 type SetBrLanParams = Static<typeof SetBrLanSchema>;
 type ResetWgServerParams = Static<typeof ResetWgServerSchema>;
+type DeployWgServerPeerParams = Static<NonNullable<(typeof DeployWgServerSchema)["properties"]["peerBindings"]>>[number];
 type ReconcileWireguardLanMeshParams = Static<typeof ReconcileWireguardLanMeshSchema>;
 type CheckLanConflictParams = Static<typeof CheckLanConflictSchema>;
 type JoinWireguardLanMeshParams = Static<typeof JoinWireguardLanMeshSchema>;
@@ -1179,6 +1213,51 @@ function buildWireguardPeerBlock(params: {
 }): string {
   const endpointLine = params.endpoint ? `\nEndpoint = ${params.endpoint}` : "";
   return `\n[Peer]\nPublicKey = ${params.publicKey}\nAllowedIPs = ${params.allowedIps.join(", ")}${endpointLine}\n`;
+}
+
+function normalizeWireguardAllowedIps(allowedIps: string[]): string[] {
+  const normalized = allowedIps.map((entry) => {
+    const parsed = parseIPv4Cidr(entry);
+    if (!parsed) {
+      throw new Error(`Invalid WireGuard allowed IP CIDR: ${entry}`);
+    }
+    return parsed.normalized;
+  });
+  return [...new Set(normalized)];
+}
+
+function buildWireguardServerConfig(params: {
+  tunnelIp: string;
+  port: number;
+  privateKey: string;
+  egressInterface: string;
+  peerBindings?: Array<{
+    deviceId: string;
+    peerPublicKey: string;
+    tunnelIp: string;
+    lanCidr: string;
+    endpoint?: string;
+  }>;
+}): string {
+  const natRuleComment = "OPENCLAW_WG_wg0";
+  const peerBlocks = (params.peerBindings ?? []).map((peer) => {
+    const allowedIps = normalizeWireguardAllowedIps([peer.tunnelIp, peer.lanCidr]);
+    return buildWireguardPeerBlock({
+      publicKey: peer.peerPublicKey,
+      allowedIps,
+      endpoint: peer.endpoint,
+    }).trim();
+  });
+
+  return [
+    "[Interface]",
+    `Address = ${params.tunnelIp}`,
+    `ListenPort = ${params.port}`,
+    `PrivateKey = ${params.privateKey}`,
+    `PostUp = iptables -t nat -A POSTROUTING -m comment --comment ${natRuleComment} -o ${params.egressInterface} -j MASQUERADE; iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT`,
+    `PostDown = iptables -t nat -D POSTROUTING -m comment --comment ${natRuleComment} -o ${params.egressInterface} -j MASQUERADE; iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT`,
+    ...peerBlocks,
+  ].join("\n") + "\n";
 }
 
 function isValidWireGuardPublicKey(key: string): boolean {
@@ -4461,7 +4540,7 @@ WantedBy=multi-user.target
       name: "openclaw_deploy_wg_server",
       label: "OpenClaw Deploy WireGuard Server",
       description:
-        "Automatically install WireGuard, enable IP forwarding, generate server keys, and configure wg0 with NAT on the VPS host.",
+        "Automatically install WireGuard, enable IP forwarding, generate server keys, and configure wg0 with NAT on the VPS host. When peerBindings are provided, write all peer AllowedIPs into wg0.conf in the same deployment pass.",
       parameters: DeployWgServerSchema,
       execute: async (_toolCallId, rawParams) => {
         const executionMarker = `openclaw_deploy_wg_server:${Date.now()}`;
@@ -4470,6 +4549,7 @@ WantedBy=multi-user.target
           port?: number;
           tunnelIp?: string;
           egressInterface?: string;
+          peerBindings?: DeployWgServerPeerParams[];
         };
         const { execSync } = await import("node:child_process");
         const port = args.port || 51820;
@@ -4551,16 +4631,46 @@ WantedBy=multi-user.target
           }
           output += `Egress interface detected: ${egressIf}\n`;
 
-          // 5. Create wg0.conf
+          // 5. Normalize peer bindings and create wg0.conf
+          const peerBindings = (args.peerBindings ?? []).map((binding) => {
+            const tunnel = parseIPv4Cidr(binding.tunnelIp);
+            if (!tunnel) {
+              throw new Error(`Invalid peer tunnelIp for ${binding.deviceId}: ${binding.tunnelIp}`);
+            }
+            const lan = parseIPv4Cidr(binding.lanCidr);
+            if (!lan) {
+              throw new Error(`Invalid peer lanCidr for ${binding.deviceId}: ${binding.lanCidr}`);
+            }
+            const peerPublicKey = binding.peerPublicKey.trim();
+            if (!isValidWireGuardPublicKey(peerPublicKey)) {
+              throw new Error(
+                `Invalid WireGuard public key for ${binding.deviceId}: ${peerPublicKey.substring(0, 12)}…`,
+              );
+            }
+            return {
+              deviceId: binding.deviceId.trim(),
+              peerPublicKey,
+              tunnelIp: tunnel.normalized,
+              lanCidr: lan.normalized,
+              endpoint: binding.endpoint?.trim() || undefined,
+            };
+          });
+          if (peerBindings.length > 0) {
+            output += `Embedding ${peerBindings.length} peer binding(s) into wg0.conf from LAN collection results.\n`;
+            for (const peer of peerBindings) {
+              output += `- ${peer.deviceId}: tunnel=${peer.tunnelIp} lan=${peer.lanCidr}\n`;
+            }
+          }
+
+          // 6. Create wg0.conf
           const confPath = "/etc/wireguard/wg0.conf";
-          const natRuleComment = "OPENCLAW_WG_wg0";
-          const confContent = `[Interface]
-Address = ${tunnelIp}
-ListenPort = ${port}
-PrivateKey = ${serverPrivKey}
-PostUp = iptables -t nat -A POSTROUTING -m comment --comment ${natRuleComment} -o ${egressIf} -j MASQUERADE; iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT
-PostDown = iptables -t nat -D POSTROUTING -m comment --comment ${natRuleComment} -o ${egressIf} -j MASQUERADE; iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT
-`;
+          const confContent = buildWireguardServerConfig({
+            tunnelIp,
+            port,
+            privateKey: serverPrivKey,
+            egressInterface: egressIf,
+            peerBindings,
+          });
           const crypto = await import("node:crypto");
           const tempFile = `/tmp/wg0-${crypto.randomBytes(8).toString("hex")}.conf`;
           await fs.writeFile(tempFile, confContent, { encoding: "utf8", mode: 0o600 });
@@ -4568,7 +4678,7 @@ PostDown = iptables -t nat -D POSTROUTING -m comment --comment ${natRuleComment}
             encoding: "utf-8",
           });
 
-          // 6. Open UDP port (best effort)
+          // 7. Open UDP port (best effort)
           output += "Attempting to open UDP port in firewall...\n";
           const fwCmd = `
             if systemctl is-active --quiet firewalld; then
@@ -4583,7 +4693,7 @@ PostDown = iptables -t nat -D POSTROUTING -m comment --comment ${natRuleComment}
             execSync(fwCmd, { encoding: "utf-8" });
           } catch {}
 
-          // 7. Start service
+          // 8. Start service
           execSync("sudo systemctl enable wg-quick@wg0", { encoding: "utf-8" });
           execSync("sudo systemctl restart wg-quick@wg0", { encoding: "utf-8" });
           output += "WireGuard server successfully deployed and started.\n";
@@ -4596,6 +4706,12 @@ PostDown = iptables -t nat -D POSTROUTING -m comment --comment ${natRuleComment}
               serverPubKey,
               port,
               tunnelIp,
+              peerBindings: peerBindings.map((peer) => ({
+                deviceId: peer.deviceId,
+                tunnelIp: peer.tunnelIp,
+                lanCidr: peer.lanCidr,
+                endpoint: peer.endpoint,
+              })),
             },
           );
         } catch (error) {
