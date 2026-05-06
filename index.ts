@@ -86,7 +86,7 @@ export default definePluginEntry({
       },
     });
 
-    api.registerTool(() => createClawWRTTools({ bridge }));
+    api.registerTool(() => createClawWRTTools({ bridge, logger: api.logger }));
 
     // Forward device push events to the active channel via the subagent runtime.
     bridge.onDeviceEvent((event) => {
