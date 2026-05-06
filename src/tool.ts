@@ -819,20 +819,6 @@ const DeployWgServerSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const AddWgPeerSchema = Type.Object(
-  {
-    publicKey: Type.String({ minLength: 1, description: "Peer public key." }),
-    allowedIps: Type.Array(
-      Type.String({
-        minLength: 1,
-        description: "Allowed IPs for this peer, e.g. ['10.0.0.2/32'].",
-      }),
-    ),
-    endpoint: Type.Optional(Type.String({ description: "Optional peer endpoint." })),
-  },
-  { additionalProperties: false },
-);
-
 const WireguardMeshDeviceBindingSchema = Type.Object(
   {
     deviceId: DeviceIdField,
@@ -4722,36 +4708,6 @@ WantedBy=multi-user.target
               executionMarker,
               output,
             },
-          );
-        }
-      },
-    },
-    {
-      name: "openclaw_add_wg_peer",
-      label: "OpenClaw Add WireGuard Peer",
-      description:
-        "Add or update a peer (router) in the VPS WireGuard server configuration and reload without downtime.",
-      parameters: AddWgPeerSchema,
-      execute: async (_toolCallId, rawParams) => {
-        logToolInvocation(undefined, "openclaw_add_wg_peer", rawParams);
-        const args = rawParams;
-        try {
-          const result = await upsertWireguardPeerOnServer({
-            publicKey: args.publicKey,
-            allowedIps: args.allowedIps,
-            endpoint: args.endpoint,
-          });
-          return buildToolResult(
-            `Peer ${result.action} successfully.\nPublicKey: ${args.publicKey}`,
-            {
-            status: "success",
-              action: result.action,
-            },
-          );
-        } catch (error) {
-          return buildToolResult(
-            `Failed to add peer: ${error instanceof Error ? error.message : String(error)}`,
-            { status: "error" },
           );
         }
       },

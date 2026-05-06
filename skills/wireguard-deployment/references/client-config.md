@@ -38,10 +38,9 @@
 仅对用户明确确认的设备，按顺序执行：
 
 1. `clawwrt_generate_wireguard_keys`
-2. `openclaw_add_wg_peer`
-3. `clawwrt_set_wireguard_vpn`
-4. 使用 `references/lan-collection.md` 输出中当前设备对应的 `routePlans.routes` 调用 `clawwrt_set_vpn_routes`
-5. `clawwrt_get_wireguard_vpn_status`
+2. `clawwrt_set_wireguard_vpn`
+3. 使用 `references/lan-collection.md` 输出中当前设备对应的 `routePlans.routes` 调用 `clawwrt_set_vpn_routes`
+4. `clawwrt_get_wireguard_vpn_status`
 
 ## 参数约束
 
