@@ -4617,10 +4617,20 @@ PostDown = iptables -t nat -D POSTROUTING -m comment --comment ${natRuleComment}
         console.info("Executing tool: openclaw_get_wg_status");
         const { execSync } = await import("node:child_process");
         try {
+          const wgBinary = execSync("command -v wg", { encoding: "utf-8" }).trim();
+          if (!wgBinary) {
+            return buildToolResult("WireGuard is not installed on this device.", {
+              status: "not_installed",
+              installed: false,
+            });
+          }
+
           const wgShow = execSync("sudo wg show", { encoding: "utf-8" });
           const forwarding = execSync("sysctl net.ipv4.ip_forward", { encoding: "utf-8" }).trim();
           return buildToolResult(`WireGuard Status:\n${wgShow}\n\n${forwarding}`, {
             status: "success",
+            installed: true,
+            wgBinary,
             wgShow,
             forwarding,
           });

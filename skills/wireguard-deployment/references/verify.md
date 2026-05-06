@@ -11,6 +11,12 @@
 1. `openclaw_get_wg_status`
 2. `clawwrt_list_devices`
 
+职责绑定：
+
+1. VPS 服务端状态判断必须使用 `openclaw_get_wg_status` 返回结果。
+2. 若要判断单台设备客户端是否配置正常，必须使用 `clawwrt_get_wireguard_vpn_status` 返回结果。
+3. `clawwrt_verify_wireguard_connectivity` 用于连通性验证，不替代“服务端安装/运行状态”与“单设备客户端配置状态”的专用判定接口。
+
 ## 执行流程
 
 1. 若在线设备数为 0：停止，并提示当前没有可验证的在线设备。
@@ -30,6 +36,7 @@
    2. 哪些设备无握手或状态异常
    3. 服务端 NAT / 转发 / peer 状态是否正常
 3. 若验证失败，不定义自动修复动作，只报告问题并建议用户下一步选择。
+4. 不允许在缺少 `openclaw_get_wg_status` 或 `clawwrt_get_wireguard_vpn_status` 关键返回时，输出“已安装/运行正常/客户端配置正常”的结论。
 
 ## 建议的下一步
 
