@@ -4757,6 +4757,50 @@ WantedBy=multi-user.target
       },
     },
     {
+        name: "openclaw_get_wg_server_public_key",
+        label: "OpenClaw Get WireGuard Server Public Key",
+        description:
+          "Fetch the VPS WireGuard server public key from /etc/wireguard/server_public.key so client setup can consume the exact deployed key without guessing.",
+        parameters: Type.Object({}, { additionalProperties: false }),
+        execute: async () => {
+          logToolInvocation(undefined, "openclaw_get_wg_server_public_key");
+          const { execSync } = await import("node:child_process");
+          const pubKeyPath = "/etc/wireguard/server_public.key";
+
+          try {
+            const serverPublicKey = execSync(`sudo cat ${pubKeyPath}`, { encoding: "utf-8" }).trim();
+            if (!serverPublicKey) {
+              return buildToolResult(
+                `WireGuard server public key is empty at ${pubKeyPath}. Re-run openclaw_deploy_wg_server if the server was reset or the key file was removed.`,
+                {
+                  status: "error",
+                  keyPath: pubKeyPath,
+                  missingServerPublicKey: true,
+                },
+              );
+            }
+
+            return buildToolResult(
+              `Fetched WireGuard server public key from ${pubKeyPath}.`,
+              {
+                status: "success",
+                keyPath: pubKeyPath,
+                serverPublicKey,
+              },
+            );
+          } catch (error) {
+            return buildToolResult(
+              `Failed to read WireGuard server public key from ${pubKeyPath}: ${error instanceof Error ? error.message : String(error)}`,
+              {
+                status: "error",
+                keyPath: pubKeyPath,
+                missingServerPublicKey: true,
+              },
+            );
+          }
+        },
+      },
+    {
       name: "claw_wifi_hello",
       label: "Claw WiFi Hello",
       description:

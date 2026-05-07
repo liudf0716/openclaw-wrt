@@ -10,6 +10,7 @@
 
 1. `openclaw_get_wg_status`
 2. `clawwrt_list_devices`
+3. `openclaw_get_wg_server_public_key`
 
 ## 设备确认
 
@@ -18,14 +19,15 @@
 3. 若用户按设备名称选择，先基于 `clawwrt_list_devices` 结果解析成明确的设备 ID 列表，再继续后续流程。
 4. 要求用户明确确认“最终要加入当前 WG VPN 的设备 ID 列表”。
 5. 若用户未确认或确认列表为空：停止流程。
+6. 使用 `openclaw_get_wg_server_public_key` 的返回结果，明确拿到服务端 public key；若该 key 缺失或读取失败，停止流程并先处理服务端部署/重置问题。
 
-## 前置依赖：LAN 网段采集与路由规划
+## 前置依赖：LAN 网段采集、密钥生成与路由规划
 
 在开始客户端配置前，必须先完成 `references/lan-collection.md`。
 
-1. 本模块不再负责 LAN 网段采集与冲突检查。
-2. 本模块只消费 `references/lan-collection.md` 的输出结果。
-3. 若发现 LAN 规划结果缺失、过期或与当前设备列表不一致：立即停止并要求先重跑 `references/lan-collection.md`。
+1. 本模块不再负责 LAN 网段采集、冲突检查或 WireGuard 密钥生成。
+2. 本模块只消费 `references/lan-collection.md` 的输出结果，其中必须已经包含每台待接入设备的 `peerPublicKey`。
+3. 若发现 LAN 规划结果、`peerPublicKey` 或设备列表缺失、过期或与当前设备列表不一致：立即停止并要求先重跑 `references/lan-collection.md`。
 
 ## 路由规则来源
 
@@ -37,10 +39,9 @@
 
 仅对用户明确确认的设备，按顺序执行：
 
-1. `clawwrt_generate_wireguard_keys`
-2. `clawwrt_set_wireguard_vpn`
-3. 使用 `references/lan-collection.md` 输出中当前设备对应的 `routePlans.routes` 调用 `clawwrt_set_vpn_routes`
-4. `clawwrt_get_wireguard_vpn_status`
+1. 使用 `references/lan-collection.md` 输出中当前设备对应的 `peerPublicKey` 和 `openclaw_get_wg_server_public_key` 的服务端 public key 调用 `clawwrt_set_wireguard_vpn`
+2. 使用 `references/lan-collection.md` 输出中当前设备对应的 `routePlans.routes` 调用 `clawwrt_set_vpn_routes`
+3. `clawwrt_get_wireguard_vpn_status`
 
 ## 参数约束
 
