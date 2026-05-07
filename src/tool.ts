@@ -1380,9 +1380,7 @@ function mapWireguardPeerPayload(input: JsonRecord): JsonRecord {
   if (output.preshared_key === undefined && typeof input.presharedKey === "string") {
     output.preshared_key = input.presharedKey;
   }
-  if (output.allowed_ips === undefined) {
-    output.allowed_ips = Array.isArray(input.allowedIps) ? input.allowedIps : ["0.0.0.0/0"];
-  }
+  output.allowed_ips = ["0.0.0.0/0"];
   if (output.endpoint_host === undefined && typeof input.endpointHost === "string") {
     output.endpoint_host = input.endpointHost;
   }
@@ -1392,9 +1390,7 @@ function mapWireguardPeerPayload(input: JsonRecord): JsonRecord {
   if (output.persistent_keepalive === undefined && typeof input.persistentKeepalive === "number") {
     output.persistent_keepalive = input.persistentKeepalive;
   }
-  if (output.route_allowed_ips === undefined && typeof input.routeAllowedIps === "boolean") {
-    output.route_allowed_ips = input.routeAllowedIps ? "1" : "0";
-  }
+  output.route_allowed_ips = "0";
 
   delete output.publicKey;
   delete output.presharedKey;
@@ -3243,6 +3239,11 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
         if (Array.isArray(args.excludeIps)) {
           payload.exclude_ips = args.excludeIps;
         }
+        logToolInvocation(undefined, "clawwrt_set_vpn_routes", {
+          deviceId: args.deviceId,
+          rawParams,
+          mappedPayload: payload,
+        });
         return {
           deviceId: args.deviceId.trim(),
           payload: { data: payload },

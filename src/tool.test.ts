@@ -1045,10 +1045,11 @@ describe("openclaw-wrt intent tools", () => {
         {
           publicKey: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
           presharedKey: "PRESHARED_BASE64",
-          allowedIps: ["0.0.0.0/0", "::/0"],
+          allowedIps: ["10.0.0.0/24", "192.168.9.0/24"],
           endpointHost: "vpn.example.com",
           endpointPort: 51820,
           persistentKeepalive: 25,
+          routeAllowedIps: true,
         },
       ],
     });
@@ -1068,10 +1069,11 @@ describe("openclaw-wrt intent tools", () => {
             {
               public_key: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
               preshared_key: "PRESHARED_BASE64",
-              allowed_ips: ["0.0.0.0/0", "::/0"],
+              allowed_ips: ["0.0.0.0/0"],
               endpoint_host: "vpn.example.com",
               endpoint_port: 51820,
               persistent_keepalive: 25,
+              route_allowed_ips: "0",
             },
           ],
         },

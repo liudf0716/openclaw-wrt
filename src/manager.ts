@@ -861,7 +861,7 @@ export class ClawWRTBridge {
 
     // Log incoming device message for diagnostics (op and req_id)
     const incomingReqId = message.req_id ?? message.request_id ?? message.reqId;
-    this.logger.info?.(
+    this.logger.debug?.(
       `openclaw-wrt: received from device remote=${remoteAddress ?? "unknown"} device=${deviceId ?? this.socketToDeviceId.get(socket) ?? "unknown"} op=${op ?? "unknown"} req_id=${String((incomingReqId as string | number) ?? "none")}`,
     );
 

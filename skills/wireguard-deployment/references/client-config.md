@@ -19,21 +19,19 @@
 3. 若用户按设备名称选择，先基于 `clawwrt_list_devices` 结果解析成明确的设备 ID 列表，再继续后续流程。
 4. 要求用户明确确认“最终要加入当前 WG VPN 的设备 ID 列表”。
 5. 若用户未确认或确认列表为空：停止流程。
-6. 使用 `openclaw_get_wg_server_public_key` 的返回结果，明确拿到服务端 public key；若该 key 缺失或读取失败，停止流程并先处理服务端部署/重置问题。
+6. 使用 `openclaw_get_wg_server_public_key` 明确拿到服务端 public key；若读取失败，先处理服务端部署或重置问题。
 
 ## 前置依赖：LAN 网段采集、密钥生成与路由规划
 
 在开始客户端配置前，必须先完成 `references/lan-collection.md`。
 
-1. 本模块不再负责 LAN 网段采集、冲突检查或 WireGuard 密钥生成。
-2. 本模块只消费 `references/lan-collection.md` 的输出结果，其中必须已经包含每台待接入设备的 `peerPublicKey`。
-3. 若发现 LAN 规划结果、`peerPublicKey` 或设备列表缺失、过期或与当前设备列表不一致：立即停止并要求先重跑 `references/lan-collection.md`。
+1. 本模块只消费 `references/lan-collection.md` 的输出结果，其中包含每台待接入设备的 `peerPublicKey` 和 `routePlans`。
+2. 若结果缺失、过期或与当前设备列表不一致：立即停止并要求先重跑 `references/lan-collection.md`。
 
 ## 路由规则来源
 
-1. `clawwrt_set_vpn_routes.routes` 必须直接使用 `references/lan-collection.md` 输出中的 `routePlans`。
-2. 不允许在本模块手工二次计算路由网段，避免与规划结果不一致。
-3. 若用户中途增删设备或修改 LAN 网段，必须先重新执行 `references/lan-collection.md`，再继续本模块。
+1. `clawwrt_set_vpn_routes.routes` 直接使用 `references/lan-collection.md` 输出中的 `routePlans`。
+2. 若用户中途增删设备或修改 LAN 网段，必须先重新执行 `references/lan-collection.md`，再继续本模块。
 
 ## 逐设备执行
 
@@ -45,11 +43,7 @@
 
 ## 参数约束
 
-`clawwrt_set_wireguard_vpn` 必须满足：
-
-1. `peer.allowedIps` 为 `["0.0.0.0/0"]`
-2. `peer.routeAllowedIps` 为 `false`
-3. 通过 `clawwrt_set_vpn_routes` 或 `clawwrt_set_vpn_domain_routes` 决定实际走 `wg0` 的流量
+`clawwrt_set_wireguard_vpn` 的关键参数约束由代码强制处理，这里只保留调用前提：必须先拿到服务端 public key、目标设备公钥和当前规划结果。
 
 ## 规则
 
@@ -58,9 +52,7 @@
 3. 不允许擅自新增未确认设备。
 4. 未完成 `references/lan-collection.md` 前，不允许直接下发客户端配置。
 5. 若 `references/lan-collection.md` 仍存在 LAN 冲突，本模块不得继续执行 `clawwrt_set_wireguard_vpn` 或 `clawwrt_set_vpn_routes`。
-6. `clawwrt_set_vpn_routes` 必须与 `references/lan-collection.md` 输出的 `routePlans` 保持一致，不允许模型擅自增删网段。
-7. 本模块默认只做客户端接入与基于已选设备 LAN 网段的路由策略，不自动处理更广义的多设备 LAN mesh。
-8. 发现 LAN 冲突后，不允许退回任何“旧流程”绕过冲突检查。
+6. 发现 LAN 冲突后，不允许退回任何“旧流程”绕过冲突检查。
 
 ## 扩展说明
 
