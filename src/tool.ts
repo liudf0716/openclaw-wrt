@@ -3222,39 +3222,111 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
         return `Resolved domain routes for ${args.domains.length} domain(s) on ${args.deviceId}.`;
       },
     }),
-    createSimpleOperationTool({
-      bridge,
+    {
       name: "clawwrt_set_vpn_routes",
       label: "OpenClaw WRT Set VPN Routes",
       description:
-        "Set VPN routing rules to steer traffic through the WireGuard tunnel. Selective mode routes specific CIDRs; full_tunnel mode routes all traffic (0.0.0.0/1 + 128.0.0.0/1) with exclude_ips to prevent routing loop for VPS IP.",
-      op: "set_vpn_routes",
+        "Set VPN routing rules to steer traffic through the WireGuard tunnel. Selective mode preserves any existing wg0 static routes and merges them with the requested CIDRs; full_tunnel mode routes all traffic (0.0.0.0/1 + 128.0.0.0/1) with exclude_ips to prevent routing loop for VPS IP.",
       parameters: SetVpnRoutesSchema,
-      buildPayload: (rawParams) => {
+      execute: async (_toolCallId, rawParams) => {
+        logToolInvocation(undefined, "clawwrt_set_vpn_routes", rawParams);
         const args = rawParams as SetVpnRoutesParams;
-        const payload: JsonRecord = { mode: args.mode };
-        if (Array.isArray(args.routes)) {
-          payload.routes = args.routes;
+        const deviceId = args.deviceId.trim();
+
+        if (args.mode === "selective") {
+          const currentRoutesResponse = await callDeviceOp({
+            bridge,
+            deviceId,
+            op: "get_vpn_routes",
+            timeoutMs: args.timeoutMs,
+          });
+          const currentRoutesRaw = asObject(currentRoutesResponse)?.routes;
+          if (!Array.isArray(currentRoutesRaw)) {
+            throw new Error(`get_vpn_routes returned no routes array for ${deviceId}; refusing to overwrite selective routes`);
+          }
+
+          const normalizeRouteTarget = (route: unknown): string => {
+            if (typeof route === "string") {
+              return route.trim();
+            }
+            const routeObject = asObject(route);
+            const dest =
+              typeof routeObject?.dest === "string"
+                ? routeObject.dest
+                : typeof routeObject?.destination === "string"
+                  ? routeObject.destination
+                  : "";
+            return dest.trim();
+          };
+
+          const mergedRoutes: string[] = [];
+          const seenRoutes = new Set<string>();
+          const pushRoute = (route: string) => {
+            const normalized = route.trim();
+            if (!normalized || seenRoutes.has(normalized)) {
+              return;
+            }
+            seenRoutes.add(normalized);
+            mergedRoutes.push(normalized);
+          };
+
+          for (const route of currentRoutesRaw) {
+            pushRoute(normalizeRouteTarget(route));
+          }
+          for (const route of args.routes ?? []) {
+            pushRoute(route);
+          }
+
+          if (mergedRoutes.length === 0) {
+            throw new Error(`No VPN routes available for ${deviceId}`);
+          }
+
+          logToolInvocation(undefined, "clawwrt_set_vpn_routes", {
+            deviceId,
+            currentRoutes: currentRoutesRaw,
+            mergedRoutes,
+          });
+
+          const response = await callDeviceOp({
+            bridge,
+            deviceId,
+            op: "set_vpn_routes",
+            payload: {
+              data: {
+                mode: args.mode,
+                routes: mergedRoutes,
+              },
+            },
+            timeoutMs: args.timeoutMs,
+          });
+          return buildToolResult(`Set VPN routes (${args.mode} mode) on ${deviceId}.`, {
+            response,
+            routes: mergedRoutes,
+          });
         }
+
+        const payload: JsonRecord = { mode: args.mode };
         if (Array.isArray(args.excludeIps)) {
           payload.exclude_ips = args.excludeIps;
         }
+
         logToolInvocation(undefined, "clawwrt_set_vpn_routes", {
-          deviceId: args.deviceId,
-          rawParams,
+          deviceId,
           mappedPayload: payload,
         });
-        return {
-          deviceId: args.deviceId.trim(),
+
+        const response = await callDeviceOp({
+          bridge,
+          deviceId,
+          op: "set_vpn_routes",
           payload: { data: payload },
           timeoutMs: args.timeoutMs,
-        };
+        });
+        return buildToolResult(`Set VPN routes (${args.mode} mode) on ${deviceId}.`, {
+          response,
+        });
       },
-      summarize: (_response, rawParams) => {
-        const args = rawParams as SetVpnRoutesParams;
-        return `Set VPN routes (${args.mode} mode) on ${args.deviceId}.`;
-      },
-    }),
+    },
     {
       name: "clawwrt_plan_wireguard_client_routes",
       label: "OpenClaw WRT Plan WireGuard Client Routes",

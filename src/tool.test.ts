@@ -1564,6 +1564,14 @@ describe("openclaw-wrt intent tools", () => {
         payload?: Record<string, unknown>;
       }) {
         calls.push(params);
+        if (params.op === "get_vpn_routes") {
+          return {
+            type: "get_vpn_routes_response",
+            interface: "wg0",
+            routes: [{ destination: "10.0.0.0/24" }, { destination: "192.168.8.0/24" }],
+            tunnel_up: true,
+          };
+        }
         return {
           type: "set_vpn_routes_response",
           interface: "wg0",
@@ -1584,14 +1592,18 @@ describe("openclaw-wrt intent tools", () => {
       routes: ["1.2.3.0/24", "4.5.6.0/24"],
     });
 
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
     expect(calls[0]).toMatchObject({
+      deviceId: "dev-vpn",
+      op: "get_vpn_routes",
+    });
+    expect(calls[1]).toMatchObject({
       deviceId: "dev-vpn",
       op: "set_vpn_routes",
       payload: {
         data: {
           mode: "selective",
-          routes: ["1.2.3.0/24", "4.5.6.0/24"],
+          routes: ["10.0.0.0/24", "192.168.8.0/24", "1.2.3.0/24", "4.5.6.0/24"],
         },
       },
     });

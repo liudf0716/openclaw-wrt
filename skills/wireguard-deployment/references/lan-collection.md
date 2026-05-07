@@ -7,7 +7,7 @@
 本模块是服务端与客户端配置的共同前置步骤：
 
 1. 服务端侧需要这些 LAN 网段、wg0 接口地址以及每个客户端的 WireGuard 公钥，用于 peer AllowedIPs 规划（须覆盖原有配置，不能遗漏）。
-2. 客户端侧需要这些 LAN 网段、wg0 接口地址以及已生成的客户端密钥信息，用于下发路由规则（须覆盖原有路由，不能遗漏）。
+2. 客户端侧需要这些 LAN 网段、wg0 接口地址以及已生成的客户端密钥信息，用于下发路由规则；`clawwrt_set_vpn_routes` 会先保留现有 wg0 静态路由，再合并本次新增的路由，不能遗漏本次规划出的 LAN 网段。
 
 注意：AllowedIPs 和路由规则均为覆盖写入，漏掉 wg0 接口地址会导致 VPN 隧道地址本身不可达；漏掉客户端公钥会导致服务端无法一次性完成 peerBindings。
 
@@ -47,7 +47,7 @@
 本模块完成后，后续模块必须复用同一份规划结果，不得自行二次推导：
 
 1. 服务端相关步骤使用各设备 LAN CIDR + 各 peer wg0 隧道地址 + 各 peer 公钥，共同组成 peer AllowedIPs 与 `openclaw_deploy_wg_server.peerBindings`（覆盖写入，三者缺一不可）。
-2. 客户端相关步骤使用 `routePlans`（包含对端 LAN CIDR + 对端 wg0 隧道地址）作为 `clawwrt_set_vpn_routes.routes`（覆盖写入）。
+2. 客户端相关步骤使用 `routePlans` 作为 `clawwrt_set_vpn_routes.routes` 的新增路由输入，`clawwrt_set_vpn_routes` 会先读取并保留现有 wg0 静态路由，再合并本次规划出的 LAN CIDR。
 3. 若设备列表、LAN 网段、wg0 隧道地址或客户端公钥发生变化，必须重新执行本模块并覆盖旧结果。
 
 ## 规则
