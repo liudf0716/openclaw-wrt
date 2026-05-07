@@ -320,6 +320,38 @@ describe("openclaw-wrt intent tools", () => {
     }
   });
 
+  it("deploy wg server requires peer bindings before starting deployment", async () => {
+    execSyncMock.mockClear();
+
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "openclaw_deploy_wg_server",
+    );
+    expect(tool).toBeTruthy();
+
+    const result = await tool?.execute?.("tool-deploy-wg-empty", {
+      port: 51820,
+      tunnelIp: "10.0.0.1/24",
+      egressInterface: "eth0",
+      peerBindings: [],
+    });
+
+    expect((result as { details?: Record<string, unknown> }).details?.status).toBe("error");
+    expect((result as { details?: Record<string, unknown> }).details?.missingPeerBindings).toBe(true);
+    expect((result as { content?: Array<{ text?: string }> }).content?.[0]?.text).toContain(
+      "collect every client's LAN CIDR first",
+    );
+    expect(execSyncMock).not.toHaveBeenCalled();
+  });
+
   it("portal renderer rejects accentColor values that could break out of style blocks", () => {
     const maliciousAccent = '#123456";}</style><script>alert(1)</script><style>';
     const html = renderPortalPageHtml({

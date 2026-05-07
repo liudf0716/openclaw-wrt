@@ -4546,6 +4546,16 @@ WantedBy=multi-user.target
             { status: "error" },
           );
         }
+        if (!Array.isArray(args.peerBindings) || args.peerBindings.length === 0) {
+          return buildToolResult(
+            "WireGuard deployment requires peerBindings. Please collect every client's LAN CIDR first, then rerun openclaw_deploy_wg_server with the complete peerBindings list.",
+            {
+              status: "error",
+              missingPeerBindings: true,
+              requiredAction: "collect_client_lan_info",
+            },
+          );
+        }
         let output = "";
 
         try {
@@ -4618,7 +4628,7 @@ WantedBy=multi-user.target
           output += `Egress interface detected: ${egressIf}\n`;
 
           // 5. Normalize peer bindings and create wg0.conf
-          const peerBindings = (args.peerBindings ?? []).map((binding) => {
+          const peerBindings = args.peerBindings.map((binding) => {
             const tunnel = parseIPv4Cidr(binding.tunnelIp);
             if (!tunnel) {
               throw new Error(`Invalid peer tunnelIp for ${binding.deviceId}: ${binding.tunnelIp}`);
