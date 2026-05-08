@@ -40,6 +40,7 @@
 1. 本模块只消费 `references/lan-collection.md` 的输出结果，其中包含每台待接入设备的 `peerPublicKey` 和 `routePlans`。
 2. 若结果缺失、过期或与当前设备列表不一致：立即停止并要求先重跑 `references/lan-collection.md`。
 3. `references/lan-collection.md` 不会生成每台设备的 `tunnelIp`；客户端地址配置所需的 `tunnelIp` 必须来自独立的分配或确认结果。
+4. `clawwrt_generate_wireguard_keys` 已在设备本地写入 `network.wg0.private_key`；本模块后续默认只使用该阶段返回的公钥，不再重复下发私钥。
 
 ## 路由规则来源
 
@@ -52,6 +53,7 @@
 
 1. 调用 `clawwrt_set_wireguard_vpn`，参数组装规则：
    - `deviceId`: 当前设备 ID
+   - `interface`: 默认只下发地址、端口、MTU 等必要字段，不传 `privateKey`
    - `interface.addresses`: 取当前设备已确认的 `tunnelIp` 的 IP 部分，
      后缀统一使用 `/24`（与服务端子网一致）。
      示例：已确认 `tunnelIp = 10.0.0.2/32` → 填入 `["10.0.0.2/24"]`
@@ -66,7 +68,7 @@
 
 ## 参数约束
 
-`clawwrt_set_wireguard_vpn` 的关键参数约束由代码强制处理，这里只保留调用前提：必须先拿到服务端 public key、目标设备已确认的 `tunnelIp` 和当前规划结果。
+`clawwrt_set_wireguard_vpn` 的关键参数约束由代码强制处理，这里只保留调用前提：必须先拿到服务端 public key、目标设备已确认的 `tunnelIp` 和当前规划结果。标准流程下不要传 `privateKey`；若日志中出现 `privateKey=GENERATED_ON_DEVICE` 之类占位值，应视为上层调用错误并修正。
 
 ## 规则
 本模块遵循 SKILL.md 通用规则。以下为本模块特有约束：
@@ -75,6 +77,7 @@
 2. 若 `references/lan-collection.md` 仍存在 LAN 冲突，本模块不得继续执行 `clawwrt_set_wireguard_vpn` 或 `clawwrt_set_vpn_routes`。
 3. 发现 LAN 冲突后，不允许退回任何“旧流程”绕过冲突检查。
 4. 未确认每台目标设备的 `tunnelIp` 前，不允许下发客户端 `interface.addresses`。
+5. 标准流程下，不允许把私钥或私钥占位字符串作为 `clawwrt_set_wireguard_vpn.interface.privateKey` 传入；私钥应仅在 `clawwrt_generate_wireguard_keys` 阶段由设备本地生成和保存。
 
 ## 扩展说明
 

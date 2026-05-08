@@ -80,6 +80,7 @@ user-invocable: true
 7. 进入服务端部署前，必须为每台客户端明确 `tunnelIp`；`clawwrt_collect_wireguard_protected_routes` 不会生成该字段，不能把 LAN 采集结果误当成完整 `peerBindings`。
 8. 服务端 peer AllowedIPs 需包含客户端 `tunnelIp` 与 LAN 网段；客户端路由规则需与对应对端 LAN 网段一致；客户端公钥必须在服务端配置前由前置采集阶段生成并回填。
 9. 若验证阶段发现服务端私钥/公钥不匹配，或任一客户端私钥推导公钥与服务端 peer 公钥不匹配，或客户端配置中的服务端公钥与 VPS 实际服务端公钥不匹配，则视为“密钥体系已失配”，不得只做局部修补，必须执行“服务端 + 全部目标客户端”整体重置后从头重配。
+10. 标准客户端接入流程中，`clawwrt_generate_wireguard_keys` 已负责把私钥写入设备本地；后续调用 `clawwrt_set_wireguard_vpn` 时默认不应再传 `privateKey`，更不允许把 `GENERATED_ON_DEVICE` 之类占位字符串当作真实私钥下发。
 
 ## 自动流程交互要求
 

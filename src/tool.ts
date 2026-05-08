@@ -1588,8 +1588,20 @@ async function upsertWireguardPeerOnServer(params: {
 function mapWireguardInterfacePayload(input: JsonRecord): JsonRecord {
   const output: JsonRecord = { ...input };
 
-  if (output.private_key === undefined && typeof input.privateKey === "string") {
-    output.private_key = input.privateKey;
+  const privateKeyCandidate =
+    output.private_key === undefined && typeof input.privateKey === "string"
+      ? input.privateKey.trim()
+      : typeof output.private_key === "string"
+        ? output.private_key.trim()
+        : undefined;
+  if (
+    privateKeyCandidate &&
+    privateKeyCandidate !== "GENERATED_ON_DEVICE" &&
+    privateKeyCandidate !== "[GENERATED_ON_DEVICE]"
+  ) {
+    output.private_key = privateKeyCandidate;
+  } else {
+    delete output.private_key;
   }
   if (output.listen_port === undefined && typeof input.listenPort === "number") {
     output.listen_port = input.listenPort;

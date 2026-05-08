@@ -1156,6 +1156,73 @@ describe("openclaw-wrt intent tools", () => {
     });
   });
 
+  it("wireguard set tool does not forward GENERATED_ON_DEVICE as a literal private key", async () => {
+    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+      async callDevice(params: {
+        deviceId: string;
+        op: string;
+        payload?: Record<string, unknown>;
+      }) {
+        calls.push(params);
+        return { type: "set_wireguard_vpn_response", status: "success" };
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "clawwrt_set_wireguard_vpn",
+    );
+
+    await tool?.execute?.("tool-wg-set-generated-placeholder", {
+      deviceId: "dev-wg",
+      interface: {
+        privateKey: "GENERATED_ON_DEVICE",
+        listenPort: 51820,
+        addresses: ["10.0.0.2/24"],
+      },
+      peers: [
+        {
+          publicKey: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
+          endpointHost: "vpn.example.com",
+          endpointPort: 51820,
+          allowedIps: ["0.0.0.0/0"],
+          persistentKeepalive: 25,
+          routeAllowedIps: false,
+        },
+      ],
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      deviceId: "dev-wg",
+      op: "set_wireguard_vpn",
+    });
+    expect(calls[0]?.payload).toEqual({
+      data: {
+        interface: {
+          listen_port: 51820,
+          addresses: ["10.0.0.2/24"],
+        },
+        peers: [
+          {
+            public_key: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
+            allowed_ips: ["0.0.0.0/0"],
+            endpoint_host: "vpn.example.com",
+            endpoint_port: 51820,
+            persistent_keepalive: 25,
+            route_allowed_ips: "0",
+          },
+        ],
+      },
+    });
+  });
+
   it("wireguard status tool calls get_wireguard_vpn_status op", async () => {
     const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
     const bridge = {
