@@ -41,7 +41,9 @@ user-invocable: true
 	- 若返回 `success`：记录当前 peer 信息和 wg0 接口地址，供后续步骤使用。
 2. 若 WG 正常运行，询问是否重置现有 WG 配置。
 3. 若用户确认重置，清理服务端和客户端历史 WG 配置。
-4. 执行 `references/lan-collection.md`，收集要加入组网的路由器 LAN 信息、为所有待接入客户端生成 WireGuard 密钥对，并完成冲突检查与路由规划（服务端和客户端共用）。
+4. 执行 `references/lan-collection.md`：
+   a. 调用 `clawwrt_collect_wireguard_protected_routes` 收集 LAN 网段并生成路由规划文件
+   b. 逐台调用 `clawwrt_generate_wireguard_keys` 生成密钥对
 5. 执行 WG 服务端配置，直接消费第 4 步输出的 LAN 网段与客户端公钥。
 6. 执行 WG 客户端配置，直接消费第 4 步输出的既有密钥与路由规划结果。
 7. 验证 WG 网络连通性与路由生效情况。
