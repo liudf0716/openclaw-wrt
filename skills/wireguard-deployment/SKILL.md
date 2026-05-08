@@ -37,7 +37,7 @@ user-invocable: true
 2. “帮我把几台路由器互通”
 3. “我要搭建 WG VPN 内网”
 
-自动流程固定为 7 步：
+自动流程固定为 8 步：
 
 1. 调用 `openclaw_get_wg_status` 检查 VPS 是否已安装 WG 及当前运行状态。
 	- 若返回 `not_installed`：告知用户当前未安装，后续步骤 5（服务端部署）会自动安装。
@@ -48,8 +48,9 @@ user-invocable: true
 	a. 调用 `clawwrt_collect_wireguard_protected_routes` 收集 LAN 网段并生成路由规划文件
 	b. 逐台调用 `clawwrt_generate_wireguard_keys` 生成密钥对
 5. 执行 WG 服务端配置，直接消费第 4 步输出的 LAN 网段与客户端公钥。
-6. 执行 WG 客户端配置，直接消费第 4 步输出的既有密钥与路由规划结果。
-7. 验证 WG 网络连通性与路由生效情况。
+6. 服务端配置成功后，立即调用 `openclaw_get_vps_public_ip` 获取并记录 VPS 公网 IP；若自动获取失败，再进入客户端配置前向用户确认公网 IP 或域名。
+7. 执行 WG 客户端配置，直接消费第 4 步输出的既有密钥与路由规划结果，并优先使用第 6 步记录的公网 IP。
+8. 验证 WG 网络连通性与路由生效情况。
 
 说明：上述顺序是默认推荐顺序，合理且适合普通用户；相比“纯模块化”更符合自然对话和一键组网预期。
 
