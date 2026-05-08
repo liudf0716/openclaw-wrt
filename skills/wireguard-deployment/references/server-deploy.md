@@ -28,6 +28,7 @@
 8. 若 `references/lan-collection.md` 已提供完整的节点绑定信息（至少包含 deviceId、peerPublicKey、tunnelIp、lanCidr），则必须将其作为 `openclaw_deploy_wg_server.peerBindings` 一次性传入，由该 tool 直接生成完整的 `wg0.conf`，禁止在部署后再补写 peer 配置。
 
 ## 规则
+本模块遵循 SKILL.md 通用规则。以下为本模块特有约束：
 
 1. 本模块只处理 VPS 服务端，不自动接入任何路由器客户端。
 2. 不在本模块里调用客户端相关 API。
@@ -36,7 +37,7 @@
 5. 若后续客户端无法握手，优先提醒用户排查“运管平台安全组/云防火墙”是否已放行对应 UDP 端口。
 6. 当 `peerBindings` 已传入时，不要再把服务端 peer AllowedIPs 配置拆成第二阶段补写步骤。
 7. 自动组网场景下，LAN 采集和客户端密钥生成都是强制前置条件，不是可选项；没有 `references/lan-collection.md` 的结果，就不能执行服务端部署。
-8. 不允许直接手工编辑或拼装 `wg0.conf` 来替代 `openclaw_deploy_wg_server`。
+8. 不允许直接手工编辑或拼装 `wg0.conf` 来替代 `openclaw_deploy_wg_server`.
 
 ## 成功输出
 

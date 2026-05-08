@@ -50,10 +50,8 @@
 3. 若设备列表、LAN 网段、wg0 隧道地址或客户端公钥发生变化，必须重新执行本模块并覆盖旧结果与 JSON 文件。
 
 ## 规则
+本模块遵循 SKILL.md 通用规则。以下为本模块特有约束：
 
-1. 未确认设备 ID 列表时，不允许继续。
-2. LAN 冲突未消除前，不允许进入服务端或客户端配置。
-3. 不允许绕过 `clawwrt_collect_wireguard_protected_routes` 手工拼装路由。
-4. 不允许使用过期的 LAN 规划结果。
-5. wg0 隧道地址未从 `openclaw_get_wg_status` 中确认前，不允许输出本模块结果。
-6. 任一步失败即停止，报告失败步骤、API 名称和错误原文。
+1. 不允许绕过 `clawwrt_collect_wireguard_protected_routes` 手工拼装路由。
+2. 不允许使用过期的 LAN 规划结果。
+3. wg0 隧道地址未从 `openclaw_get_wg_status` 中确认前，不允许输出本模块结果。

@@ -57,13 +57,11 @@
 `clawwrt_set_wireguard_vpn` 的关键参数约束由代码强制处理，这里只保留调用前提：必须先拿到服务端 public key、目标设备公钥和当前规划结果。
 
 ## 规则
+本模块遵循 SKILL.md 通用规则。以下为本模块特有约束：
 
-1. 任一步失败即停止当前设备流程。
-2. 不允许跳过失败步骤继续后续步骤。
-3. 不允许擅自新增未确认设备。
-4. 未完成 `references/lan-collection.md` 前，不允许直接下发客户端配置。
-5. 若 `references/lan-collection.md` 仍存在 LAN 冲突，本模块不得继续执行 `clawwrt_set_wireguard_vpn` 或 `clawwrt_set_vpn_routes`。
-6. 发现 LAN 冲突后，不允许退回任何“旧流程”绕过冲突检查。
+1. 未完成 `references/lan-collection.md` 前，不允许直接下发客户端配置。
+2. 若 `references/lan-collection.md` 仍存在 LAN 冲突，本模块不得继续执行 `clawwrt_set_wireguard_vpn` 或 `clawwrt_set_vpn_routes`。
+3. 发现 LAN 冲突后，不允许退回任何“旧流程”绕过冲突检查。
 
 ## 扩展说明
 
