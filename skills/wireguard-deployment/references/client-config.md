@@ -65,12 +65,13 @@
 
 ## 扩展说明
 
-若用户明确要求多设备 LAN 互通，再追加以下流程：
+若用户明确要求 LAN mesh 互通，先按场景选择路径：
 
-1. `clawwrt_check_lan_conflict`
-2. 若 `hasConflict=false`：调用 `clawwrt_join_wireguard_lan_mesh`
-3. 若 `hasConflict=true`：
-   1. 提示冲突详情
-   2. 询问用户是否修改 LAN
-   3. 用户确认后调用 `clawwrt_set_br_lan`
-   4. 再次执行 `clawwrt_check_lan_conflict`
+1. 单设备增量加入已有 mesh：
+   1. 先完成 `references/lan-collection.md`
+   2. 若需要对新设备做局部预检，可先调用 `clawwrt_check_lan_conflict`；但当 `references/lan-collection.md` 已返回冲突结果时，以该结果为准，不再把 `check_lan_conflict` 当作独立主流程
+   3. 确认 `hasConflict=false` 后，调用 `clawwrt_join_wireguard_lan_mesh`
+2. 多设备批量重建 / 重新编排 mesh：
+   1. 先完成 `references/lan-collection.md`
+   2. 直接调用 `clawwrt_reconcile_wireguard_lan_mesh`
+   3. 该路径用于一次性处理多台设备的 mesh 关系，不再逐台走 `join`
