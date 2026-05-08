@@ -48,7 +48,15 @@
 
 仅对用户明确确认的设备，按顺序执行：
 
-1. 使用 `references/lan-collection.md` 输出中当前设备对应的 `peerPublicKey` 和 `openclaw_get_wg_server_public_key` 的服务端 public key 调用 `clawwrt_set_wireguard_vpn`
+1. 调用 `clawwrt_set_wireguard_vpn`，参数组装规则：
+   - `deviceId`: 当前设备 ID
+   - `interface.addresses`: 当前设备的隧道 IP（来自 `openclaw_deploy_wg_server` 返回的 peerBindings 中对应设备的 tunnelIp，去掉 /32 后缀改为 /24 或使用原值）
+   - `peers[0].publicKey`: 服务端公钥（来自 `openclaw_get_wg_server_public_key`）
+   - `peers[0].endpointHost`: 服务端公网 IP 或域名
+   - `peers[0].endpointPort`: 服务端 WireGuard UDP 端口
+   - `peers[0].allowedIps`: `["0.0.0.0/0"]`
+   - `peers[0].persistentKeepalive`: `25`
+   - `peers[0].routeAllowedIps`: `false`（路由由后续 `clawwrt_set_vpn_routes` 管理）
 2. 使用 `clawwrt_collect_wireguard_protected_routes` 返回的 `routePlanFile` 调用 `clawwrt_set_vpn_routes`，不要手工拼装 routes
 3. `clawwrt_get_wireguard_vpn_status`
 
