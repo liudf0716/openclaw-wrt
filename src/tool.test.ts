@@ -12,6 +12,9 @@ function defaultExecSyncMockImpl(command: string) {
   if (command.startsWith("sudo cat /etc/nwct/nwct-server.toml")) {
     return 'bindPort = 7000\nauth.token = "secret-token"\n';
   }
+  if (command.startsWith("curl -4 -fsSL --max-time 8 https://ifconfig.me/ip")) {
+    return "203.0.113.42\n";
+  }
   if (command.startsWith("systemctl is-active nwct-server")) {
     return "active\n";
   }
@@ -178,6 +181,68 @@ describe("openclaw-wrt intent tools", () => {
     expect(resultText).not.toContain("secret-token");
     expect(configContent).toContain('auth.token = "[REDACTED]"');
     expect(configContent).not.toContain("secret-token");
+  });
+
+  it("detects the VPS public IP via ifconfig.me", async () => {
+    execSyncMock.mockClear();
+
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "openclaw_get_vps_public_ip",
+    );
+    expect(tool).toBeTruthy();
+
+    const result = await tool?.execute?.("tool-vps-ip", {});
+    const details = (result as { details?: Record<string, unknown> }).details ?? {};
+
+    expect(execSyncMock.mock.calls.some(([command]) => command === "curl -4 -fsSL --max-time 8 https://ifconfig.me/ip")).toBe(true);
+    expect(details.status).toBe("success");
+    expect(details.publicIp).toBe("203.0.113.42");
+    expect((result as { content?: Array<{ text?: string }> }).content?.[0]?.text).toContain("203.0.113.42");
+  });
+
+  it("returns a confirmation-required error when VPS public IP detection fails", async () => {
+    const originalExecSyncImpl = execSyncMock.getMockImplementation() ?? defaultExecSyncMockImpl;
+    execSyncMock.mockImplementation(((command: string): string => {
+      if (command.startsWith("curl -4 -fsSL --max-time 8 https://ifconfig.me/ip")) {
+        throw new Error("curl: (6) Could not resolve host");
+      }
+      return originalExecSyncImpl(command);
+    }) as any);
+
+    try {
+      const bridge = {
+        listDevices() {
+          return [];
+        },
+        getDevice() {
+          return null;
+        },
+      };
+
+      const tool = createClawWRTTools({ bridge: bridge as never }).find(
+        (entry) => entry.name === "openclaw_get_vps_public_ip",
+      );
+      expect(tool).toBeTruthy();
+
+      const result = await tool?.execute?.("tool-vps-ip-fail", {});
+      const details = (result as { details?: Record<string, unknown> }).details ?? {};
+
+      expect(details.status).toBe("error");
+      expect(details.requiresUserConfirmation).toBe(true);
+      expect(details.requiredAction).toBe("confirm_vps_public_ip_or_domain");
+      expect((result as { content?: Array<{ text?: string }> }).content?.[0]?.text).toContain("confirm the VPS public IP or domain");
+    } finally {
+      execSyncMock.mockImplementation(defaultExecSyncMockImpl);
+    }
   });
 
   it("add wg peer uses a secure temp path and avoids shell chaining", async () => {

@@ -53,7 +53,7 @@
 
 1. 未确认设备 ID 列表时，不允许继续。
 2. LAN 冲突未消除前，不允许进入服务端或客户端配置。
-3. 不允许绕过 `clawwrt_plan_wireguard_client_routes` 手工拼装路由。
+3. 不允许绕过 `clawwrt_collect_wireguard_protected_routes` 手工拼装路由。
 4. 不允许使用过期的 LAN 规划结果。
 5. wg0 隧道地址未从 `openclaw_get_wg_status` 中确认前，不允许输出本模块结果。
 6. 任一步失败即停止，报告失败步骤、API 名称和错误原文。
