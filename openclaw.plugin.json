@@ -44,6 +44,7 @@
       "clawwrt_get_trusted_mac",
       "clawwrt_get_trusted_wildcard_domains",
       "clawwrt_get_vpn_routes",
+      "clawwrt_get_wireguard_vpn",
       "clawwrt_get_websocket_serv",
       "clawwrt_get_wifi_info",
       "clawwrt_get_wireguard_vpn_status",
