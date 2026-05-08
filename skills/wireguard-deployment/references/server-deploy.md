@@ -24,7 +24,10 @@
    2. 明确告知该结果将用于后续客户端配置。
    3. 再次提醒用户核对：
       1. 运管平台/安全组是否已放行对应 UDP 端口
-7. 模块模式下，必须先确认 `references/lan-collection.md` 已完成，并确保该模块已经为所有待接入客户端生成 WireGuard 密钥对；自动组网流程中，此前置条件由流程顺序保证，无需额外检查。
+7. 调用 `openclaw_deploy_wg_server` 前，必须提供 `peerBindings` 参数（数组）。
+   每个元素至少包含 `deviceId`、`peerPublicKey`、`tunnelIp`、`lanCidr`。
+   若无法提供完整的 peerBindings，说明 `references/lan-collection.md` 未完成，
+   须先执行/重跑该模块获取所需数据。
 8. 若 `references/lan-collection.md` 已提供完整的节点绑定信息（至少包含 deviceId、peerPublicKey、tunnelIp、lanCidr），则必须将其作为 `openclaw_deploy_wg_server.peerBindings` 一次性传入，由该 tool 直接生成完整的 `wg0.conf`，禁止在部署后再补写 peer 配置。
 
 ## 规则
