@@ -27,7 +27,7 @@
    - 若 `openclaw_get_wg_status` 已返回可用的 wg0 地址 → 使用该已有地址
    - 若当前为新部署 → 使用默认值 `10.0.0.1/24`（与 `openclaw_deploy_wg_server` 默认值一致）
    生成并保存保护路由 JSON 文件。
-5. 按用户确认的设备 ID 顺序，逐台调用 `clawwrt_generate_wireguard_keys`，收集每台设备的 WireGuard 公钥。
+5. 按用户确认的设备 ID 顺序，逐台调用 `clawwrt_generate_wireguard_keys`，收集每台设备的 WireGuard 公钥。公钥字段优先取 `public_key`，若不存在则取 `publicKey` 或 `data.public_key`。
 6. 读取并展示规划结果，至少包含：
    1. 设备 ID
    2. 设备名称（若可获取）
@@ -57,4 +57,4 @@
 
 1. 不允许绕过 `clawwrt_collect_wireguard_protected_routes` 手工拼装路由。
 2. 不允许使用过期的 LAN 规划结果。
-3. wg0 隧道地址未从 `openclaw_get_wg_status` 中确认前，不允许输出本模块结果。
+3. wg0 隧道地址必须有明确来源（`openclaw_get_wg_status` 返回值或新部署默认值 `10.0.0.1/24`），不允许由 LLM 自行推测。

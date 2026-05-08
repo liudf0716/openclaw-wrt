@@ -16,19 +16,18 @@
 2. 在执行部署前，明确提示用户同步检查两侧防火墙放行规则：
    1. 云厂商运管平台或安全组需放行 WireGuard 监听端口对应的 UDP 入站流量
 3. 若用户不确认云平台防火墙已放行，仍可继续部署，但要明确提醒“部署成功不等于外部一定可连通”。
-4. 若用户要求新建或重建服务端：调用 `openclaw_deploy_wg_server`。
-   1. 必须使用该 API 完成服务端配置，不允许改用其他 tool、脚本或手工方式随意配置 wg server。
+4. 若用户要求新建或重建服务端：
+   1. 先确认已有完整的 `peerBindings`（每个元素至少含 `deviceId`、`peerPublicKey`、`tunnelIp`、`lanCidr`）。
+      若缺失 → 须先完成 `references/lan-collection.md`。
+   2. 调用 `openclaw_deploy_wg_server`，将 peerBindings 一次性传入。
+   3. 必须使用该 API 完成服务端配置，不允许改用其他 tool、脚本或手工方式。
 5. 若部署失败：立即停止并报告失败原因。
 6. 若部署成功：
    1. 记录返回的服务端公钥、监听端口、隧道地址等关键信息。
    2. 明确告知该结果将用于后续客户端配置。
    3. 再次提醒用户核对：
       1. 运管平台/安全组是否已放行对应 UDP 端口
-7. 调用 `openclaw_deploy_wg_server` 前，必须提供 `peerBindings` 参数（数组）。
-   每个元素至少包含 `deviceId`、`peerPublicKey`、`tunnelIp`、`lanCidr`。
-   若无法提供完整的 peerBindings，说明 `references/lan-collection.md` 未完成，
-   须先执行/重跑该模块获取所需数据。
-8. 若 `references/lan-collection.md` 已提供完整的节点绑定信息（至少包含 deviceId、peerPublicKey、tunnelIp、lanCidr），则必须将其作为 `openclaw_deploy_wg_server.peerBindings` 一次性传入，由该 tool 直接生成完整的 `wg0.conf`，禁止在部署后再补写 peer 配置。
+7. 若 `references/lan-collection.md` 已提供完整的节点绑定信息（至少包含 deviceId、peerPublicKey、tunnelIp、lanCidr），则必须将其作为 `openclaw_deploy_wg_server.peerBindings` 一次性传入，由该 tool 直接生成完整的 `wg0.conf`，禁止在部署后再补写 peer 配置。
 
 ## 规则
 本模块遵循 SKILL.md 通用规则。以下为本模块特有约束：

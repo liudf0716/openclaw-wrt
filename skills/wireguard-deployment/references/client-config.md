@@ -50,7 +50,9 @@
 
 1. 调用 `clawwrt_set_wireguard_vpn`，参数组装规则：
    - `deviceId`: 当前设备 ID
-   - `interface.addresses`: 当前设备的隧道 IP（来自 `openclaw_deploy_wg_server` 返回的 peerBindings 中对应设备的 tunnelIp，去掉 /32 后缀改为 /24 或使用原值）
+   - `interface.addresses`: 取 peerBindings 中该设备 tunnelIp 的 IP 部分，
+     后缀统一使用 `/24`（与服务端子网一致）。
+     示例：peerBindings 返回 `10.0.0.2/32` → 填入 `["10.0.0.2/24"]`
    - `peers[0].publicKey`: 服务端公钥（来自 `openclaw_get_wg_server_public_key`）
    - `peers[0].endpointHost`: 服务端公网 IP 或域名
    - `peers[0].endpointPort`: 服务端 WireGuard UDP 端口
