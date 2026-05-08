@@ -12,8 +12,9 @@
 
 该 API 会自动完成以下检查并返回聚合报告：
 1. 服务端：wg show、SNAT/MASQUERADE 规则、IP 转发状态
-2. 每台设备：路由器侧握手时间、收发流量
-3. VPS 侧 ping 测试（需传入 `pingTargets`）
+2. 服务端密钥一致性：`server_private.key` 推导公钥是否等于当前服务端公钥
+3. 每台设备：路由器侧握手时间、收发流量，以及“路由器私钥推导公钥”与服务端 peer 公钥/路由器配置中的服务端公钥是否一致
+4. VPS 侧 ping 测试（需传入 `pingTargets`）
 
 ## 执行流程
 
@@ -32,6 +33,7 @@
 
 1. 明确区分三层结果：
    - 服务端基础设施（IP 转发、SNAT 规则）
+   - 密钥一致性（服务端自身、公钥映射、每台设备与服务端的对端公钥关系）
    - 每台设备的握手与流量状态
    - 端到端 ping 可达性（✅ reachable / ❌ unreachable）
 2. 若验证失败，只报告问题，不自动修复。给出排查建议：
@@ -39,10 +41,26 @@
    - SNAT 规则缺失 → 建议重新部署服务端
    - 设备无握手 → 建议检查客户端配置或云平台防火墙
    - ping 不通但握手正常 → 建议检查路由规则
+   - 若发现任一密钥不匹配 → 不做局部修补，直接执行 `references/reset.md` 的“重置所有”，然后重新从 `references/lan-collection.md` 开始完整重建
 3. 若所有检查均通过，输出"VPN 连通性验证通过"。
+
+## 密钥不匹配的强制处理
+
+只要出现以下任一情况，就视为当前 WG 配置整体不可信，必须整体重建：
+
+1. 服务端 `server_private.key` 推导出的公钥不等于当前服务端公钥。
+2. 某设备本地私钥推导出的客户端公钥，不等于 VPS `wg0.conf` 中该设备对应 peer 的公钥。
+3. 某设备当前配置中的服务端公钥，不等于 VPS 实际服务端公钥。
+
+处理要求：
+
+1. 立即停止任何“继续验证/局部补配/只改单边公钥”的尝试。
+2. 明确建议用户执行 `references/reset.md` 中的“重置所有”。
+3. 重置完成后，重新执行完整主流程：LAN 采集 -> 重新生成客户端密钥 -> 重新确认 `tunnelIp` -> 重建服务端 -> 重建客户端 -> 再次验证。
 
 ## 建议的下一步
 
-1. 服务端异常 → `references/server-deploy.md` 或 `references/reset.md`
-2. 客户端异常 → `references/client-config.md` 或 `references/reset.md`
-3. 路由问题 → 重新执行 `references/lan-collection.md` 并重下发路由
+1. 若有密钥不匹配 → 直接执行 `references/reset.md`
+2. 服务端异常但无密钥错配 → `references/server-deploy.md` 或 `references/reset.md`
+3. 客户端异常但无密钥错配 → `references/client-config.md` 或 `references/reset.md`
+4. 路由问题 → 重新执行 `references/lan-collection.md` 并重下发路由

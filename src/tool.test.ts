@@ -26,7 +26,17 @@ function defaultExecSyncMockImpl(command: string) {
 
 const { execSyncMock, execFileSyncMock } = vi.hoisted(() => ({
   execSyncMock: vi.fn(defaultExecSyncMockImpl),
-  execFileSyncMock: vi.fn((file: string, args: string[] = []) => {
+  execFileSyncMock: vi.fn((file: string, args: string[] = [], options?: { input?: string }) => {
+    if (file === "wg" && args[0] === "pubkey") {
+      const input = options?.input?.trim();
+      if (input === "KAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") {
+        return "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=\n";
+      }
+      if (input === "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") {
+        return "n5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=\n";
+      }
+      return "invalid\n";
+    }
     if (file === "sudo" && args[0] === "wg-quick" && args[1] === "strip") {
       return "[Interface]\nAddress = 10.0.0.1/24\n";
     }
@@ -1178,6 +1188,130 @@ describe("openclaw-wrt intent tools", () => {
       deviceId: "dev-wg",
       op: "get_wireguard_vpn_status",
     });
+  });
+
+  it("wireguard verify reports client/server key mismatches explicitly", async () => {
+    const originalExecSyncImpl = execSyncMock.getMockImplementation() ?? defaultExecSyncMockImpl;
+    const originalExecFileSyncImpl = execFileSyncMock.getMockImplementation();
+
+    execSyncMock.mockImplementation(((command: string): string => {
+      if (command === "sudo wg show 2>&1 || echo 'wg not found'") {
+        return "interface: wg0\n";
+      }
+      if (command === "sudo iptables -t nat -S POSTROUTING") {
+        return "-A POSTROUTING -j MASQUERADE\n";
+      }
+      if (command === "sysctl -n net.ipv4.ip_forward") {
+        return "1\n";
+      }
+      if (command === "sudo cat /etc/wireguard/server_private.key") {
+        return "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n";
+      }
+      if (command === "sudo cat /etc/wireguard/server_public.key") {
+        return "WRONGSERVERPUBKEYAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n";
+      }
+      if (command === "sudo cat /etc/wireguard/wg0.conf 2>/dev/null || true") {
+        return [
+          "[Interface]",
+          "Address = 10.0.0.1/24",
+          "",
+          "[Peer]",
+          "PublicKey = MISMATCHEDCLIENTPUBKEYAAAAAAAAAAAAAAAAAAAA=",
+          "AllowedIPs = 10.0.0.2/32, 192.168.10.0/24",
+          "",
+        ].join("\n");
+      }
+      if (command.startsWith("ping -c 3 -W 2 10.0.0.2")) {
+        return "3 packets transmitted, 3 received, 0% packet loss\n";
+      }
+      return originalExecSyncImpl(command);
+    }) as any);
+
+    execFileSyncMock.mockImplementation(((file: string, args: string[] = [], options?: { input?: string }) => {
+      if (file === "wg" && args[0] === "pubkey") {
+        const input = options?.input?.trim();
+        if (input === "KAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") {
+          return "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=\n";
+        }
+        if (input === "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") {
+          return "n5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=\n";
+        }
+      }
+      return originalExecFileSyncImpl?.(file, args, options) ?? "";
+    }) as any);
+
+    try {
+      const bridge = {
+        listDevices() {
+          return [{ deviceId: "dev-wg", connectedAtMs: 1, lastSeenAtMs: 1 }];
+        },
+        getDevice() {
+          return null;
+        },
+        async callDevice(params: {
+          deviceId: string;
+          op: string;
+          payload?: Record<string, unknown>;
+        }) {
+          if (params.op === "get_wireguard_vpn_status") {
+            return {
+              peers: [
+                {
+                  last_handshake_time: "never",
+                  receive_bytes: 0,
+                  transmit_bytes: 0,
+                },
+              ],
+            };
+          }
+          if (params.op === "get_wireguard_vpn") {
+            return {
+              interface: {
+                private_key: "KAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                addresses: ["10.0.0.2/24"],
+              },
+              peers: [
+                {
+                  public_key: "WRONGROUTERSERVERPUBKEYAAAAAAAAAAAAAAAAAAA=",
+                },
+              ],
+            };
+          }
+          return { status: "ok" };
+        },
+      };
+
+      const tool = createClawWRTTools({ bridge: bridge as never }).find(
+        (entry) => entry.name === "clawwrt_verify_wireguard_connectivity",
+      );
+      expect(tool).toBeTruthy();
+
+      const result = await tool?.execute?.("tool-wg-verify", {
+        deviceIds: ["dev-wg"],
+        pingTargets: ["10.0.0.2"],
+      });
+
+      const text = (result as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? "";
+      const details = (result as { details?: Record<string, unknown> }).details ?? {};
+      const warnings = Array.isArray(details.warnings) ? details.warnings : [];
+
+      expect(text).toContain("Server key pair: ❌");
+      expect(text).toContain("server peer public key does not match the router private key derived public key");
+      expect(text).toContain("router configured server public key does not match the VPS actual server public key");
+      expect(warnings).toContain("server private/public key pair mismatch");
+      expect(
+        warnings.some(
+          (entry) =>
+            typeof entry === "string" &&
+            entry.includes("dev-wg: server peer public key does not match the router private key derived public key"),
+        ),
+      ).toBe(true);
+    } finally {
+      execSyncMock.mockImplementation(originalExecSyncImpl);
+      if (originalExecFileSyncImpl) {
+        execFileSyncMock.mockImplementation(originalExecFileSyncImpl);
+      }
+    }
   });
 
   it("bpf flush tool targets the selected table", async () => {
