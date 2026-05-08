@@ -793,41 +793,6 @@ const SetVpnRoutesSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const SetVpnDomainRoutesSchema = Type.Object(
-  {
-    deviceId: DeviceIdField,
-    domains: Type.Array(
-      Type.String({
-        minLength: 1,
-        description: "Domain name to resolve into IPv4 /32 routes through wg0.",
-      }),
-    ),
-    interface: Type.Optional(
-      Type.String({ minLength: 1, description: "WireGuard interface name, defaults to wg0." }),
-    ),
-    timeoutMs: TimeoutField,
-  },
-  { additionalProperties: false },
-);
-
-const DeleteVpnRoutesSchema = Type.Object(
-  {
-    deviceId: DeviceIdField,
-    flushAll: Type.Optional(
-      Type.Boolean({ description: "Flush all VPN routes at once instead of deleting individual." }),
-    ),
-    routes: Type.Optional(
-      Type.Array(
-        Type.String({
-          minLength: 1,
-          description: "Individual CIDR routes to delete, e.g. 1.2.3.0/24.",
-        }),
-      ),
-    ),
-    timeoutMs: TimeoutField,
-  },
-  { additionalProperties: false },
-);
 
 const DeployWgServerSchema = Type.Object(
   {
@@ -1102,8 +1067,6 @@ type BpfFlushParams = Static<typeof BpfFlushSchema>;
 type BpfUpdateParams = Static<typeof BpfUpdateSchema>;
 type BpfUpdateAllParams = Static<typeof BpfUpdateAllSchema>;
 type SetVpnRoutesParams = Static<typeof SetVpnRoutesSchema>;
-type SetVpnDomainRoutesParams = Static<typeof SetVpnDomainRoutesSchema>;
-type DeleteVpnRoutesParams = Static<typeof DeleteVpnRoutesSchema>;
 type ResetWireguardVpnParams = Static<typeof ResetWireguardVpnSchema>;
 type SetBrLanParams = Static<typeof SetBrLanSchema>;
 type ResetWgServerParams = Static<typeof ResetWgServerSchema>;
@@ -2538,7 +2501,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
       bridge,
       name: "clawwrt_get_trusted_wildcard_domains",
       label: "OpenClaw WRT Trusted Wildcard Domains",
-      description: "Get the trusted wildcard domain whitelist such as *.example.com.",
+      description: "Get the trusted wildcard domain whitelist.",
       op: "get_trusted_wildcard_domains",
       summarize: (_response, rawParams) => {
         const args = rawParams as DeviceOnlyParams;
@@ -3029,62 +2992,6 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
         });
       },
     },
-    {
-      name: "clawwrt_setup_server_vpn_nat",
-      label: "OpenClaw WRT Setup Server VPN NAT",
-      description: "Automate server-side SNAT (MASQUERADE) configuration and enable IP forwarding.",
-      parameters: Type.Object(
-        {
-          wanInterface: Type.Optional(
-            Type.String({
-              description: "Public WAN interface name (e.g., eth0). Auto-detected if omitted.",
-            }),
-          ),
-        },
-        { additionalProperties: false },
-      ),
-      execute: async (_toolCallId, rawParams) => {
-        logToolInvocation(undefined, "clawwrt_setup_server_vpn_nat", rawParams);
-        const args = rawParams as { wanInterface?: string };
-        const { execSync } = await import("node:child_process");
-
-        let wan = args.wanInterface?.trim();
-        if (!wan) {
-          wan = detectServerEgressInterface(execSync);
-        }
-
-        if (!wan || !/^[a-zA-Z0-9.\-_@]+$/.test(wan)) {
-          const interfaces = listServerInterfacesWithIp(execSync);
-          const recommended = detectRecommendedServerInterface(execSync);
-          const recommendationLine = recommended
-            ? `Recommended outbound interface (best guess): ${recommended}\n`
-            : "";
-          throw new Error(
-            `Unable to determine WAN interface automatically.\n` +
-              recommendationLine +
-              `Detected VPS interfaces and IPv4:\n${interfaces}\n` +
-              `Please ask user to choose the outbound interface and rerun with wanInterface set explicitly.`,
-          );
-        }
-
-        const natRuleComment = "OPENCLAW_WG_wg0";
-        const setupCommand = [
-          `sudo sysctl -w net.ipv4.ip_forward=1`,
-          `sudo iptables -t nat -C POSTROUTING -m comment --comment ${natRuleComment} -o ${wan} -j MASQUERADE || sudo iptables -t nat -A POSTROUTING -m comment --comment ${natRuleComment} -o ${wan} -j MASQUERADE`,
-          `sudo iptables -C FORWARD -i wg0 -j ACCEPT || sudo iptables -A FORWARD -i wg0 -j ACCEPT`,
-          `sudo iptables -C FORWARD -o wg0 -j ACCEPT || sudo iptables -A FORWARD -o wg0 -j ACCEPT`,
-        ].join(" && ");
-
-        const output = execSync(setupCommand, { encoding: "utf-8" });
-        return buildToolResult(
-          `Server-side VPN NAT configured using interface ${wan}.\n${output}`,
-          {
-            wanInterface: wan,
-            output,
-          },
-        );
-      },
-    },
     createSimpleOperationTool({
       bridge,
       name: "clawwrt_generate_wireguard_keys",
@@ -3107,32 +3014,6 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
       summarize: (_response, rawParams) => {
         const args = rawParams as DeviceOnlyParams;
         return `Fetched VPN routes for ${args.deviceId}.`;
-      },
-    }),
-    createSimpleOperationTool({
-      bridge,
-      name: "clawwrt_set_vpn_domain_routes",
-      label: "OpenClaw WRT Set VPN Domain Routes",
-      description:
-        "Resolve one or more domain names to IPv4 addresses and add each resolved address as an ip/32 static route through wg0.",
-      op: "set_vpn_domain_routes",
-      parameters: SetVpnDomainRoutesSchema,
-      buildPayload: (rawParams) => {
-        const args = rawParams as SetVpnDomainRoutesParams;
-        return {
-          deviceId: args.deviceId.trim(),
-          payload: {
-            data: {
-              domains: args.domains,
-              interface: args.interface,
-            },
-          },
-          timeoutMs: args.timeoutMs,
-        };
-      },
-      summarize: (_response, rawParams) => {
-        const args = rawParams as SetVpnDomainRoutesParams;
-        return `Resolved domain routes for ${args.domains.length} domain(s) on ${args.deviceId}.`;
       },
     }),
     {
@@ -3846,35 +3727,6 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
         return buildToolResult(summary, { newDeviceId, newLanCidr, ...results });
       },
     },
-    createSimpleOperationTool({
-      bridge,
-      name: "clawwrt_delete_vpn_routes",
-      label: "OpenClaw WRT Delete VPN Routes",
-      description:
-        "Delete VPN routing rules. Use flushAll to remove all routes, or provide specific CIDR routes to remove individually.",
-      op: "delete_vpn_routes",
-      parameters: DeleteVpnRoutesSchema,
-      buildPayload: (rawParams) => {
-        const args = rawParams as DeleteVpnRoutesParams;
-        const payload: JsonRecord = {};
-        if (typeof args.flushAll === "boolean") {
-          payload.flush_all = args.flushAll;
-        }
-        if (Array.isArray(args.routes)) {
-          payload.routes = args.routes;
-        }
-        return {
-          deviceId: args.deviceId.trim(),
-          payload: { data: payload },
-          timeoutMs: args.timeoutMs,
-        };
-      },
-      summarize: (_response, rawParams) => {
-        const args = rawParams as DeleteVpnRoutesParams;
-        const method = args.flushAll ? "flushed all" : "deleted selected";
-        return `Deleted VPN routes (${method}) on ${args.deviceId}.`;
-      },
-    }),
     createSimpleOperationTool({
       bridge,
       name: "clawwrt_get_firmware_info",
