@@ -41,7 +41,7 @@
 
 ## 路由规则来源
 
-1. `clawwrt_set_vpn_routes.routes` 直接使用 `references/lan-collection.md` 输出中的 `routePlans`。
+1. `clawwrt_collect_wireguard_protected_routes` 生成的 JSON 文件是客户端路由规则的唯一输入来源。
 2. 若用户中途增删设备或修改 LAN 网段，必须先重新执行 `references/lan-collection.md`，再继续本模块。
 
 ## 逐设备执行
@@ -49,7 +49,7 @@
 仅对用户明确确认的设备，按顺序执行：
 
 1. 使用 `references/lan-collection.md` 输出中当前设备对应的 `peerPublicKey` 和 `openclaw_get_wg_server_public_key` 的服务端 public key 调用 `clawwrt_set_wireguard_vpn`
-2. 使用 `references/lan-collection.md` 输出中当前设备对应的 `routePlans.routes` 调用 `clawwrt_set_vpn_routes`
+2. 使用 `clawwrt_collect_wireguard_protected_routes` 返回的 `routePlanFile` 调用 `clawwrt_set_vpn_routes`，不要手工拼装 routes
 3. `clawwrt_get_wireguard_vpn_status`
 
 ## 参数约束

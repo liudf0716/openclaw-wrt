@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -1810,6 +1810,184 @@ describe("openclaw-wrt intent tools", () => {
         routes: ["192.168.1.0/24", "192.168.2.0/24"],
       },
     ]);
+  });
+
+  it("collect wireguard protected routes writes a JSON file with shared wg0 subnet routes", async () => {
+    const routePlanFile = path.join(os.tmpdir(), "openclaw-wrt-wireguard-protected-routes.json");
+    await rm(routePlanFile, { force: true });
+
+    try {
+      const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+      const bridge = {
+        listDevices() {
+          return [
+            { deviceId: "wifi-1", deviceName: "Alpha", connectedAtMs: 1, lastSeenAtMs: 1 },
+            { deviceId: "wifi-2", deviceName: "Beta", connectedAtMs: 1, lastSeenAtMs: 1 },
+            { deviceId: "wifi-3", deviceName: "Gamma", connectedAtMs: 1, lastSeenAtMs: 1 },
+          ];
+        },
+        getDevice() {
+          return null;
+        },
+        async callDevice(params: {
+          deviceId: string;
+          op: string;
+          payload?: Record<string, unknown>;
+        }) {
+          calls.push(params);
+          if (params.op === "get_br_lan") {
+            if (params.deviceId === "wifi-1") {
+              return { cidr: "192.168.8.0/24" };
+            }
+            if (params.deviceId === "wifi-2") {
+              return { cidr: "192.168.9.0/24" };
+            }
+            return { cidr: "192.168.10.0/24" };
+          }
+          return { status: "ok" };
+        },
+      };
+
+      const tool = createClawWRTTools({ bridge: bridge as never }).find(
+        (entry) => entry.name === "clawwrt_collect_wireguard_protected_routes",
+      );
+
+      const result = await tool?.execute?.("tool-collect-protected-routes", {
+        deviceIds: ["wifi-1", "wifi-2", "wifi-3"],
+        serverTunnelIp: "10.0.0.1/24",
+      });
+
+      expect(calls).toEqual([
+        { deviceId: "wifi-1", op: "get_br_lan", timeoutMs: undefined },
+        { deviceId: "wifi-2", op: "get_br_lan", timeoutMs: undefined },
+        { deviceId: "wifi-3", op: "get_br_lan", timeoutMs: undefined },
+      ]);
+
+      const details = (result as { details?: Record<string, unknown> }).details ?? {};
+      expect(details.hasConflict).toBe(false);
+      expect(details.routePlanFile).toBe(routePlanFile);
+      expect(details.routePlans).toEqual([
+        {
+          deviceId: "wifi-1",
+          deviceName: "Alpha",
+          lanCidr: "192.168.8.0/24",
+          routes: ["10.0.0.0/24", "192.168.9.0/24", "192.168.10.0/24"],
+        },
+        {
+          deviceId: "wifi-2",
+          deviceName: "Beta",
+          lanCidr: "192.168.9.0/24",
+          routes: ["10.0.0.0/24", "192.168.8.0/24", "192.168.10.0/24"],
+        },
+        {
+          deviceId: "wifi-3",
+          deviceName: "Gamma",
+          lanCidr: "192.168.10.0/24",
+          routes: ["10.0.0.0/24", "192.168.8.0/24", "192.168.9.0/24"],
+        },
+      ]);
+
+      const fileContent = JSON.parse(await readFile(routePlanFile, "utf8")) as Record<string, unknown>;
+      expect(fileContent.serverTunnelCidr).toBe("10.0.0.0/24");
+      expect(fileContent.routePlans).toEqual(details.routePlans);
+    } finally {
+      await rm(routePlanFile, { force: true });
+    }
+  });
+
+  it("set vpn routes selective can read routes from a routePlanFile", async () => {
+    const routePlanFile = await mkdtemp(path.join(os.tmpdir(), "openclaw-wrt-route-plan-"));
+    const filePath = path.join(routePlanFile, "route-plan.json");
+
+    try {
+      await writeFile(
+        filePath,
+        JSON.stringify(
+          {
+            version: 1,
+            generatedAt: new Date().toISOString(),
+            serverTunnelIp: "10.0.0.1/24",
+            serverTunnelCidr: "10.0.0.0/24",
+            deviceIds: ["dev-vpn"],
+            devices: [{ deviceId: "dev-vpn", lanCidr: "192.168.8.0/24" }],
+            failedDevices: [],
+            conflicts: [],
+            blockedDeviceIds: [],
+            hasConflict: false,
+            routePlans: [
+              {
+                deviceId: "dev-vpn",
+                lanCidr: "192.168.8.0/24",
+                routes: ["10.0.0.0/24", "192.168.9.0/24", "192.168.10.0/24"],
+              },
+            ],
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+
+      const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+      const bridge = {
+        listDevices() {
+          return [];
+        },
+        getDevice() {
+          return null;
+        },
+        async callDevice(params: {
+          deviceId: string;
+          op: string;
+          payload?: Record<string, unknown>;
+        }) {
+          calls.push(params);
+          if (params.op === "get_vpn_routes") {
+            return {
+              type: "get_vpn_routes_response",
+              interface: "wg0",
+              routes: [{ destination: "10.0.0.0/24" }],
+              tunnel_up: true,
+            };
+          }
+          return {
+            type: "set_vpn_routes_response",
+            interface: "wg0",
+            mode: "selective",
+            added: 3,
+            failed: 0,
+          };
+        },
+      };
+
+      const tool = createClawWRTTools({ bridge: bridge as never }).find(
+        (entry) => entry.name === "clawwrt_set_vpn_routes",
+      );
+
+      await tool?.execute?.("tool-vpnr-set-file", {
+        deviceId: "dev-vpn",
+        mode: "selective",
+        routePlanFile: filePath,
+      });
+
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).toMatchObject({
+        deviceId: "dev-vpn",
+        op: "get_vpn_routes",
+      });
+      expect(calls[1]).toMatchObject({
+        deviceId: "dev-vpn",
+        op: "set_vpn_routes",
+        payload: {
+          data: {
+            mode: "selective",
+            routes: ["10.0.0.0/24", "192.168.9.0/24", "192.168.10.0/24"],
+          },
+        },
+      });
+    } finally {
+      await rm(routePlanFile, { recursive: true, force: true });
+    }
   });
 
   it("wireguard lan mesh tool blocks devices with overlapping LAN subnets", async () => {
