@@ -54,7 +54,6 @@
       "clawwrt_kickoff_client",
       "clawwrt_list_devices",
       "clawwrt_collect_wireguard_protected_routes",
-      "clawwrt_plan_wireguard_client_routes",
       "clawwrt_publish_portal_page",
       "clawwrt_reboot_device",
       "clawwrt_reconcile_wireguard_lan_mesh",

@@ -1806,77 +1806,6 @@ describe("openclaw-wrt intent tools", () => {
     expect((result as { details?: Record<string, unknown> }).details?.blocked).toEqual([]);
   });
 
-  it("wireguard client route planning tool returns per-device LAN routes", async () => {
-    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
-    const bridge = {
-      listDevices() {
-        return [
-          { deviceId: "wifi-1", deviceName: "Alpha", connectedAtMs: 1, lastSeenAtMs: 1 },
-          { deviceId: "wifi-2", deviceName: "Beta", connectedAtMs: 1, lastSeenAtMs: 1 },
-          { deviceId: "wifi-3", deviceName: "Gamma", connectedAtMs: 1, lastSeenAtMs: 1 },
-        ];
-      },
-      getDevice() {
-        return null;
-      },
-      async callDevice(params: {
-        deviceId: string;
-        op: string;
-        payload?: Record<string, unknown>;
-      }) {
-        calls.push(params);
-        if (params.op === "get_br_lan") {
-          if (params.deviceId === "wifi-1") {
-            return { cidr: "192.168.1.0/24" };
-          }
-          if (params.deviceId === "wifi-2") {
-            return { cidr: "192.168.2.0/24" };
-          }
-          return { cidr: "192.168.3.0/24" };
-        }
-        return { status: "ok" };
-      },
-    };
-
-    const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "clawwrt_plan_wireguard_client_routes",
-    );
-
-    const result = await tool?.execute?.("tool-plan-routes", {
-      deviceIds: ["wifi-1", "wifi-2", "wifi-3"],
-    });
-
-    expect(calls).toEqual([
-      { deviceId: "wifi-1", op: "get_br_lan", timeoutMs: undefined },
-      { deviceId: "wifi-2", op: "get_br_lan", timeoutMs: undefined },
-      { deviceId: "wifi-3", op: "get_br_lan", timeoutMs: undefined },
-    ]);
-
-    const details = (result as { details?: Record<string, unknown> }).details ?? {};
-    expect(details.hasConflict).toBe(false);
-    expect(details.conflicts).toEqual([]);
-    expect(details.routePlans).toEqual([
-      {
-        deviceId: "wifi-1",
-        deviceName: "Alpha",
-        lanCidr: "192.168.1.0/24",
-        routes: ["192.168.2.0/24", "192.168.3.0/24"],
-      },
-      {
-        deviceId: "wifi-2",
-        deviceName: "Beta",
-        lanCidr: "192.168.2.0/24",
-        routes: ["192.168.1.0/24", "192.168.3.0/24"],
-      },
-      {
-        deviceId: "wifi-3",
-        deviceName: "Gamma",
-        lanCidr: "192.168.3.0/24",
-        routes: ["192.168.1.0/24", "192.168.2.0/24"],
-      },
-    ]);
-  });
-
   it("collect wireguard protected routes writes a JSON file with shared wg0 subnet routes", async () => {
     const routePlanFile = path.join(os.tmpdir(), "openclaw-wrt-wireguard-protected-routes.json");
     await rm(routePlanFile, { force: true });
@@ -2107,58 +2036,6 @@ describe("openclaw-wrt intent tools", () => {
     expect(blocked.map((entry) => entry.deviceId)).toEqual(
       expect.arrayContaining(["wifi-a", "wifi-b"]),
     );
-  });
-
-  it("wireguard client route planning tool blocks route generation on LAN conflict", async () => {
-    const bridge = {
-      listDevices() {
-        return [
-          { deviceId: "wifi-a", deviceName: "A", connectedAtMs: 1, lastSeenAtMs: 1 },
-          { deviceId: "wifi-b", deviceName: "B", connectedAtMs: 1, lastSeenAtMs: 1 },
-          { deviceId: "wifi-c", deviceName: "C", connectedAtMs: 1, lastSeenAtMs: 1 },
-        ];
-      },
-      getDevice() {
-        return null;
-      },
-      async callDevice(params: {
-        deviceId: string;
-        op: string;
-        payload?: Record<string, unknown>;
-      }) {
-        if (params.op === "get_br_lan") {
-          if (params.deviceId === "wifi-a") {
-            return { cidr: "192.168.1.0/24" };
-          }
-          if (params.deviceId === "wifi-b") {
-            return { cidr: "192.168.1.0/24" };
-          }
-          return { cidr: "192.168.3.0/24" };
-        }
-        return { status: "ok" };
-      },
-    };
-
-    const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "clawwrt_plan_wireguard_client_routes",
-    );
-
-    const result = await tool?.execute?.("tool-plan-routes-conflict", {
-      deviceIds: ["wifi-a", "wifi-b", "wifi-c"],
-    });
-
-    const details = (result as { details?: Record<string, unknown> }).details ?? {};
-    expect(details.hasConflict).toBe(true);
-    expect(details.blockedDeviceIds).toEqual(expect.arrayContaining(["wifi-a", "wifi-b"]));
-    expect(details.routePlans).toEqual([]);
-    expect(details.conflicts).toEqual([
-      {
-        leftDeviceId: "wifi-a",
-        leftLanCidr: "192.168.1.0/24",
-        rightDeviceId: "wifi-b",
-        rightLanCidr: "192.168.1.0/24",
-      },
-    ]);
   });
 
   it("delete vpn routes with flushAll sends flush_all in data payload", async () => {
