@@ -6,26 +6,26 @@
 
 本模块是服务端与客户端配置的共同前置步骤：
 
-1. 服务端侧需要这些 LAN 网段、wg0 接口地址以及每个客户端的 WireGuard 公钥，用于 peer AllowedIPs 规划（须覆盖原有配置，不能遗漏）。
-2. 客户端侧需要这些 LAN 网段、wg0 接口地址以及已生成的客户端密钥信息，用于生成保护路由 JSON 文件；`clawwrt_set_vpn_routes` 会从该文件读取路由，再合并现有 wg0 静态路由，不能遗漏本次规划出的 LAN 网段。
+1. 服务端侧需要这些 LAN 网段、服务端隧道网段以及每个客户端的 WireGuard 公钥，用于后续组装 `peerBindings`。
+2. 客户端侧需要这些 LAN 网段、服务端隧道网段以及已生成的客户端密钥信息，用于生成保护路由 JSON 文件；`clawwrt_set_vpn_routes` 会从该文件读取路由，再合并现有 wg0 静态路由，不能遗漏本次规划出的 LAN 网段。
 
-注意：AllowedIPs 和路由规则均为覆盖写入，漏掉 wg0 接口地址会导致 VPN 隧道地址本身不可达；漏掉客户端公钥会导致服务端无法一次性完成 peerBindings。
+注意：AllowedIPs 和路由规则均为覆盖写入，漏掉服务端隧道网段会导致 VPN 隧道地址本身不可达；漏掉客户端公钥会导致服务端无法一次性完成 peerBindings。另一方面，本模块本身不会生成每台设备的 `tunnelIp`，因此完成本模块后仍需额外确认每台设备的 `tunnelIp` 分配结果，才能形成完整 `peerBindings`。
 
 ## 固定入口
 
 并行调用：
 
 1. `clawwrt_list_devices`
-2. `openclaw_get_wg_status`（用于获取 wg0 接口地址及现有 peer 信息）
+2. `openclaw_get_wg_status`（仅用于检查服务端是否已安装/运行，以及查看原始 peer 运行信息；不要把它当作结构化 `wg0` 地址来源）
 
 ## 执行流程
 
 1. 展示当前在线设备清单。
 2. 让用户确认要加入组网的设备 ID 列表。
 3. 若用户按设备名称选择，先基于 `clawwrt_list_devices` 结果解析成明确设备 ID 后再继续。
-4. 调用 `clawwrt_collect_wireguard_protected_routes`，输入用户确认的设备 ID 列表和服务端 wg0 隧道地址：
-   - 若 `openclaw_get_wg_status` 已返回可用的 wg0 地址 → 使用该已有地址
-   - 若当前为新部署 → 使用默认值 `10.0.0.1/24`（与 `openclaw_deploy_wg_server` 默认值一致）
+4. 调用 `clawwrt_collect_wireguard_protected_routes`，输入用户确认的设备 ID 列表和服务端隧道 CIDR：
+   - 若当前方案已有明确的服务端 `tunnelIp` / 隧道网段记录 → 使用该记录
+   - 若当前为新部署且尚未另行指定 → 使用默认值 `10.0.0.1/24`（与 `openclaw_deploy_wg_server` 默认值一致）
    生成并保存保护路由 JSON 文件。
 5. 按用户确认的设备 ID 顺序，逐台调用 `clawwrt_generate_wireguard_keys`，收集每台设备的 WireGuard 公钥。公钥字段优先取 `public_key`，若不存在则取 `publicKey` 或 `data.public_key`。
 6. 读取并展示规划结果，至少包含：
@@ -35,6 +35,7 @@
    4. 每台设备的 routePlans
    5. 保护路由 JSON 文件路径（后续 `clawwrt_set_vpn_routes` 直接消费）
    6. 每台设备对应的 WireGuard 公钥
+   7. 明确提示：本模块尚未生成每台设备的 `tunnelIp`，后续仍需单独确认或分配
 7. 若返回存在 LAN 冲突：
    1. 立即停止后续组网流程
    2. 展示冲突设备与冲突网段
@@ -48,13 +49,14 @@
 
 本模块完成后，后续模块必须复用同一份规划结果，不得自行二次推导：
 
-1. 服务端相关步骤使用各设备 LAN CIDR + 各 peer wg0 隧道地址 + 各 peer 公钥，共同组成 peer AllowedIPs 与 `openclaw_deploy_wg_server.peerBindings`（覆盖写入，三者缺一不可；wg0 隧道地址优先取自 `openclaw_get_wg_status`，新部署时按默认值 `10.0.0.1/24` 处理）。
+1. 服务端相关步骤使用各设备 LAN CIDR + 各 peer `tunnelIp` + 各 peer 公钥，共同组成 `openclaw_deploy_wg_server.peerBindings`；其中 `tunnelIp` 必须来自后续明确的分配或确认结果，不得假定本模块已经生成。
 2. 客户端相关步骤使用本模块生成的保护路由 JSON 文件作为 `clawwrt_set_vpn_routes.routePlanFile` 输入，`clawwrt_set_vpn_routes` 会从该文件读取每台设备的路由，再合并现有 wg0 静态路由。
-3. 若设备列表、LAN 网段、wg0 隧道地址或客户端公钥发生变化，必须重新执行本模块并覆盖旧结果与 JSON 文件。
+3. 若设备列表、LAN 网段、服务端隧道网段或客户端公钥发生变化，必须重新执行本模块并覆盖旧结果与 JSON 文件。
 
 ## 规则
 本模块遵循 SKILL.md 通用规则。以下为本模块特有约束：
 
 1. 不允许绕过 `clawwrt_collect_wireguard_protected_routes` 手工拼装路由。
 2. 不允许使用过期的 LAN 规划结果。
-3. wg0 隧道地址必须有明确来源（`openclaw_get_wg_status` 返回值或新部署默认值 `10.0.0.1/24`），不允许由 LLM 自行推测。
+3. 服务端隧道 CIDR 必须有明确来源（部署入参、既有记录或新部署默认值 `10.0.0.1/24`），不允许由 LLM 自行推测。
+4. 每台客户端的 `tunnelIp` 必须在本模块完成后单独确认；没有 `tunnelIp`，不得声称已具备完整 `peerBindings`。

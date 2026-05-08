@@ -22,7 +22,9 @@
    - 若用户指定设备 → 传入对应 `deviceIds`
    - 若用户未指定 → 展示在线设备清单，让用户确认后再继续
 3. 组装 `pingTargets`：
-   - 取每台待验证设备的隧道 IP（来自服务端 `wg show` 输出或部署时记录的 peerBindings.tunnelIp）
+   - 取每台待验证设备事先记录好的 tunnel IP
+   - 来源应为部署时明确记录的 `peerBindings.tunnelIp` 或其它已确认的分配结果
+   - 不要依赖 `openclaw_get_wg_status` 或原始 `wg show` 去临时解析并推断 tunnel IP
    - 传入 `pingTargets` 以触发 VPS → 客户端的端到端 ping 验证
 4. 调用 `clawwrt_verify_wireguard_connectivity`，传入 `deviceIds` 和 `pingTargets`。
 
