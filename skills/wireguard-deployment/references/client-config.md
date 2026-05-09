@@ -2,7 +2,10 @@
 
 ## 适用场景
 
-用户想把一个或多个路由器接入当前 WireGuard VPN，或修改客户端 VPN 路由策略时，使用本模块。
+用户想在“已执行重置所有”之后，把一组路由器重新接入新的 WireGuard VPN 时，使用本模块。
+
+本模块不支持把单个新路由器增量加入已有 WG VPN 网络，也不支持在保留现有配置的前提下只修改部分客户端路由。
+若目标设备列表、LAN 网段、tunnelIp 或服务端 peer 配置有任何变化，必须先执行 `references/reset.md` 的“重置所有”，再重新走完整配置流程。
 
 ## 固定入口
 
@@ -10,7 +13,7 @@
 
 1. `openclaw_get_wg_status`
 2. `clawwrt_list_devices`
-3. 在 endpoint/端口已确认后，再调用 `openclaw_get_wg_server_public_key`
+3. 若当前轮次刚完成服务端部署，优先使用部署结果中返回的 `serverPubKey`；仅在未持有该结果时，再调用 `openclaw_get_wg_server_public_key`
 
 ## 服务端 endpoint 确认
 
@@ -30,8 +33,8 @@
 4. 要求用户明确确认“最终要加入当前 WG VPN 的设备 ID 列表”。
 5. 若用户未确认或确认列表为空：停止流程。
 6. 确认当前方案中每台待接入设备都已有明确的 `tunnelIp` 分配结果；若缺失，立即停止并要求先补齐。
-7. 调用 `openclaw_get_wg_server_public_key` 明确拿到服务端 public key；若读取失败，先处理服务端部署或重置问题。
-8. 使用已确认的服务端公网 IP 或域名、UDP 端口以及每台设备的 `tunnelIp` 分配结果，再继续后续客户端配置。
+7. 若当前上下文里没有刚部署成功时返回的 `serverPubKey`，调用 `openclaw_get_wg_server_public_key` 明确拿到服务端 public key；若读取失败，先处理服务端部署或重置问题。
+8. 使用已确认的服务端公网 IP 或域名、UDP 端口、服务端 public key，以及每台设备的 `tunnelIp` 分配结果，再继续后续客户端配置。
 
 ## 前置依赖：LAN 网段采集、密钥生成与路由规划
 
@@ -54,21 +57,20 @@
 1. 调用 `clawwrt_set_wireguard_vpn`，参数组装规则：
    - `deviceId`: 当前设备 ID
    - `interface`: 默认只下发地址、端口、MTU 等必要字段，不传 `privateKey`
-   - `interface.addresses`: 取当前设备已确认的 `tunnelIp` 的 IP 部分，
-     后缀统一使用 `/24`（与服务端子网一致）。
-     示例：已确认 `tunnelIp = 10.0.0.2/32` → 填入 `["10.0.0.2/24"]`
+   - `interface.addresses`: 直接使用当前设备已确认的 `tunnelIp`
+     示例：已确认 `tunnelIp = 10.0.0.2/32` → 填入 `["10.0.0.2/32"]`
    - `peers[0].publicKey`: 服务端公钥（来自 `openclaw_get_wg_server_public_key`）
    - `peers[0].endpointHost`: 服务端公网 IP 或域名
    - `peers[0].endpointPort`: 服务端 WireGuard UDP 端口
    - `peers[0].allowedIps`: `["0.0.0.0/0"]`
    - `peers[0].persistentKeepalive`: `25`
    - `peers[0].routeAllowedIps`: `false`（路由由后续 `clawwrt_set_vpn_routes` 管理）
-2. 使用 `clawwrt_collect_wireguard_protected_routes` 返回的 `routePlanFile` 调用 `clawwrt_set_vpn_routes`，不要手工拼装 routes
-3. `clawwrt_get_wireguard_vpn_status`
+2. 使用 `clawwrt_collect_wireguard_protected_routes` 返回的 `routePlanFile` 调用 `clawwrt_set_vpn_routes`，不要手工拼装 routes；标准流程下不要手工传 `requestedRoutes`
+3. 客户端配置批量完成后，优先统一进入 `references/verify.md`；只有用户明确要求查看单台即时状态时，才补充 `clawwrt_get_wireguard_vpn_status`
 
 ## 参数约束
 
-`clawwrt_set_wireguard_vpn` 的关键参数约束由代码强制处理，这里只保留调用前提：必须先拿到服务端 public key、目标设备已确认的 `tunnelIp` 和当前规划结果。标准流程下不要传 `privateKey`；若日志中出现 `privateKey=GENERATED_ON_DEVICE` 之类占位值，应视为上层调用错误并修正。
+`clawwrt_set_wireguard_vpn` 的关键参数约束由代码强制处理，这里只保留调用前提：必须先拿到服务端 public key、目标设备已确认的 `tunnelIp` 和当前规划结果。标准流程下不要传 `privateKey`；若日志中出现 `privateKey=GENERATED_ON_DEVICE` 之类占位值，应视为上层调用错误并修正。标准流程下客户端 peer `allowedIps` 固定为 `["0.0.0.0/0"]`，实际受保护网段完全以 `clawwrt_set_vpn_routes` 为准。
 
 ## 规则
 本模块遵循 SKILL.md 通用规则。以下为本模块特有约束：
@@ -78,16 +80,4 @@
 3. 发现 LAN 冲突后，不允许退回任何“旧流程”绕过冲突检查。
 4. 未确认每台目标设备的 `tunnelIp` 前，不允许下发客户端 `interface.addresses`。
 5. 标准流程下，不允许把私钥或私钥占位字符串作为 `clawwrt_set_wireguard_vpn.interface.privateKey` 传入；私钥应仅在 `clawwrt_generate_wireguard_keys` 阶段由设备本地生成和保存。
-
-## 扩展说明
-
-若用户明确要求 LAN mesh 互通，先按场景选择路径：
-
-1. 单设备增量加入已有 mesh：
-   1. 先完成 `references/lan-collection.md`
-   2. 若需要对新设备做局部预检，可先调用 `clawwrt_check_lan_conflict`；但当 `references/lan-collection.md` 已返回冲突结果时，以该结果为准，不再把 `check_lan_conflict` 当作独立主流程
-   3. 确认 `hasConflict=false` 后，调用 `clawwrt_join_wireguard_lan_mesh`
-2. 多设备批量重建 / 重新编排 mesh：
-   1. 先完成 `references/lan-collection.md`
-   2. 直接调用 `clawwrt_reconcile_wireguard_lan_mesh`
-   3. 该路径用于一次性处理多台设备的 mesh 关系，不再逐台走 `join`
+6. 不支持把单个新设备增量加入已有 WG VPN 网络；若用户提出此类请求，必须先建议执行“重置所有”，再以新的完整设备列表重新配置。

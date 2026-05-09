@@ -5,6 +5,7 @@
 用户要求清空、重置、回滚当前 WireGuard VPN 配置时，使用本模块。
 
 若 `references/verify.md` 已发现服务端或任一客户端存在密钥不匹配，本模块的推荐执行方式为“重置所有”。
+在当前 skill 中，只要用户想调整设备列表、LAN 网段、peer、公网 endpoint、tunnelIp 或路由策略，也都应先执行“重置所有”。
 
 ## 固定入口
 
