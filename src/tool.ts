@@ -75,6 +75,14 @@ function asObject(value: unknown): JsonRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
 }
 
+function getSnapshotDisplayName(snapshot: DeviceSnapshot | undefined): string | undefined {
+  if (!snapshot) {
+    return undefined;
+  }
+  const legacyDeviceName = asObject(snapshot)?.deviceName;
+  return snapshot.alias ?? (typeof legacyDeviceName === "string" ? legacyDeviceName : undefined);
+}
+
 function getClientsFromResponse(response: JsonRecord): unknown[] {
   if (Array.isArray(response.clients)) {
     return response.clients;
@@ -1754,14 +1762,14 @@ async function collectWireguardProtectedRoutePlans(params: {
       const parsed = typeof cidr === "string" ? parseIPv4Cidr(cidr) : null;
       devices.push({
         deviceId,
-        deviceName: onlineDevices.get(deviceId)?.alias ?? onlineDevices.get(deviceId)?.deviceName,
+        deviceName: getSnapshotDisplayName(onlineDevices.get(deviceId)),
         lanCidr: parsed?.normalized,
         error: parsed ? undefined : `missing_or_invalid_cidr: ${typeof cidr === "string" ? cidr : "(none)"}`,
       });
     } catch (error) {
       devices.push({
         deviceId,
-        deviceName: onlineDevices.get(deviceId)?.alias ?? onlineDevices.get(deviceId)?.deviceName,
+        deviceName: getSnapshotDisplayName(onlineDevices.get(deviceId)),
         error: error instanceof Error ? error.message : String(error),
       });
     }
