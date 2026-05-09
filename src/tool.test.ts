@@ -255,55 +255,6 @@ describe("openclaw-wrt intent tools", () => {
     }
   });
 
-  it("add wg peer uses a secure temp path and avoids shell chaining", async () => {
-    execSyncMock.mockClear();
-    execFileSyncMock.mockClear();
-
-    const bridge = {
-      listDevices() {
-        return [];
-      },
-      getDevice() {
-        return null;
-      },
-    };
-
-    const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "openclaw_add_wg_peer",
-    );
-    expect(tool).toBeTruthy();
-
-    await tool?.execute?.("tool-wg-peer", {
-      publicKey: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
-      allowedIps: ["10.10.0.2/32"],
-      endpoint: "vpn.example.com:51820",
-    });
-
-    const installCommands = execSyncMock.mock.calls
-      .map(([command]) => command)
-      .filter(
-        (command): command is string =>
-          typeof command === "string" && command.startsWith("sudo install -o root -g root -m "),
-      );
-
-    expect(installCommands).toHaveLength(1);
-    expect(
-      execSyncMock.mock.calls.some(
-        ([command]) =>
-          typeof command === "string" &&
-          command.includes("sudo install -o root -g root -m 600 /tmp/openclaw-wrt-wg-peer-"),
-      ),
-    ).toBe(true);
-    expect(execSyncMock.mock.calls.some(([command]) => typeof command === "string" && command.includes("&&"))).toBe(false);
-    expect(execSyncMock.mock.calls.some(([command]) => typeof command === "string" && command.includes("<("))).toBe(false);
-
-    expect(execFileSyncMock.mock.calls).toHaveLength(2);
-    expect(execFileSyncMock.mock.calls[0][0]).toBe("sudo");
-    expect(execFileSyncMock.mock.calls[0][1]).toEqual(["wg-quick", "strip", "wg0"]);
-    expect(execFileSyncMock.mock.calls[1][0]).toBe("sudo");
-    expect(execFileSyncMock.mock.calls[1][1]).toEqual(["wg", "syncconf", "wg0", "/dev/stdin"]);
-  });
-
   it("deploy wg server writes peer bindings into the generated server config in one pass", async () => {
     const originalExecSyncImpl = execSyncMock.getMockImplementation() ?? defaultExecSyncMockImpl;
     let writtenConfigSource = "";

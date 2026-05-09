@@ -855,51 +855,6 @@ const DeployWgServerSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const CheckLanConflictSchema = Type.Object(
-  {
-    newDeviceId: DeviceIdField,
-    existingDeviceIds: Type.Optional(
-      Type.Array(Type.String({ minLength: 1 }), {
-        description:
-          "IDs of devices already in the WireGuard mesh. When omitted, all other online devices are used automatically.",
-      }),
-    ),
-    timeoutMs: TimeoutField,
-  },
-  { additionalProperties: false },
-);
-
-const JoinWireguardLanMeshSchema = Type.Object(
-  {
-    newDeviceId: DeviceIdField,
-    tunnelIp: Type.String({
-      minLength: 1,
-      description: "WireGuard tunnel IP CIDR for the new device, e.g. 10.0.0.3/32.",
-    }),
-    peerPublicKey: Type.Optional(
-      Type.String({
-        minLength: 1,
-        description:
-          "New device WireGuard public key. Required for VPS peer AllowedIPs update when updateServerPeers is true.",
-      }),
-    ),
-    existingDeviceIds: Type.Optional(
-      Type.Array(Type.String({ minLength: 1 }), {
-        description:
-          "IDs of devices already in the mesh. When omitted, all other online devices are used automatically.",
-      }),
-    ),
-    updateServerPeers: Type.Optional(
-      Type.Boolean({
-        description:
-          "When true (default), update VPS peer AllowedIPs to include the new device tunnelIp and LAN CIDR.",
-      }),
-    ),
-    timeoutMs: TimeoutField,
-  },
-  { additionalProperties: false },
-);
-
 const CollectWireguardProtectedRoutesSchema = Type.Object(
   {
     deviceIds: Type.Array(Type.String({ minLength: 1 }), {
@@ -929,48 +884,6 @@ const VerifyWireguardConnectivitySchema = Type.Object(
       Type.Array(Type.String({ minLength: 1 }), {
         description:
           "Tunnel IPs to ping from the VPS side (e.g. [\"10.0.0.2\", \"10.0.0.3\"]). Skipped when omitted.",
-      }),
-    ),
-    timeoutMs: TimeoutField,
-  },
-  { additionalProperties: false },
-);
-
-const FullMeshDeployNodeSchema = Type.Object(
-  {
-    deviceId: DeviceIdField,
-    tunnelIp: Type.String({
-      minLength: 1,
-      description: "Tunnel IP/CIDR assigned to this router on the VPS side, e.g. 10.0.0.2/32.",
-    }),
-    lanCidr: Type.Optional(
-      Type.String({
-        minLength: 1,
-        description: "Optional override for br-lan CIDR. Auto-detected from device status if omitted.",
-      }),
-    ),
-  },
-  { additionalProperties: false },
-);
-
-const FullMeshDeploySchema = Type.Object(
-  {
-    nodes: Type.Array(FullMeshDeployNodeSchema, {
-      minItems: 1,
-      description: "List of routers to configure. Each needs a deviceId and a unique tunnelIp.",
-    }),
-    serverPublicKey: Type.String({
-      minLength: 1,
-      description: "VPS WireGuard server public key (from openclaw_deploy_wg_server output).",
-    }),
-    serverEndpoint: Type.String({
-      minLength: 1,
-      description: "VPS public IP or hostname with port, e.g. 43.143.232.185:51820.",
-    }),
-    fullTunnel: Type.Optional(
-      Type.Boolean({
-        description:
-          "When true, configures each router in full-tunnel mode (0.0.0.0/1 + 128.0.0.0/1) and automatically adds a VPS /32 direct route. Defaults to false (selective/mesh-only).",
       }),
     ),
     timeoutMs: TimeoutField,
@@ -1033,9 +946,6 @@ type ResetWireguardVpnParams = Static<typeof ResetWireguardVpnSchema>;
 type SetBrLanParams = Static<typeof SetBrLanSchema>;
 type ResetWgServerParams = Static<typeof ResetWgServerSchema>;
 type DeployWgServerPeerParams = Static<NonNullable<(typeof DeployWgServerSchema)["properties"]["peerBindings"]>>[number];
-type CheckLanConflictParams = Static<typeof CheckLanConflictSchema>;
-type JoinWireguardLanMeshParams = Static<typeof JoinWireguardLanMeshSchema>;
-
 type BpfJsonTable = "ipv4" | "ipv6" | "mac" | "sid" | "l7";
 
 const PORTAL_WEB_ROOT_CANDIDATES = [
@@ -1844,14 +1754,14 @@ async function collectWireguardProtectedRoutePlans(params: {
       const parsed = typeof cidr === "string" ? parseIPv4Cidr(cidr) : null;
       devices.push({
         deviceId,
-        deviceName: onlineDevices.get(deviceId)?.alias,
+        deviceName: onlineDevices.get(deviceId)?.alias ?? onlineDevices.get(deviceId)?.deviceName,
         lanCidr: parsed?.normalized,
         error: parsed ? undefined : `missing_or_invalid_cidr: ${typeof cidr === "string" ? cidr : "(none)"}`,
       });
     } catch (error) {
       devices.push({
         deviceId,
-        deviceName: onlineDevices.get(deviceId)?.alias,
+        deviceName: onlineDevices.get(deviceId)?.alias ?? onlineDevices.get(deviceId)?.deviceName,
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -3552,279 +3462,6 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
         });
       },
     },
-    {
-      name: "clawwrt_check_lan_conflict",
-      label: "OpenClaw WRT Check LAN Conflict",
-      description:
-        "Step A of LAN mesh onboarding: fetch the new device's br-lan CIDR and compare it against all existing mesh devices. Returns hasConflict=true with conflict details if any subnet overlaps, or hasConflict=false when safe to proceed to clawwrt_join_wireguard_lan_mesh. If conflicts exist, use clawwrt_set_br_lan to change the new device IP, then re-run this check.",
-      parameters: CheckLanConflictSchema,
-      execute: async (_toolCallId, rawParams) => {
-        logToolInvocation(undefined, "clawwrt_check_lan_conflict", rawParams);
-        const args = rawParams as CheckLanConflictParams;
-        const newDeviceId = args.newDeviceId.trim();
-
-        const existingIds: string[] =
-          Array.isArray(args.existingDeviceIds) && args.existingDeviceIds.length > 0
-            ? args.existingDeviceIds.map((id) => id.trim()).filter((id) => id !== newDeviceId)
-            : bridge
-                .listDevices()
-                .map((d) => d.deviceId.trim())
-                .filter((id) => id !== newDeviceId);
-
-        // Fetch new device br-lan
-        let newDeviceCidr: string;
-        try {
-          const result = await callDeviceOp({
-            bridge,
-            deviceId: newDeviceId,
-            op: "get_br_lan",
-            timeoutMs: args.timeoutMs,
-          });
-          const cidr = (result as JsonRecord)?.cidr;
-          if (typeof cidr !== "string" || !cidr) throw new Error("no cidr field in response");
-          newDeviceCidr = cidr;
-        } catch (error) {
-          throw new Error(
-            `Failed to get br-lan for new device ${newDeviceId}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-
-        const parsedNew = parseIPv4Cidr(newDeviceCidr);
-        if (!parsedNew) {
-          throw new Error(`Invalid CIDR from new device ${newDeviceId}: ${newDeviceCidr}`);
-        }
-
-        // Fetch existing devices' br-lan CIDRs
-        const existingDevices: Array<{ deviceId: string; cidr: string; error?: string }> = [];
-        for (const deviceId of existingIds) {
-          try {
-            const result = await callDeviceOp({
-              bridge,
-              deviceId,
-              op: "get_br_lan",
-              timeoutMs: args.timeoutMs,
-            });
-            const cidr = (result as JsonRecord)?.cidr;
-            existingDevices.push({ deviceId, cidr: typeof cidr === "string" ? cidr : "(unknown)" });
-          } catch (error) {
-            existingDevices.push({
-              deviceId,
-              cidr: "(failed)",
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-
-        // Detect conflicts
-        const conflicts: Array<{ deviceId: string; cidr: string }> = [];
-        for (const existing of existingDevices) {
-          const parsedExisting = parseIPv4Cidr(existing.cidr);
-          if (!parsedExisting) continue;
-          if (cidrOverlaps(parsedNew, parsedExisting)) {
-            conflicts.push({ deviceId: existing.deviceId, cidr: existing.cidr });
-          }
-        }
-
-        const hasConflict = conflicts.length > 0;
-        const summary = hasConflict
-          ? `LAN conflict detected: ${newDeviceId} (${newDeviceCidr}) overlaps with ${conflicts.map((c) => `${c.deviceId}(${c.cidr})`).join(", ")}. Use clawwrt_set_br_lan to change the new device IP, then re-run this check.`
-          : `No LAN conflict: ${newDeviceId} (${newDeviceCidr}) is unique. Safe to proceed with clawwrt_join_wireguard_lan_mesh.`;
-
-        return buildToolResult(summary, { newDeviceId, newDeviceCidr, existingDevices, conflicts, hasConflict });
-      },
-    },
-    {
-      name: "clawwrt_join_wireguard_lan_mesh",
-      label: "OpenClaw WRT Join WireGuard LAN Mesh",
-      description:
-        "Step B of LAN mesh onboarding: incrementally connect a new device into the existing WireGuard LAN mesh. Requires clawwrt_check_lan_conflict to have returned hasConflict=false first. Updates VPS peer AllowedIPs for the new device, pushes all existing LAN CIDRs as routes to the new device, and appends the new device LAN CIDR to every existing device's routes.",
-      parameters: JoinWireguardLanMeshSchema,
-      execute: async (_toolCallId, rawParams) => {
-        logToolInvocation(undefined, "clawwrt_join_wireguard_lan_mesh", rawParams);
-        const args = rawParams as JoinWireguardLanMeshParams;
-        const newDeviceId = args.newDeviceId.trim();
-        const updateServerPeers = args.updateServerPeers !== false;
-
-        const existingIds: string[] =
-          Array.isArray(args.existingDeviceIds) && args.existingDeviceIds.length > 0
-            ? args.existingDeviceIds.map((id) => id.trim()).filter((id) => id !== newDeviceId)
-            : bridge
-                .listDevices()
-                .map((d) => d.deviceId.trim())
-                .filter((id) => id !== newDeviceId);
-
-        // Fetch new device br-lan CIDR
-        let newLanCidr: string;
-        try {
-          const result = await callDeviceOp({
-            bridge,
-            deviceId: newDeviceId,
-            op: "get_br_lan",
-            timeoutMs: args.timeoutMs,
-          });
-          const cidr = (result as JsonRecord)?.cidr;
-          if (typeof cidr !== "string" || !cidr) throw new Error("no cidr field in response");
-          newLanCidr = cidr;
-        } catch (error) {
-          throw new Error(
-            `Failed to get br-lan for new device ${newDeviceId}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-
-        // Fetch all existing devices' LAN CIDRs
-        const existingLanMap = new Map<string, string>(); // deviceId → cidr
-        for (const deviceId of existingIds) {
-          try {
-            const result = await callDeviceOp({
-              bridge,
-              deviceId,
-              op: "get_br_lan",
-              timeoutMs: args.timeoutMs,
-            });
-            const cidr = (result as JsonRecord)?.cidr;
-            if (typeof cidr === "string" && cidr) {
-              existingLanMap.set(deviceId, cidr);
-            }
-          } catch {
-            // skip unreachable devices
-          }
-        }
-
-        type RouteUpdateEntry = { deviceId: string; status: "success" | "error"; routes: string[]; error?: string };
-        const results: {
-          serverPeerUpdate: { status: "updated" | "skipped" | "error"; reason?: string };
-          newDeviceRoutes: { status: "success" | "error"; routes: string[]; error?: string };
-          existingDeviceRoutes: RouteUpdateEntry[];
-        } = {
-          serverPeerUpdate: { status: "skipped" },
-          newDeviceRoutes: { status: "success", routes: [] },
-          existingDeviceRoutes: [],
-        };
-
-        // Step B-1: Update VPS peer AllowedIPs for new device
-        if (updateServerPeers) {
-          if (!args.peerPublicKey) {
-            results.serverPeerUpdate = { status: "skipped", reason: "peerPublicKey not provided" };
-          } else {
-            const tunnelNorm = parseIPv4Cidr(args.tunnelIp)?.normalized ?? args.tunnelIp;
-            const lanNorm = parseIPv4Cidr(newLanCidr)?.normalized ?? newLanCidr;
-            try {
-              await upsertWireguardPeerOnServer({ publicKey: args.peerPublicKey.trim(), allowedIps: [tunnelNorm, lanNorm] });
-              results.serverPeerUpdate = { status: "updated" };
-            } catch (error) {
-              results.serverPeerUpdate = {
-                status: "error",
-                reason: error instanceof Error ? error.message : String(error),
-              };
-            }
-          }
-        } else {
-          results.serverPeerUpdate = { status: "skipped", reason: "updateServerPeers=false" };
-        }
-
-        // Step B-2: Push all existing LAN CIDRs to new device, preserving its current routes
-        const existingCidrs = [...existingLanMap.values()];
-        let newDeviceCurrentRoutes: string[] = [];
-        try {
-          const existingOnNew = await callDeviceOp({
-            bridge,
-            deviceId: newDeviceId,
-            op: "get_vpn_routes",
-            timeoutMs: args.timeoutMs,
-          });
-          const existingRoutes = (existingOnNew as JsonRecord)?.routes;
-          if (Array.isArray(existingRoutes)) {
-            const existingCidrSet = new Set(existingCidrs);
-            for (const r of existingRoutes as JsonRecord[]) {
-              const dest = typeof r.dest === "string" ? r.dest : typeof r === "string" ? r : "";
-              if (dest && !existingCidrSet.has(dest)) {
-                newDeviceCurrentRoutes.push(dest);
-              }
-            }
-          }
-        } catch {
-          // no prior routes to preserve
-        }
-        const newDeviceRoutes = [...newDeviceCurrentRoutes, ...existingCidrs];
-        try {
-          await callDeviceOp({
-            bridge,
-            deviceId: newDeviceId,
-            op: "set_vpn_routes",
-            payload: { data: { mode: "selective", routes: newDeviceRoutes } },
-            timeoutMs: args.timeoutMs,
-          });
-          results.newDeviceRoutes = { status: "success", routes: newDeviceRoutes };
-        } catch (error) {
-          results.newDeviceRoutes = {
-            status: "error",
-            routes: newDeviceRoutes,
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
-
-        // Step B-3: Append new device LAN CIDR to each existing device's routes
-        const newLanNorm = parseIPv4Cidr(newLanCidr)?.normalized ?? newLanCidr;
-        for (const [deviceId] of existingLanMap) {
-          let currentRoutes: string[] = [];
-          let getRoutesFailed = false;
-          try {
-            const existing = await callDeviceOp({
-              bridge,
-              deviceId,
-              op: "get_vpn_routes",
-              timeoutMs: args.timeoutMs,
-            });
-            const routes = (existing as JsonRecord)?.routes;
-            if (Array.isArray(routes)) {
-              for (const r of routes as JsonRecord[]) {
-                const dest = typeof r.dest === "string" ? r.dest : typeof r === "string" ? r : "";
-                if (dest && dest !== newLanNorm) currentRoutes.push(dest);
-              }
-            }
-          } catch (err) {
-            getRoutesFailed = true;
-            results.existingDeviceRoutes.push({
-              deviceId,
-              status: "error",
-              routes: [],
-              error: `get_vpn_routes failed, skipped set to avoid wiping existing routes: ${err instanceof Error ? err.message : String(err)}`,
-            });
-          }
-
-          if (getRoutesFailed) continue;
-
-          const updatedRoutes = [...currentRoutes, newLanNorm];
-          try {
-            await callDeviceOp({
-              bridge,
-              deviceId,
-              op: "set_vpn_routes",
-              payload: { data: { mode: "selective", routes: updatedRoutes } },
-              timeoutMs: args.timeoutMs,
-            });
-            results.existingDeviceRoutes.push({ deviceId, status: "success", routes: updatedRoutes });
-          } catch (error) {
-            results.existingDeviceRoutes.push({
-              deviceId,
-              status: "error",
-              routes: updatedRoutes,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-
-        const okCount = results.existingDeviceRoutes.filter((r) => r.status === "success").length;
-        const summary = [
-          `${newDeviceId} joined LAN mesh: newLanCidr=${newLanCidr}`,
-          `serverPeer=${results.serverPeerUpdate.status}`,
-          `newDeviceRoutes=${results.newDeviceRoutes.status}(${existingCidrs.length} cidrs)`,
-          `existingDeviceUpdates=${results.existingDeviceRoutes.length} (${okCount} ok)`,
-        ].join(", ");
-
-        return buildToolResult(summary, { newDeviceId, newLanCidr, ...results });
-      },
-    },
     createSimpleOperationTool({
       bridge,
       name: "clawwrt_get_firmware_info",
@@ -3852,7 +3489,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
       name: "clawwrt_get_br_lan",
       label: "OpenClaw WRT Get BR-LAN",
       description:
-        "Get the router's br-lan (LAN) IP address, netmask, and computed CIDR (e.g. 192.168.1.0/24). Use this to check LAN subnet before WireGuard mesh setup or detect subnet conflicts.",
+        "Get the router's br-lan (LAN) IP address, netmask, and computed CIDR (e.g. 192.168.1.0/24). Use this to inspect LAN subnet assignments before WireGuard planning or to detect subnet conflicts.",
       op: "get_br_lan",
       summarize: (_response, rawParams) => {
         const args = rawParams as DeviceOnlyParams;
