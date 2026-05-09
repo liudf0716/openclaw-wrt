@@ -3015,11 +3015,21 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
             timeout: 5000,
           });
           snatMissing = !iptablesOutput.includes("-j MASQUERADE");
-          const sysctlOutput = execSync("sysctl -n net.ipv4.ip_forward", {
-            encoding: "utf-8",
-            timeout: 2000,
-          });
-          ipForwardEnabled = sysctlOutput.trim() === "1";
+          try {
+            const sysctlOutput = execSync("sysctl -n net.ipv4.ip_forward", {
+              encoding: "utf-8",
+              timeout: 2000,
+            });
+            ipForwardEnabled = sysctlOutput.trim() === "1";
+          } catch (e) {
+            try {
+              const fsPromises = await import("node:fs/promises");
+              const proc = await fsPromises.readFile("/proc/sys/net/ipv4/ip_forward", "utf8");
+              ipForwardEnabled = proc.trim() === "1";
+            } catch (e2) {
+              ipForwardEnabled = false;
+            }
+          }
 
           serverStatus =
             `--- WireGuard ---\n${wgOutput}\n` +
@@ -3104,12 +3114,22 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
             encoding: "utf-8",
             timeout: 5000,
           });
-          const fwdOut = execSync("sysctl -n net.ipv4.ip_forward", {
-            encoding: "utf-8",
-            timeout: 2000,
-          });
           snatOk = natOut.includes("-j MASQUERADE");
-          ipForwardOk = fwdOut.trim() === "1";
+          try {
+            const fwdOut = execSync("sysctl -n net.ipv4.ip_forward", {
+              encoding: "utf-8",
+              timeout: 2000,
+            });
+            ipForwardOk = fwdOut.trim() === "1";
+          } catch (e) {
+            try {
+              const fsPromises = await import("node:fs/promises");
+              const proc = await fsPromises.readFile("/proc/sys/net/ipv4/ip_forward", "utf8");
+              ipForwardOk = proc.trim() === "1";
+            } catch (e2) {
+              ipForwardOk = false;
+            }
+          }
           serverSummary = wgOut.trim();
 
           try {
