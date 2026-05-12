@@ -697,10 +697,16 @@ const SetXfrpcCommonSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const XfrpcServiceNameField = Type.String({
+  minLength: 1,
+  pattern: "^[A-Za-z0-9_]+$",
+  description: "Service name. Use letters, numbers, and underscore only.",
+});
+
 const AddXfrpcTcpServiceSchema = Type.Object(
   {
     deviceId: DeviceIdField,
-    name: Type.String({ minLength: 1, description: "Unique service name string." }),
+    name: XfrpcServiceNameField,
     enabled: Type.Optional(Type.String({ description: "'0' or '1'." })),
     local_ip: Type.Optional(Type.String({ description: "Local IP to forward." })),
     local_port: Type.Optional(Type.String({ description: "Local port to forward." })),
@@ -715,7 +721,7 @@ const AddXfrpcTcpServiceSchema = Type.Object(
 const GetXfrpcTcpServiceSchema = Type.Object(
   {
     deviceId: DeviceIdField,
-    name: Type.String({ minLength: 1, description: "Service name to fetch." }),
+    name: XfrpcServiceNameField,
     timeoutMs: TimeoutField,
   },
   { additionalProperties: false },
@@ -724,7 +730,7 @@ const GetXfrpcTcpServiceSchema = Type.Object(
 const DelXfrpcTcpServiceSchema = Type.Object(
   {
     deviceId: DeviceIdField,
-    name: Type.Optional(Type.String({ minLength: 1, description: "Service name to delete. If omitted, all TCP services will be deleted." })),
+    name: Type.Optional(XfrpcServiceNameField),
     timeoutMs: TimeoutField,
   },
   { additionalProperties: false },
@@ -733,7 +739,7 @@ const DelXfrpcTcpServiceSchema = Type.Object(
 const DisableXfrpcTcpServiceSchema = Type.Object(
   {
     deviceId: DeviceIdField,
-    name: Type.String({ minLength: 1, description: "Service name to disable." }),
+    name: XfrpcServiceNameField,
     timeoutMs: TimeoutField,
   },
   { additionalProperties: false },
