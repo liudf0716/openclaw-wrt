@@ -1665,54 +1665,6 @@ describe("openclaw-wrt intent tools", () => {
     });
   });
 
-  it("set vpn routes full_tunnel sends exclude_ips", async () => {
-    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
-    const bridge = {
-      listDevices() {
-        return [];
-      },
-      getDevice() {
-        return null;
-      },
-      async callDevice(params: {
-        deviceId: string;
-        op: string;
-        payload?: Record<string, unknown>;
-      }) {
-        calls.push(params);
-        return {
-          type: "set_vpn_routes_response",
-          interface: "wg0",
-          mode: "full_tunnel",
-          added: 3,
-          failed: 0,
-        };
-      },
-    };
-
-    const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "clawwrt_set_vpn_routes",
-    );
-
-    await tool?.execute?.("tool-vpnr-ft", {
-      deviceId: "dev-vpn",
-      mode: "full_tunnel",
-      excludeIps: ["203.0.113.1"],
-    });
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
-      deviceId: "dev-vpn",
-      op: "set_vpn_routes",
-      payload: {
-        data: {
-          mode: "full_tunnel",
-          exclude_ips: ["203.0.113.1"],
-        },
-      },
-    });
-  });
-
   it("collect wireguard protected routes writes a JSON file with shared wg0 subnet routes", async () => {
     const routePlanFile = path.join(os.tmpdir(), "openclaw-wrt-wireguard-protected-routes.json");
     await rm(routePlanFile, { force: true });

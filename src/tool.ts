@@ -773,9 +773,9 @@ const SetBrLanSchema = Type.Object(
 const SetVpnRoutesSchema = Type.Object(
   {
     deviceId: DeviceIdField,
-    mode: stringEnum(["selective", "full_tunnel"] as const, {
+    mode: stringEnum(["selective"] as const, {
       description:
-        "Routing mode: selective (individual CIDR routes) or full_tunnel (all traffic through VPN).",
+        "Routing mode: selective (individual CIDR routes managed through explicit static routes).",
     }),
     routePlanFile: Type.Optional(
       Type.String({
@@ -789,15 +789,6 @@ const SetVpnRoutesSchema = Type.Object(
         Type.String({
           minLength: 1,
           description: "CIDR destination to route through VPN, e.g. 1.2.3.0/24.",
-        }),
-      ),
-    ),
-    excludeIps: Type.Optional(
-      Type.Array(
-        Type.String({
-          minLength: 1,
-          description:
-            "IPs to exclude from full tunnel routing (e.g. VPS public IP to prevent routing loop).",
         }),
       ),
     ),
@@ -3310,7 +3301,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
       name: "clawwrt_set_vpn_routes",
       label: "OpenClaw WRT Set VPN Routes",
       description:
-        "Set VPN routing rules to steer traffic through the WireGuard tunnel. Selective mode preserves any existing wg0 static routes and merges them with the requested CIDRs; full_tunnel mode routes all traffic (0.0.0.0/1 + 128.0.0.0/1) with exclude_ips to prevent routing loop for VPS IP.",
+        "Set VPN routing rules to steer traffic through the WireGuard tunnel. Selective mode preserves any existing wg0 static routes and merges them with the requested CIDRs.",
       parameters: SetVpnRoutesSchema,
       execute: async (_toolCallId, rawParams) => {
         logToolInvocation(undefined, "clawwrt_set_vpn_routes", rawParams);
@@ -3414,26 +3405,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
           });
         }
 
-        const payload: JsonRecord = { mode: args.mode };
-        if (Array.isArray(args.excludeIps)) {
-          payload.exclude_ips = args.excludeIps;
-        }
-
-        logToolInvocation(undefined, "clawwrt_set_vpn_routes", {
-          deviceId,
-          mappedPayload: payload,
-        });
-
-        const response = await callDeviceOp({
-          bridge,
-          deviceId,
-          op: "set_vpn_routes",
-          payload: { data: payload },
-          timeoutMs: args.timeoutMs,
-        });
-        return buildToolResult(`Set VPN routes (${args.mode} mode) on ${deviceId}.`, {
-          response,
-        });
+        throw new Error(`unsupported route mode for ${deviceId}: ${String(args.mode)}`);
       },
     },
     {
@@ -4406,7 +4378,7 @@ const PROMPT_EXAMPLES: Record<string, { label: string; prompts: string[] }> = {
       '**快速部署**: "帮我把这台龙虾WiFi 和 VPS 连起来。先在 VPS 上初始化 WG 服务端，然后生成路由器的密钥并完成对接，最后测试互 ping。"',
       '**添加节点**: "再帮我添加一台 102 房间的路由器到现有的 VPN 组网中，分配 IP 10.0.0.3。"',
       '**域名分流**: "配置好 VPN 后，让 google.com 的流量走隧道，其他的走本地。"',
-      '**复杂双向部署**: "请把这次 WG VPN 方案拆成两部分：\\n1. OpenClaw VPS/云主机侧的 WireGuard 服务器、中转、peer、防火墙（必须开启 UDP 端口）、NAT 和转发。\\n2. 龙虾WiFi 路由器侧的客户端配置、认证和路由设置，统一使用相关的 clawwrt_* 工具。\\n\\n要求：\\n- 首先检查 VPS 侧是否安装服务端，未安装则先安装并开启对应的防火墙端口。\\n- 然后执行路由器侧的 key 生成和配置下发。\\n- 部署完成后，通过两端互 ping wg0 接口 IP 来验证隧道是否连通。\\n- 如果是多个龙虾WiFi 组网，请确保服务器端的 AllowedIPs 包含各子网，并提醒用户下发准确的静态路由以实现跨节点互通。\\n- 默认使用 selective 模式；full_tunnel 必须带 excludeIps。\\n\\n请输出：\\n- VPS 侧和路由器侧的详细执行步骤\\n- 互 ping 验证结果预期\\n- 跨节点互通的路由规则说明\\n- 风险点和回滚方式"',
+      '**复杂双向部署**: "请把这次 WG VPN 方案拆成两部分：\\n1. OpenClaw VPS/云主机侧的 WireGuard 服务器、中转、peer、防火墙（必须开启 UDP 端口）、NAT 和转发。\\n2. 龙虾WiFi 路由器侧的客户端配置、认证和路由设置，统一使用相关的 clawwrt_* 工具。\\n\\n要求：\\n- 首先检查 VPS 侧是否安装服务端，未安装则先安装并开启对应的防火墙端口。\\n- 然后执行路由器侧的 key 生成和配置下发。\\n- 部署完成后，通过两端互 ping wg0 接口 IP 来验证隧道是否连通。\\n- 如果是多个龙虾WiFi 组网，请确保服务器端的 AllowedIPs 包含各子网，并提醒用户下发准确的静态路由以实现跨节点互通。\\n- 路由下发统一使用 selective 模式。\\n\\n请输出：\\n- VPS 侧和路由器侧的详细执行步骤\\n- 互 ping 验证结果预期\\n- 跨节点互通的路由规则说明\\n- 风险点和回滚方式"',
     ],
   },
   portal: {
