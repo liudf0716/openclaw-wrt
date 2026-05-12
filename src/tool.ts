@@ -124,8 +124,8 @@ function listServerInterfacesWithIp(execSync: ExecSyncRunner): string {
   try {
     const output = String(
       execSync("ip -o -4 addr show scope global 2>/dev/null", {
-      encoding: "utf-8",
-      timeout: 5000,
+        encoding: "utf-8",
+        timeout: 5000,
       }),
     ).trim();
     if (!output) {
@@ -712,6 +712,33 @@ const AddXfrpcTcpServiceSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const GetXfrpcTcpServiceSchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    name: Type.String({ minLength: 1, description: "Service name to fetch." }),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
+const DelXfrpcTcpServiceSchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    name: Type.Optional(Type.String({ minLength: 1, description: "Service name to delete. If omitted, all TCP services will be deleted." })),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
+const DisableXfrpcTcpServiceSchema = Type.Object(
+  {
+    deviceId: DeviceIdField,
+    name: Type.String({ minLength: 1, description: "Service name to disable." }),
+    timeoutMs: TimeoutField,
+  },
+  { additionalProperties: false },
+);
+
 const DeployFrpsSchema = Type.Object(
   {
     port: Type.Integer({ minimum: 1, maximum: 65535, description: "FRPS listen port. Default: 7070. Use this default unless the user explicitly specifies a different port." }),
@@ -944,6 +971,9 @@ type SetVpnRoutesParams = Static<typeof SetVpnRoutesSchema>;
 type ResetWireguardVpnParams = Static<typeof ResetWireguardVpnSchema>;
 type SetBrLanParams = Static<typeof SetBrLanSchema>;
 type ResetWgServerParams = Static<typeof ResetWgServerSchema>;
+type GetXfrpcTcpServiceParams = Static<typeof GetXfrpcTcpServiceSchema>;
+type DelXfrpcTcpServiceParams = Static<typeof DelXfrpcTcpServiceSchema>;
+type DisableXfrpcTcpServiceParams = Static<typeof DisableXfrpcTcpServiceSchema>;
 type DeployWgServerPeerParams = Static<NonNullable<(typeof DeployWgServerSchema)["properties"]["peerBindings"]>>[number];
 type BpfJsonTable = "ipv4" | "ipv6" | "mac" | "sid" | "l7";
 
@@ -1803,32 +1833,32 @@ async function collectWireguardProtectedRoutePlans(params: {
     conflicts.length > 0
       ? []
       : validDevices.map((entry) => {
-          const routes: string[] = [];
-          const seenRoutes = new Set<string>();
-          const pushRoute = (route: string) => {
-            const normalized = route.trim();
-            if (!normalized || seenRoutes.has(normalized)) {
-              return;
-            }
-            seenRoutes.add(normalized);
-            routes.push(normalized);
-          };
-
-          pushRoute(serverTunnel.normalized);
-          for (const candidate of validDevices) {
-            if (candidate.deviceId === entry.deviceId) {
-              continue;
-            }
-            pushRoute(candidate.lanCidr);
+        const routes: string[] = [];
+        const seenRoutes = new Set<string>();
+        const pushRoute = (route: string) => {
+          const normalized = route.trim();
+          if (!normalized || seenRoutes.has(normalized)) {
+            return;
           }
+          seenRoutes.add(normalized);
+          routes.push(normalized);
+        };
 
-          return {
-            deviceId: entry.deviceId,
-            deviceName: entry.deviceName,
-            lanCidr: entry.lanCidr,
-            routes,
-          };
-        });
+        pushRoute(serverTunnel.normalized);
+        for (const candidate of validDevices) {
+          if (candidate.deviceId === entry.deviceId) {
+            continue;
+          }
+          pushRoute(candidate.lanCidr);
+        }
+
+        return {
+          deviceId: entry.deviceId,
+          deviceName: entry.deviceName,
+          lanCidr: entry.lanCidr,
+          routes,
+        };
+      });
 
   const failedDevices = devices.filter((entry) => entry.error);
 
@@ -2198,11 +2228,11 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
         const client = explicitClientIp
           ? null
           : await lookupClientByMac({
-              bridge,
-              deviceId,
-              clientMac,
-              timeoutMs: args.timeoutMs,
-            });
+            bridge,
+            deviceId,
+            clientMac,
+            timeoutMs: args.timeoutMs,
+          });
         const resolvedClientMac =
           typeof client?.mac === "string" && client.mac.trim() ? client.mac.trim() : clientMac;
         const clientIp =
@@ -2963,11 +2993,11 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
         let derivedServerPublicKey: string | undefined;
         let serverKeyCheck:
           | {
-              status: "ok" | "mismatch" | "error" | "skipped";
-              configuredPublicKey?: string;
-              derivedPublicKey?: string;
-              error?: string;
-            }
+            status: "ok" | "mismatch" | "error" | "skipped";
+            configuredPublicKey?: string;
+            derivedPublicKey?: string;
+            error?: string;
+          }
           | undefined;
         let serverPeerConfig: Array<{ publicKey?: string; allowedIps: string[] }> = [];
         try {
@@ -3015,15 +3045,15 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
             serverKeyCheck =
               serverConfiguredPublicKey && derivedServerPublicKey === serverConfiguredPublicKey
                 ? {
-                    status: "ok",
-                    configuredPublicKey: serverConfiguredPublicKey,
-                    derivedPublicKey: derivedServerPublicKey,
-                  }
+                  status: "ok",
+                  configuredPublicKey: serverConfiguredPublicKey,
+                  derivedPublicKey: derivedServerPublicKey,
+                }
                 : {
-                    status: "mismatch",
-                    configuredPublicKey: serverConfiguredPublicKey,
-                    derivedPublicKey: derivedServerPublicKey,
-                  };
+                  status: "mismatch",
+                  configuredPublicKey: serverConfiguredPublicKey,
+                  derivedPublicKey: derivedServerPublicKey,
+                };
           } catch (error) {
             serverKeyCheck = {
               status: "error",
@@ -3144,20 +3174,20 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
                 runtimeResult.keyCheck =
                   mismatchReasons.length === 0
                     ? {
-                        status: "ok",
-                        derivedClientPublicKey,
-                        configuredServerPeerPublicKey,
-                        configuredRouterPeerPublicKey,
-                        actualServerPublicKey: serverConfiguredPublicKey,
-                      }
+                      status: "ok",
+                      derivedClientPublicKey,
+                      configuredServerPeerPublicKey,
+                      configuredRouterPeerPublicKey,
+                      actualServerPublicKey: serverConfiguredPublicKey,
+                    }
                     : {
-                        status: "mismatch",
-                        reason: mismatchReasons.join("; "),
-                        derivedClientPublicKey,
-                        configuredServerPeerPublicKey,
-                        configuredRouterPeerPublicKey,
-                        actualServerPublicKey: serverConfiguredPublicKey,
-                      };
+                      status: "mismatch",
+                      reason: mismatchReasons.join("; "),
+                      derivedClientPublicKey,
+                      configuredServerPeerPublicKey,
+                      configuredRouterPeerPublicKey,
+                      actualServerPublicKey: serverConfiguredPublicKey,
+                    };
               }
             } catch (error) {
               runtimeResult.keyCheck = {
@@ -3617,13 +3647,95 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
     }),
     createSimpleOperationTool({
       bridge,
-      name: "clawwrt_get_xfrpc_config",
-      label: "OpenClaw WRT XFRPC Config",
-      description: "Get current XFRPC (intranet penetration) configuration from the router.",
-      op: "get_xfrpc_config",
+      name: "clawwrt_get_xfrpc_common_config",
+      label: "OpenClaw WRT XFRPC Common Config",
+      description: "Get XFRPC common (global) configuration from the router.",
+      op: "get_xfrpc_common_config",
       summarize: (_response, rawParams) => {
         const args = rawParams as DeviceOnlyParams;
-        return `Fetched XFRPC config for ${args.deviceId}.`;
+        return `Fetched XFRPC common config for ${args.deviceId}.`;
+      },
+    }),
+    createSimpleOperationTool({
+      bridge,
+      name: "clawwrt_get_xfrpc_common",
+      label: "OpenClaw WRT XFRPC Common",
+      description: "Get XFRPC common (global) configuration from the router.",
+      op: "get_xfrpc_common",
+      summarize: (_response, rawParams) => {
+        const args = rawParams as DeviceOnlyParams;
+        return `Fetched XFRPC common config for ${args.deviceId}.`;
+      },
+    }),
+    createSimpleOperationTool({
+      bridge,
+      name: "clawwrt_get_xfrpc_tcp_service",
+      label: "OpenClaw WRT XFRPC TCP Service",
+      description: "Get configuration for a specific XFRPC TCP service by name.",
+      op: "get_xfrpc_tcp_service",
+      parameters: GetXfrpcTcpServiceSchema,
+      buildPayload: (rawParams) => {
+        const args = rawParams as GetXfrpcTcpServiceParams;
+        return {
+          deviceId: args.deviceId.trim(),
+          payload: { name: args.name },
+          timeoutMs: args.timeoutMs,
+        };
+      },
+      summarize: (_response, rawParams) => {
+        const args = rawParams as GetXfrpcTcpServiceParams;
+        return `Fetched XFRPC TCP service '${args.name}' for ${args.deviceId}.`;
+      },
+    }),
+    createSimpleOperationTool({
+      bridge,
+      name: "clawwrt_del_xfrpc_tcp_service",
+      label: "OpenClaw WRT Delete XFRPC TCP Service",
+      description: "Delete a specific XFRPC TCP service by name, or all TCP services if no name is provided.",
+      op: "del_xfrpc_tcp_service",
+      parameters: DelXfrpcTcpServiceSchema,
+      buildPayload: (rawParams) => {
+        const args = rawParams as DelXfrpcTcpServiceParams;
+        return {
+          deviceId: args.deviceId.trim(),
+          payload: { name: args.name || "" },
+          timeoutMs: args.timeoutMs,
+        };
+      },
+      summarize: (_response, rawParams) => {
+        const args = rawParams as DelXfrpcTcpServiceParams;
+        return args.name ? `Deleted XFRPC TCP service '${args.name}' on ${args.deviceId}.` : `Deleted all XFRPC TCP services on ${args.deviceId}.`;
+      },
+    }),
+    createSimpleOperationTool({
+      bridge,
+      name: "clawwrt_disable_xfrpc_tcp_service",
+      label: "OpenClaw WRT Disable XFRPC TCP Service",
+      description: "Disable a specific XFRPC TCP service by name (sets enabled=0).",
+      op: "disable_xfrpc_tcp_service",
+      parameters: DisableXfrpcTcpServiceSchema,
+      buildPayload: (rawParams) => {
+        const args = rawParams as DisableXfrpcTcpServiceParams;
+        return {
+          deviceId: args.deviceId.trim(),
+          payload: { name: args.name },
+          timeoutMs: args.timeoutMs,
+        };
+      },
+      summarize: (_response, rawParams) => {
+        const args = rawParams as DisableXfrpcTcpServiceParams;
+        return `Disabled XFRPC TCP service '${args.name}' on ${args.deviceId}.`;
+      },
+    }),
+    createSimpleOperationTool({
+      bridge,
+      name: "clawwrt_disable_xfrpc_service",
+      label: "OpenClaw WRT Disable XFRPC Service",
+      description: "Disable the global XFRPC service on the router (sets enabled=0 in common).",
+      op: "disable_xfrpc_service",
+      summarize: (_response, rawParams) => {
+        const args = rawParams as DeviceOnlyParams;
+        return `Disabled global XFRPC service on ${args.deviceId}.`;
       },
     }),
     createSimpleOperationTool({
@@ -3868,7 +3980,7 @@ WantedBy=multi-user.target
         try {
           configContent = execSync(`sudo cat ${configPath}`, { encoding: "utf-8" });
           configExists = true;
-        } catch {}
+        } catch { }
         const redactedConfigContent = redactFrpsConfigContent(configContent);
 
         let serviceStatus = "Unknown";
@@ -3876,14 +3988,14 @@ WantedBy=multi-user.target
           serviceStatus = execSync("systemctl is-active nwct-server || true", {
             encoding: "utf-8",
           }).trim();
-        } catch {}
+        } catch { }
 
         let portsInfo = "";
         try {
           portsInfo = execSync("sudo ss -tulpn | grep nwct-server || true", {
             encoding: "utf-8",
           }).trim();
-        } catch {}
+        } catch { }
 
         const details = `Service State: ${serviceStatus}\nConfig: ${configExists ? "Found" : "Not Found"}\nListening Ports:\n${portsInfo || "None"}\n\nConfig Content:\n${redactedConfigContent}`;
 
@@ -3904,6 +4016,15 @@ WantedBy=multi-user.target
       execute: async () => {
         logToolInvocation(undefined, "openclaw_reset_frps");
         const { execSync } = await import("node:child_process");
+
+        try {
+          execSync("test -x /usr/bin/nwct-server", { encoding: "utf-8" });
+        } catch {
+          return buildToolResult("nwct-server is not installed. Reset skipped.", {
+            status: "skipped",
+          });
+        }
+
         let output = "";
         try {
           execSync("sudo systemctl stop nwct-server || true", { encoding: "utf-8" });
@@ -4111,9 +4232,9 @@ WantedBy=multi-user.target
               : "";
             return buildToolResult(
               `WireGuard deployment failed: unable to determine VPS WAN interface automatically.\n` +
-                recommendationLine +
-                `Detected VPS interfaces and IPv4:\n${interfaces}\n` +
-                `Please ask user to choose the outbound interface, then rerun with egressInterface set (for example: \"eth0\").`,
+              recommendationLine +
+              `Detected VPS interfaces and IPv4:\n${interfaces}\n` +
+              `Please ask user to choose the outbound interface, then rerun with egressInterface set (for example: \"eth0\").`,
               {
                 status: "error",
                 output,
@@ -4184,7 +4305,7 @@ WantedBy=multi-user.target
           `;
           try {
             execSync(fwCmd, { encoding: "utf-8" });
-          } catch {}
+          } catch { }
 
           // 8. Start service
           execSync("sudo systemctl enable wg-quick@wg0", { encoding: "utf-8" });
@@ -4370,6 +4491,7 @@ const PROMPT_EXAMPLES: Record<string, { label: string; prompts: string[] }> = {
     prompts: [
       '**自动部署**: "我的 VPS 还没装内网穿透服务端，请帮我下载最新版并以 nwct-server 名义安装到 /usr/bin/，配置好 systemd 自启动。然后把 101 房间路由器的 SSH 映射到 6022 端口，并确认端口是否已经在 VPS 上监听了。"',
       '**状态自检**: "检查一下现在的内网穿透服务（nwct-server）是否正常？包括服务端进程、客户端连接，以及公网端口是否已经开启监听。"',
+      '**重置当前内网穿透服务**: "请帮我重置当前内网穿透服务，包括服务端、客户端、映射和认证密钥。"',
     ],
   },
   vpn: {
