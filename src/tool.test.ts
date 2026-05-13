@@ -77,6 +77,53 @@ describe("openclaw-wrt intent tools", () => {
     expect(getStatusTool?.description).toContain("router details");
   });
 
+  it("claw wifi hello uses getDevice snapshots for online router info", async () => {
+    const getDevice = vi.fn((deviceId: string) => {
+      if (deviceId === "dev-1") {
+        return {
+          deviceId: "dev-1",
+          alias: "WiFi101",
+          connectedAtMs: Date.now() - 3_600_000,
+          lastSeenAtMs: Date.now() - 12_000,
+          remoteAddress: "198.51.100.10",
+          authMode: 2,
+        };
+      }
+      return {
+        deviceId: "dev-2",
+        alias: "WiFi102",
+        connectedAtMs: Date.now() - 7_200_000,
+        lastSeenAtMs: Date.now() - 8_000,
+        remoteAddress: "198.51.100.11",
+        authMode: 1,
+      };
+    });
+
+    const bridge = {
+      listDevices() {
+        return [{ deviceId: "dev-1" }, { deviceId: "dev-2" }];
+      },
+      getDevice,
+      callDevice: vi.fn(),
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find((entry) => entry.name === "claw_wifi_hello");
+    expect(tool).toBeTruthy();
+
+    const result = await tool?.execute?.("tool-hello", {});
+    const resultText = (result as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? "";
+
+    expect(getDevice).toHaveBeenCalledTimes(2);
+    expect((bridge.callDevice as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+    expect(resultText).toContain("在线路由器");
+    expect(resultText).toContain("接入时长");
+    expect(resultText).toContain("连接快照");
+    expect(resultText).not.toContain("在线时长");
+    expect(resultText).toContain("WiFi101");
+    expect(resultText).toContain("198.51.100.10");
+    expect(resultText).toContain("WiFi102");
+  });
+
   it("deploy frps uses secure temporary files for the config and systemd unit", async () => {
     try {
       execSyncMock.mockClear();
