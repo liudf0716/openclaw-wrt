@@ -32,7 +32,7 @@
 5. 若返回结果中包含路由器侧已有旧客户端配置的信息：
    1. 只把它作为“后续客户端应覆盖旧配置”的提醒。
    2. 仍以当前服务端状态作为唯一决策依据。
-6. 盘点当前已配置客户端的具体操作：
+6. 盘点当前已配置客户端的强制操作步骤（**严禁依赖上下文记忆，必须真实调用API**）：
    1. 调用 `clawwrt_list_devices` 获取在线设备列表。
    2. 对每台目标设备调用 `clawwrt_get_xfrpc_common_config` 或 `clawwrt_get_xfrpc_common`，读取全局连接配置。
    3. 对同一设备调用 `clawwrt_get_xfrpc_tcp_service`，且不传 `name`，读取该设备全部 TCP 映射服务。
@@ -62,6 +62,7 @@
 5. 若自动获取公网 IP 失败，可以在进入客户端配置前让用户确认公网 IP 或域名，但不能跳过服务端状态判断。
 6. `clawwrt_get_xfrpc_tcp_service` 不传 `name` 时，优先用于列出某台设备全部已配置映射；这是避免重复配置的核心接口。
 7. `clawwrt_get_xfrpc_common_config` 或 `clawwrt_get_xfrpc_common` 用于判断客户端当前连向哪个服务端、是否启用、是否与 VPS 当前状态一致。
+8. **绝对禁止依赖记忆**：获取在线设备及客户端内网穿透配置时，**必须且只能**通过真实调用 `clawwrt_get_xfrpc_tcp_service` 等接口获取实时数据，严禁依赖历史对话上下文（Memory）直接输出旧数据，严禁凭空捏造配置信息。
 
 ## 成功输出
 
