@@ -40,7 +40,8 @@ user-invocable: true
 
 1. 执行 `references/status.md`
    - 先判断 VPS 侧是否已安装并运行内网穿透服务端。
-   - 这一阶段只做状态判断和路径分流，不采集客户端参数。
+   - 必须盘点并向用户全面展示所有设备的客户端配置现状。
+   - 这一阶段只做状态获取和路径分流，不采集用户的新配置参数。
 2. 执行 `references/server-deploy.md`
    - 若服务端未安装、未运行或认证密钥为空，立即部署或修复。
    - 本阶段产出并确认后续客户端必须使用的 `server_addr`、`server_port`、`token`。
@@ -79,7 +80,7 @@ user-invocable: true
 
 ## 推荐执行形态
 
-1. 入口阶段先只调用 `openclaw_get_frps_status`；不要一开始就列设备或追问映射参数。
+1. 入口阶段先调用 `openclaw_get_frps_status` 判断服务端，接着必须调用设备和映射相关 API 盘点所有现有配置；不要一开始就追问新的映射参数。
 2. 服务端部署成功后，优先复用 `openclaw_get_frps_status` 和 `openclaw_get_vps_public_ip` 的返回值，不要让用户重复提供监听端口、认证密钥或公网 IP。
 3. 客户端部署时，先设置公共连接参数，再创建单条或多条服务映射。
 4. 验证阶段先做机器可判定的监听检查，再让用户做实际访问测试。
