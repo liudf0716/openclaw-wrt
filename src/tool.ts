@@ -3219,16 +3219,25 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
             pingResults.push({ target, reachable: false, output: "skipped: invalid IPv4 address" });
             continue;
           }
-          try {
-            const out = execSync(`ping -c 3 -W 2 ${target}`, {
-              encoding: "utf-8",
-              timeout: 10000,
-            });
-            pingResults.push({ target, reachable: true, output: out.trim() });
-          } catch (error) {
-            const out = error instanceof Error ? error.message : String(error);
-            pingResults.push({ target, reachable: false, output: out });
+          let reachable = false;
+          let finalOutput = "";
+          for (let attempt = 1; attempt <= 5; attempt++) {
+            try {
+              const out = execSync(`ping -c 2 -W 2 ${target}`, {
+                encoding: "utf-8",
+                timeout: 5000,
+              });
+              reachable = true;
+              finalOutput = out.trim();
+              break;
+            } catch (error) {
+              finalOutput = error instanceof Error ? error.message : String(error);
+              if (attempt < 5) {
+                try { execSync("sleep 2"); } catch {}
+              }
+            }
           }
+          pingResults.push({ target, reachable, output: finalOutput });
         }
 
         // Build report
