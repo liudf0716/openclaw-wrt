@@ -95,6 +95,39 @@ function redactFrpsConfigContent(configContent: string): string {
   return configContent.replace(/^(auth\.token\s*=\s*).+$/gim, '$1"[REDACTED]"');
 }
 
+function formatDuration(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days}d ${hours % 24}h`;
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+  return `${seconds}s`;
+}
+
+function getCategoryEmoji(key: string): string {
+  switch (key) {
+    case "mgmt":
+      return "⚙️";
+    case "wifi":
+      return "📶";
+    case "qos":
+      return "⏳";
+    case "nwct":
+      return "🔌";
+    case "vpn":
+      return "🛡️";
+    case "portal":
+      return "🎨";
+    case "social":
+      return "📢";
+    default:
+      return "🔹";
+  }
+}
+
 type ExecSyncRunner = (command: string, options?: unknown) => string | Uint8Array;
 type ExecFileSyncRunner = (
   file: string,
@@ -4474,17 +4507,66 @@ WantedBy=multi-user.target
       parameters: Type.Object({}),
       execute: async () => {
         logToolInvocation(undefined, "claw_wifi_hello");
-        let catalog = `# 龙虾WiFi (Claw WiFi) 功能清单与使用示例\n\n已识别龙虾WiFi 身份。以下是您可以使用的功能模块及其 Prompts 示例：\n`;
 
-        for (const [, item] of Object.entries(PROMPT_EXAMPLES)) {
-          catalog += `\n### ${item.label}\n`;
+        const devices = bridge.listDevices();
+        const onlineCount = devices.length;
+
+        let content = `![Claw WiFi Banner](asset/claw_wifi_banner.png)\n\n`;
+        content += `# 🦞 欢迎使用龙虾WiFi (Claw WiFi) AI 助手\n\n`;
+        content += `您好！我是您的 **龙虾WiFi** 智能管家。我已经成功识别您的身份，准备好为您管理和优化您的网络环境。\n\n`;
+
+        // 1. 实时状态仪表盘 (Dashboard)
+        content += `## 📊 网络实时状态\n\n`;
+
+        if (onlineCount > 0) {
+          content += `> **在线路由器**: ${onlineCount} 台 | **运行状态**: 正常 ✅\n\n`;
+
+          content += `### 📱 在线设备列表\n\n`;
+          content += `| 状态 | 设备别名 | 设备 ID | IP 地址 | 在线时长 | 认证模式 |\n`;
+          content += `| :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+
+          const now = Date.now();
+          for (const d of devices) {
+            const uptimeMs = now - d.connectedAtMs;
+            const uptimeStr = formatDuration(uptimeMs);
+            const mode =
+              d.authMode === 0
+                ? "云端 ☁️"
+                : d.authMode === 1
+                  ? "直连 ⚡"
+                  : d.authMode === 2
+                    ? "本地 🏠"
+                    : "未知";
+            content += `| 🟢 | **${d.alias || "WiFi"}** | \`${d.deviceId}\` | \`${d.remoteAddress || "N/A"}\` | ${uptimeStr} | ${mode} |\n`;
+          }
+          content += `\n*提示：您可以直接对设备说 "帮我看看 ${devices[0].alias || "设备"} 的运行情况"* \n`;
+        } else {
+          content += `> ⚠️ **当前暂无在线路由器**\n\n请确保您的龙虾WiFi 路由器已开机并成功连接到本管理后台。\n`;
+        }
+
+        // 2. 快捷功能导航
+        content += `\n## 🛠️ 快捷功能导航\n\n`;
+        content += `您可以直接点击或输入以下 Prompt 示例来体验龙虾WiFi 的核心功能：\n`;
+
+        for (const [key, item] of Object.entries(PROMPT_EXAMPLES)) {
+          const emoji = getCategoryEmoji(key);
+          content += `\n### ${emoji} ${item.label}\n`;
           item.prompts.forEach((p) => {
-            catalog += `- ${p}\n`;
+            content += `- ${p}\n`;
           });
         }
 
-        catalog += `\n---\n您可以直接复制上述 Prompts 或根据需要进行修改。\n`;
-        return buildToolResult(catalog, { status: "success", catalogReady: true });
+        content += `\n---\n`;
+        content += `### 🚀 下一步建议\n`;
+        content += `*   **巡检**: "检查所有在线路由器的健康状况。"\n`;
+        content += `*   **优化**: "扫描周围 WiFi 信号，帮我优化信道。"\n`;
+        content += `*   **安全**: "看看最近有没有陌生设备接入。"\n`;
+
+        return buildToolResult(content, {
+          status: "success",
+          catalogReady: true,
+          deviceCount: onlineCount,
+        });
       },
     },
     createGenericTool({ bridge, logger }),

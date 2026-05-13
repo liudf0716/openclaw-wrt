@@ -8,6 +8,7 @@
   "files": [
     "dist",
     "skills",
+    "asset",
     "openclaw.plugin.json",
     "README.md"
   ],
