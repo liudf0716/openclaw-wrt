@@ -721,7 +721,7 @@ const AddXfrpcTcpServiceSchema = Type.Object(
 const GetXfrpcTcpServiceSchema = Type.Object(
   {
     deviceId: DeviceIdField,
-    name: XfrpcServiceNameField,
+    name: Type.Optional(XfrpcServiceNameField),
     timeoutMs: TimeoutField,
   },
   { additionalProperties: false },
@@ -3677,20 +3677,24 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
       bridge,
       name: "clawwrt_get_xfrpc_tcp_service",
       label: "OpenClaw WRT XFRPC TCP Service",
-      description: "Get configuration for a specific XFRPC TCP service by name.",
+      description: "Get configuration for a specific XFRPC TCP service by name, or all TCP services if no name is provided.",
       op: "get_xfrpc_tcp_service",
       parameters: GetXfrpcTcpServiceSchema,
       buildPayload: (rawParams) => {
         const args = rawParams as GetXfrpcTcpServiceParams;
+        const payload: JsonRecord = {};
+        if (args.name !== undefined) {
+          payload.name = args.name;
+        }
         return {
           deviceId: args.deviceId.trim(),
-          payload: { name: args.name },
+          payload,
           timeoutMs: args.timeoutMs,
         };
       },
       summarize: (_response, rawParams) => {
         const args = rawParams as GetXfrpcTcpServiceParams;
-        return `Fetched XFRPC TCP service '${args.name}' for ${args.deviceId}.`;
+        return args.name ? `Fetched XFRPC TCP service '${args.name}' for ${args.deviceId}.` : `Fetched all XFRPC TCP services for ${args.deviceId}.`;
       },
     }),
     createSimpleOperationTool({
