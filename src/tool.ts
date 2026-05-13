@@ -3233,7 +3233,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
             } catch (error) {
               finalOutput = error instanceof Error ? error.message : String(error);
               if (attempt < 5) {
-                try { execSync("sleep 2"); } catch {}
+                try { execSync("sleep 2"); } catch { }
               }
             }
           }
@@ -4497,16 +4497,33 @@ WantedBy=multi-user.target
  */
 const PROMPT_EXAMPLES: Record<string, { label: string; prompts: string[] }> = {
   mgmt: {
-    label: "1. 基础管理与状态监控",
+    label: "1. 系统状态与设备管理",
     prompts: [
       '**查询状态**: "帮我看看现在有哪些路由器在线，并报告一下它们的运行状态和负载情况。"',
-      "**设置 WiFi**: \"把房间 101 的路由器 SSID 改成 'Claw-Fast'，密码设置为 'claw123456'，记得开启 5G 频段。\"",
+      '**运行诊断**: "检查一下 101 路由器的 CPU 和内存占用，看看有没有异常进程。"',
       '**强制下线**: "把 MAC 地址是 AA:BB:CC:DD:EE:FF 的那个客户端踢掉。"',
-      '**限速管理**: "给正在下载的大流量用户（IP: 192.168.1.50）限速，下行带宽控制在 2Mbps。"',
+    ],
+  },
+  wifi: {
+    label: "2. 无线配置与 WiFi 管理",
+    prompts: [
+      "**设置 WiFi**: \"把房间 101 的路由器 SSID 改成 'Claw-Fast'，密码设置为 'claw123456'，并开启 WPA2 加密。\"",
+      '**信号扫描**: "扫描一下周围的 WiFi 信号，看看哪个信道最空闲，帮我优化一下当前的无线参数。"',
+      '**无线中继**: "帮我把这台路由器设置为无线中继模式，连接到上级路由 Office_5G，密码是 12345678。"',
+      '**频段管理**: "把 2.4G 和 5G 信号合并，开启双频合一，或者帮我单独关闭 2.4G 频段。"',
+    ],
+  },
+  qos: {
+    label: "3. 流量控制与限速管理",
+    prompts: [
+      '**单用户限速**: "给正在下载的大流量用户（IP: 192.168.1.50）限速，下行带宽控制在 2Mbps，上行控制在 512Kbps。"',
+      '**实时监控**: "帮我实时监控局域网内的流量情况，列出当前占用带宽最高的前三个设备。"',
+      '**解除限制**: "取消对所有设备的限速设置，恢复满速运行。"',
+      '**查看规则**: "帮我列出当前路由器上生效的所有限速规则。"',
     ],
   },
   nwct: {
-    label: "2. 内网穿透 (NWCT)",
+    label: "4. 内网穿透 (NWCT)",
     prompts: [
       '**自动部署**: "我的 VPS 还没装内网穿透服务端，请帮我下载最新版并以 nwct-server 名义安装到 /usr/bin/，配置好 systemd 自启动。然后把 101 房间路由器的 SSH 映射到 6022 端口，并确认端口是否已经在 VPS 上监听了。"',
       '**状态自检**: "检查一下现在的内网穿透服务（nwct-server）是否正常？包括服务端进程、客户端连接，以及公网端口是否已经开启监听。"',
@@ -4514,7 +4531,7 @@ const PROMPT_EXAMPLES: Record<string, { label: string; prompts: string[] }> = {
     ],
   },
   vpn: {
-    label: "3. 全球组网 (WireGuard VPN)",
+    label: "5. VPN组网 (WireGuard VPN)",
     prompts: [
       '**快速部署**: "帮我把这台龙虾WiFi 和 VPS 连起来。先在 VPS 上初始化 WG 服务端，然后生成路由器的密钥并完成对接，最后测试互 ping。"',
       '**添加节点**: "再帮我添加一台 102 房间的路由器到现有的 VPN 组网中，分配 IP 10.0.0.3。"',
@@ -4523,7 +4540,7 @@ const PROMPT_EXAMPLES: Record<string, { label: string; prompts: string[] }> = {
     ],
   },
   portal: {
-    label: "4. 商用门户页 (Captive Portal)",
+    label: "6. 商用门户页 (Captive Portal)",
     prompts: [
       "**生成咖啡厅页面**: \"帮我为 '瑞幸咖啡 101 店' 设计一个认证页面。模板选 cafe，标题写 '欢迎来到瑞幸'，内容写 '点击下方按钮即可享受极速网络'，再加上几条上网规则。\"",
       "**企业办公页面**: \"给公司会议室的路由器做一个 business 风格的页面。品牌名叫 '字节跳动'，网络名叫 'ByteDance-Guest'。\"",
@@ -4531,7 +4548,7 @@ const PROMPT_EXAMPLES: Record<string, { label: string; prompts: string[] }> = {
     ],
   },
   social: {
-    label: "5. 社交推广与龙虾WiFi 品牌宣传",
+    label: "7. 社交推广与龙虾WiFi 品牌宣传",
     prompts: [
       '**个人介绍**: "帮我在社交平台发一个帖子介绍一下我自己，带上我现在运行的硬件平台、在线时长，以及我管理的龙虾WiFi 路由器的健康状态。适配微信/即刻/Twitter/B站风格。"',
       '**每日总结**: "帮我生成一个今日运行简报：今天服务了多少用户，跑了多少流量，测速表现如何，顺带推广一下龙虾WiFi 的 AI 配置和内网穿透特性。"',
