@@ -112,16 +112,17 @@ describe("openclaw-wrt intent tools", () => {
 
     const result = await tool?.execute?.("tool-hello", {});
     const resultText = (result as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? "";
+    const helloIntro = resultText.split("## 🛠️ 快捷功能导航")[0] ?? resultText;
 
     expect(getDevice).toHaveBeenCalledTimes(2);
     expect((bridge.callDevice as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
-    expect(resultText).toContain("在线路由器");
-    expect(resultText).toContain("接入时长");
-    expect(resultText).toContain("连接快照");
-    expect(resultText).not.toContain("在线时长");
-    expect(resultText).toContain("WiFi101");
-    expect(resultText).toContain("198.51.100.10");
-    expect(resultText).toContain("WiFi102");
+    expect(helloIntro).toContain("在线路由器");
+    expect(helloIntro).toContain("接入时长");
+    expect(helloIntro).toContain("连接快照");
+    expect(helloIntro).not.toContain("在线时长");
+    expect(helloIntro).toContain("WiFi101");
+    expect(helloIntro).toContain("198.51.100.10");
+    expect(helloIntro).toContain("WiFi102");
   });
 
   it("deploy frps uses secure temporary files for the config and systemd unit", async () => {
