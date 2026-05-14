@@ -91,8 +91,53 @@ function getClientsFromResponse(response: JsonRecord): unknown[] {
   return Array.isArray(data?.clients) ? data.clients : [];
 }
 
-function redactFrpsConfigContent(configContent: string): string {
-  return configContent.replace(/^(auth\.token\s*=\s*).+$/gim, '$1"[REDACTED]"');
+type ChawrtdToolResult = {
+  summary?: string;
+  output?: string;
+  data?: JsonRecord;
+  error?: string;
+};
+
+function getChawrtdBaseUrl(): string {
+  const base = process.env.CHAWRTD_BASE_URL?.trim() || "http://127.0.0.1:8090";
+  return base.replace(/\/+$/, "");
+}
+
+async function callChawrtd(params: {
+  path: string;
+  method?: "GET" | "POST";
+  body?: JsonRecord;
+  timeoutMs?: number;
+}): Promise<ChawrtdToolResult> {
+  const controller = new AbortController();
+  const timeoutMs = params.timeoutMs ?? 180_000;
+  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${getChawrtdBaseUrl()}${params.path}`, {
+      method: params.method ?? "GET",
+      headers: { "Content-Type": "application/json" },
+      body: params.body ? JSON.stringify(params.body) : undefined,
+      signal: controller.signal,
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as ChawrtdToolResult;
+    if (!response.ok) {
+      const message =
+        typeof payload?.error === "string" && payload.error
+          ? payload.error
+          : `chawrtd request failed (${response.status})`;
+      throw new Error(message);
+    }
+    return payload;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`chawrtd request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
 }
 
 function formatDuration(ms: number): string {
@@ -128,98 +173,11 @@ function getCategoryEmoji(key: string): string {
   }
 }
 
-type ExecSyncRunner = (command: string, options?: unknown) => string | Uint8Array;
 type ExecFileSyncRunner = (
   file: string,
   args?: readonly string[],
   options?: unknown,
 ) => string | Uint8Array;
-
-function detectServerEgressInterface(execSync: ExecSyncRunner): string {
-  const probes = [
-    "ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\") {print $(i+1); exit}}'",
-    "ip -4 route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\") {print $(i+1); exit}}'",
-  ];
-  for (const probe of probes) {
-    try {
-      const value = String(execSync(probe, { encoding: "utf-8", timeout: 5000 })).trim();
-      if (value) {
-        return value;
-      }
-    } catch {
-      // Ignore probe failures and continue with other strategies.
-    }
-  }
-  return "";
-}
-
-function listServerInterfacesWithIp(execSync: ExecSyncRunner): string {
-  try {
-    const output = String(
-      execSync("ip -o -4 addr show scope global 2>/dev/null", {
-        encoding: "utf-8",
-        timeout: 5000,
-      }),
-    ).trim();
-    if (!output) {
-      return "(no global IPv4 interface found)";
-    }
-    const lines = output
-      .split("\n")
-      .map((line) => line.trim().split(/\s+/))
-      .filter((parts) => parts.length >= 4)
-      .map((parts) => `${parts[1]} ${parts[3]}`);
-    return lines.length > 0 ? lines.join("\n") : "(no global IPv4 interface found)";
-  } catch {
-    return "(failed to list interfaces via `ip -o -4 addr show` )";
-  }
-}
-
-function detectRecommendedServerInterface(execSync: ExecSyncRunner): string {
-  try {
-    const output = String(
-      execSync("ip -o -4 addr show scope global up 2>/dev/null", {
-        encoding: "utf-8",
-        timeout: 5000,
-      }),
-    ).trim();
-    if (!output) {
-      return "";
-    }
-    const lines = output.split("\n").map((line) => line.trim().split(/\s+/));
-    for (const parts of lines) {
-      if (parts.length < 4) {
-        continue;
-      }
-      const iface = parts[1];
-      if (!iface || iface === "lo") {
-        continue;
-      }
-      if (/^[a-zA-Z0-9.\-_@]+$/.test(iface)) {
-        return iface;
-      }
-    }
-  } catch {
-    // Ignore fallback detection errors.
-  }
-  return "";
-}
-
-function detectVpsPublicIp(execSync: ExecSyncRunner): string {
-  const output = String(
-    execSync("curl -4 -fsSL --max-time 8 https://ifconfig.me/ip", {
-      encoding: "utf-8",
-      timeout: 10_000,
-    }),
-  ).trim();
-  if (!output) {
-    throw new Error("ifconfig.me returned an empty response");
-  }
-  if (!isIPv4(output)) {
-    throw new Error(`ifconfig.me returned a non-IPv4 response: ${output}`);
-  }
-  return output;
-}
 
 const DeviceIdField = Type.String({
   minLength: 1,
@@ -1099,125 +1057,6 @@ function cidrOverlaps(left: IPv4CidrInfo, right: IPv4CidrInfo): boolean {
   return left.network <= right.broadcast && right.network <= left.broadcast;
 }
 
-function collectPossibleCidrs(value: unknown): string[] {
-  if (!value) {
-    return [];
-  }
-  if (typeof value === "string") {
-    return value.includes("/") ? [value] : [];
-  }
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => collectPossibleCidrs(entry));
-  }
-  if (typeof value === "object") {
-    return Object.values(value as JsonRecord).flatMap((entry) => collectPossibleCidrs(entry));
-  }
-  return [];
-}
-
-function extractLanCidrFromStatusResponse(response: JsonRecord): string | null {
-  const candidates = [
-    response,
-    asObject(response.data),
-    asObject(asObject(response.data)?.data),
-  ].filter((entry): entry is JsonRecord => Boolean(entry));
-
-  for (const source of candidates) {
-    const brLan = (source as JsonRecord).br_lan ?? (source as JsonRecord).brLan;
-    const cidrs = collectPossibleCidrs(brLan)
-      .map((entry) => parseIPv4Cidr(entry)?.normalized)
-      .filter((entry): entry is string => Boolean(entry));
-    if (cidrs.length > 0) {
-      return cidrs[0];
-    }
-
-    const interfaces = (source as JsonRecord).interfaces;
-    if (Array.isArray(interfaces)) {
-      for (const iface of interfaces) {
-        const ifaceObj = asObject(iface);
-        if (!ifaceObj) {
-          continue;
-        }
-        const ifaceName =
-          (typeof ifaceObj?.name === "string" ? ifaceObj.name : undefined) ??
-          (typeof ifaceObj?.ifname === "string" ? ifaceObj.ifname : undefined) ??
-          (typeof ifaceObj?.interface === "string" ? ifaceObj.interface : undefined);
-        if (!ifaceName || !ifaceName.toLowerCase().includes("br-lan")) {
-          continue;
-        }
-        const ifaceCidrs = collectPossibleCidrs(ifaceObj)
-          .map((entry) => parseIPv4Cidr(entry)?.normalized)
-          .filter((entry): entry is string => Boolean(entry));
-        if (ifaceCidrs.length > 0) {
-          return ifaceCidrs[0];
-        }
-        if (typeof ifaceObj.ipaddr === "string" && typeof ifaceObj.netmask === "string") {
-          const parsed = parseIPv4WithMask(ifaceObj.ipaddr, ifaceObj.netmask);
-          if (parsed) {
-            return parsed.normalized;
-          }
-        }
-      }
-    }
-  }
-
-  return null;
-}
-
-function buildWireguardPeerBlock(params: {
-  publicKey: string;
-  allowedIps: string[];
-  endpoint?: string;
-}): string {
-  const endpointLine = params.endpoint ? `\nEndpoint = ${params.endpoint}` : "";
-  return `\n[Peer]\nPublicKey = ${params.publicKey}\nAllowedIPs = ${params.allowedIps.join(", ")}${endpointLine}\n`;
-}
-
-function normalizeWireguardAllowedIps(allowedIps: string[]): string[] {
-  const normalized = allowedIps.map((entry) => {
-    const parsed = parseIPv4Cidr(entry);
-    if (!parsed) {
-      throw new Error(`Invalid WireGuard allowed IP CIDR: ${entry}`);
-    }
-    return parsed.normalized;
-  });
-  return [...new Set(normalized)];
-}
-
-function buildWireguardServerConfig(params: {
-  tunnelIp: string;
-  port: number;
-  privateKey: string;
-  egressInterface: string;
-  peerBindings?: Array<{
-    deviceId: string;
-    peerPublicKey: string;
-    tunnelIp: string;
-    lanCidr: string;
-    endpoint?: string;
-  }>;
-}): string {
-  const natRuleComment = "OPENCLAW_WG_wg0";
-  const peerBlocks = (params.peerBindings ?? []).map((peer) => {
-    const allowedIps = normalizeWireguardAllowedIps([peer.tunnelIp, peer.lanCidr]);
-    return buildWireguardPeerBlock({
-      publicKey: peer.peerPublicKey,
-      allowedIps,
-      endpoint: peer.endpoint,
-    }).trim();
-  });
-
-  return [
-    "[Interface]",
-    `Address = ${params.tunnelIp}`,
-    `ListenPort = ${params.port}`,
-    `PrivateKey = ${params.privateKey}`,
-    `PostUp = iptables -t nat -A POSTROUTING -m comment --comment ${natRuleComment} -o ${params.egressInterface} -j MASQUERADE; iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT`,
-    `PostDown = iptables -t nat -D POSTROUTING -m comment --comment ${natRuleComment} -o ${params.egressInterface} -j MASQUERADE; iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT`,
-    ...peerBlocks,
-  ].join("\n") + "\n";
-}
-
 function isValidWireGuardPublicKey(key: string): boolean {
   // WireGuard keys are 32-byte values encoded as 44-character base64 (with trailing =).
   return /^[A-Za-z0-9+/]{43}=$/.test(key.trim());
@@ -1335,61 +1174,6 @@ function extractWireguardConfigSnapshot(response: JsonRecord): {
   return { privateKey, addresses, peerPublicKey };
 }
 
-function parseWireguardConfigPeers(configContent: string): Array<{
-  publicKey?: string;
-  allowedIps: string[];
-}> {
-  const peers: Array<{ publicKey?: string; allowedIps: string[] }> = [];
-  let currentSection: string | null = null;
-  let currentPeer: { publicKey?: string; allowedIps: string[] } | null = null;
-
-  const flushPeer = () => {
-    if (currentSection === "Peer" && currentPeer) {
-      peers.push(currentPeer);
-    }
-    currentPeer = null;
-  };
-
-  for (const rawLine of configContent.split("\n")) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#") || line.startsWith(";")) {
-      continue;
-    }
-    const sectionMatch = line.match(/^\[(.+)]$/);
-    if (sectionMatch) {
-      flushPeer();
-      currentSection = sectionMatch[1]?.trim() ?? null;
-      if (currentSection === "Peer") {
-        currentPeer = { allowedIps: [] };
-      }
-      continue;
-    }
-    if (currentSection !== "Peer" || !currentPeer) {
-      continue;
-    }
-
-    const [keyRaw, ...rest] = line.split("=");
-    const key = keyRaw?.trim().toLowerCase();
-    const value = rest.join("=").trim();
-    if (!key || !value) {
-      continue;
-    }
-    if (key === "publickey") {
-      currentPeer.publicKey = value;
-      continue;
-    }
-    if (key === "allowedips") {
-      currentPeer.allowedIps = value
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean);
-    }
-  }
-
-  flushPeer();
-  return peers;
-}
-
 function findServerPeerPublicKeyForTunnelIp(
   peers: Array<{ publicKey?: string; allowedIps: string[] }>,
   tunnelIp: string,
@@ -1413,110 +1197,6 @@ function findServerPeerPublicKeyForTunnelIp(
   }
 
   return undefined;
-}
-
-function upsertWireguardPeerConfig(params: {
-  existingConfig: string;
-  publicKey: string;
-  allowedIps: string[];
-  endpoint?: string;
-}) {
-  if (!isValidWireGuardPublicKey(params.publicKey)) {
-    throw new Error(`Invalid WireGuard public key format: ${params.publicKey.substring(0, 12)}…`);
-  }
-  const lines = params.existingConfig.split(/\r?\n/);
-  const sections: string[][] = [];
-  let current: string[] = [];
-
-  for (const line of lines) {
-    if (line.trim() === "[Peer]") {
-      if (current.length > 0) {
-        sections.push(current);
-      }
-      current = [line];
-      continue;
-    }
-    current.push(line);
-  }
-  if (current.length > 0) {
-    sections.push(current);
-  }
-
-  const interfaceSections: string[] = [];
-  const peerSections: string[] = [];
-  for (const sectionLines of sections) {
-    const joined = sectionLines.join("\n").trim();
-    if (!joined) {
-      continue;
-    }
-    if (joined.startsWith("[Peer]")) {
-      peerSections.push(joined);
-    } else {
-      interfaceSections.push(joined);
-    }
-  }
-
-  const peerRegex = /^PublicKey\s*=\s*(.+)$/m;
-  const normalizedKey = params.publicKey.trim();
-  const filteredPeers = peerSections.filter((section) => {
-    const match = section.match(peerRegex);
-    const key = match?.[1]?.trim();
-    return key !== normalizedKey;
-  });
-  const hadExisting = filteredPeers.length !== peerSections.length;
-  filteredPeers.push(
-    buildWireguardPeerBlock({
-      publicKey: normalizedKey,
-      allowedIps: params.allowedIps,
-      endpoint: params.endpoint,
-    }).trim(),
-  );
-
-  const merged = [...interfaceSections, ...filteredPeers].join("\n\n").trimEnd() + "\n";
-  return {
-    updatedConfig: merged,
-    action: hadExisting ? "updated" : "added",
-  } as const;
-}
-
-async function upsertWireguardPeerOnServer(params: {
-  publicKey: string;
-  allowedIps: string[];
-  endpoint?: string;
-}) {
-  logToolInvocation(undefined, "upsertWireguardPeerOnServer", params);
-  const { execFileSync, execSync } = await import("node:child_process");
-  const confPath = "/etc/wireguard/wg0.conf";
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-wrt-wg-peer-"));
-
-  try {
-    const existingConf = execSync(`sudo cat ${confPath}`, { encoding: "utf-8" });
-    const { updatedConfig, action } = upsertWireguardPeerConfig({
-      existingConfig: existingConf,
-      publicKey: params.publicKey,
-      allowedIps: params.allowedIps,
-      endpoint: params.endpoint,
-    });
-
-    const tempFile = path.join(tempDir, "wg0.conf");
-    await fs.writeFile(tempFile, updatedConfig, "utf8");
-    await fs.chmod(tempFile, 0o600);
-    execSync(`sudo install -o root -g root -m 600 ${tempFile} ${confPath}`, {
-      encoding: "utf-8",
-    });
-
-    const strippedConf = execFileSync("sudo", ["wg-quick", "strip", "wg0"], {
-      encoding: "utf-8",
-    });
-    execFileSync("sudo", ["wg", "syncconf", "wg0", "/dev/stdin"], {
-      encoding: "utf-8",
-      input: strippedConf,
-    });
-
-    return { status: "success" as const, action };
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
-  }
 }
 
 function mapWireguardInterfacePayload(input: JsonRecord): JsonRecord {
@@ -2939,39 +2619,31 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
         let probesSuccessful = false;
 
         try {
-          const { execSync } = await import("node:child_process");
-          const wgOutput = execSync("wg show 2>&1 || echo 'wg not found/active'", {
-            encoding: "utf-8",
-            timeout: 5000,
-          });
-          const iptablesOutput = execSync("iptables -t nat -S POSTROUTING", {
-            encoding: "utf-8",
-            timeout: 5000,
-          });
-          snatMissing = !iptablesOutput.includes("-j MASQUERADE");
-          try {
-            const sysctlOutput = execSync("sysctl -n net.ipv4.ip_forward", {
-              encoding: "utf-8",
-              timeout: 2000,
-            });
-            ipForwardEnabled = sysctlOutput.trim() === "1";
-          } catch (e) {
-            try {
-              const fsPromises = await import("node:fs/promises");
-              const proc = await fsPromises.readFile("/proc/sys/net/ipv4/ip_forward", "utf8");
-              ipForwardEnabled = proc.trim() === "1";
-            } catch (e2) {
-              ipForwardEnabled = false;
+          const response = await callChawrtd({ path: "/v1/wg/status", method: "GET" });
+          const serverData = asObject(asObject(response.data)?.server);
+          if (serverData) {
+            const reportLines = Array.isArray(serverData.reportLines)
+              ? serverData.reportLines.filter((line): line is string => typeof line === "string")
+              : [];
+            serverStatus =
+              reportLines.length > 0
+                ? reportLines.join("\n")
+                : typeof response.output === "string"
+                  ? response.output.trim() || "unavailable"
+                  : "unavailable";
+            if (typeof serverData.snatOk === "boolean") {
+              snatMissing = !serverData.snatOk;
             }
+            if (typeof serverData.ipForwardOk === "boolean") {
+              ipForwardEnabled = serverData.ipForwardOk;
+            }
+          } else {
+            serverStatus =
+              typeof response.output === "string" ? response.output.trim() || "unavailable" : "unavailable";
           }
-
-          serverStatus =
-            `--- WireGuard ---\n${wgOutput}\n` +
-            `--- NAT Rules ---\n${iptablesOutput}\n` +
-            `--- IP Forwarding ---\n${ipForwardEnabled ? "Enabled (1)" : "Disabled (0)"}`;
           probesSuccessful = true;
         } catch (error) {
-          serverStatus = `Error fetching server status: ${error instanceof Error ? error.message : String(error)}`;
+          serverStatus = `Error fetching server status from chawrtd: ${error instanceof Error ? error.message : String(error)}`;
         }
 
         const summary = `Fetched WireGuard VPN status for ${deviceId}.`;
@@ -3012,7 +2684,7 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
           pingTargets?: string[];
           timeoutMs?: number;
         };
-        const { execSync, execFileSync } = await import("node:child_process");
+        const { execFileSync } = await import("node:child_process");
 
         // Resolve device list
         const deviceIds =
@@ -3029,7 +2701,6 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
         let snatOk = false;
         let ipForwardOk = false;
         let serverConfiguredPublicKey: string | undefined;
-        let derivedServerPublicKey: string | undefined;
         let serverKeyCheck:
           | {
             status: "ok" | "mismatch" | "error" | "skipped";
@@ -3038,81 +2709,118 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
             error?: string;
           }
           | undefined;
-        let serverPeerConfig: Array<{ publicKey?: string; allowedIps: string[] }> = [];
+        let serverPeerConfig: Array<{ publicKey: string | undefined; allowedIps: string[] }> = [];
+        let serverReportLines: string[] = [];
+        let pingResults: Array<{ target: string; reachable: boolean; output: string }> = [];
         try {
-          const wgOut = execSync("sudo wg show 2>&1 || echo 'wg not found'", {
-            encoding: "utf-8",
-            timeout: 5000,
+          const verifyResponse = await callChawrtd({
+            path: "/v1/wg/verify",
+            method: "POST",
+            body: {
+              pingTargets: args.pingTargets ?? [],
+            },
+            timeoutMs: args.timeoutMs,
           });
-          const natOut = execSync("sudo iptables -t nat -S POSTROUTING", {
-            encoding: "utf-8",
-            timeout: 5000,
-          });
-          snatOk = natOut.includes("-j MASQUERADE");
-          try {
-            const fwdOut = execSync("sysctl -n net.ipv4.ip_forward", {
-              encoding: "utf-8",
-              timeout: 2000,
-            });
-            ipForwardOk = fwdOut.trim() === "1";
-          } catch (e) {
-            try {
-              const fsPromises = await import("node:fs/promises");
-              const proc = await fsPromises.readFile("/proc/sys/net/ipv4/ip_forward", "utf8");
-              ipForwardOk = proc.trim() === "1";
-            } catch (e2) {
-              ipForwardOk = false;
+          serverSummary = verifyResponse.output?.trim() || verifyResponse.summary || "unavailable";
+
+          const verifyData = asObject(verifyResponse.data);
+          const serverData = asObject(verifyData?.server);
+          if (serverData) {
+            if (typeof serverData.wgShow === "string" && serverData.wgShow.trim()) {
+              serverSummary = serverData.wgShow.trim();
+            }
+            if (typeof serverData.snatOk === "boolean") {
+              snatOk = serverData.snatOk;
+            }
+            if (typeof serverData.ipForwardOk === "boolean") {
+              ipForwardOk = serverData.ipForwardOk;
+            }
+            if (typeof serverData.serverPublicKey === "string" && serverData.serverPublicKey.trim()) {
+              serverConfiguredPublicKey = serverData.serverPublicKey.trim();
+            }
+            const keyCheckRaw = asObject(serverData.keyCheck);
+            if (keyCheckRaw) {
+              const status =
+                typeof keyCheckRaw.status === "string" ? keyCheckRaw.status.trim() : "";
+              if (
+                status === "ok" ||
+                status === "mismatch" ||
+                status === "error" ||
+                status === "skipped"
+              ) {
+                serverKeyCheck = {
+                  status,
+                  configuredPublicKey:
+                    typeof keyCheckRaw.configuredPublicKey === "string"
+                      ? keyCheckRaw.configuredPublicKey
+                      : undefined,
+                  derivedPublicKey:
+                    typeof keyCheckRaw.derivedPublicKey === "string"
+                      ? keyCheckRaw.derivedPublicKey
+                      : undefined,
+                  error: typeof keyCheckRaw.error === "string" ? keyCheckRaw.error : undefined,
+                };
+              }
+            }
+            if (Array.isArray(serverData.reportLines)) {
+              serverReportLines = serverData.reportLines.filter(
+                (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
+              );
+            }
+            const peerConfigRaw = serverData.peerConfig;
+            if (Array.isArray(peerConfigRaw)) {
+              serverPeerConfig = peerConfigRaw
+                .map((entry) => {
+                  const peer = asObject(entry);
+                  if (!peer) {
+                    return null;
+                  }
+                  const publicKey =
+                    typeof peer.publicKey === "string" && peer.publicKey.trim()
+                      ? peer.publicKey.trim()
+                      : undefined;
+                  const allowedIps = Array.isArray(peer.allowedIps)
+                    ? peer.allowedIps
+                      .filter((candidate): candidate is string => typeof candidate === "string")
+                      .map((candidate) => candidate.trim())
+                      .filter(Boolean)
+                    : [];
+                  return { publicKey, allowedIps };
+                })
+                .filter(
+                  (
+                    entry,
+                  ): entry is {
+                    publicKey: string | undefined;
+                    allowedIps: string[];
+                  } => entry !== null && entry.allowedIps.length > 0,
+                );
             }
           }
-          serverSummary = wgOut.trim();
 
-          try {
-            const privateKey = String(
-              execSync("sudo cat /etc/wireguard/server_private.key", {
-                encoding: "utf-8",
-                timeout: 5000,
-              }),
-            ).trim();
-            const publicKey = String(
-              execSync("sudo cat /etc/wireguard/server_public.key", {
-                encoding: "utf-8",
-                timeout: 5000,
-              }),
-            ).trim();
-            serverConfiguredPublicKey = publicKey || undefined;
-            derivedServerPublicKey = deriveWireGuardPublicKeyFromPrivateKey(privateKey, execFileSync);
-            serverKeyCheck =
-              serverConfiguredPublicKey && derivedServerPublicKey === serverConfiguredPublicKey
-                ? {
-                  status: "ok",
-                  configuredPublicKey: serverConfiguredPublicKey,
-                  derivedPublicKey: derivedServerPublicKey,
+          pingResults = Array.isArray(verifyData?.pingResults)
+            ? verifyData.pingResults
+              .map((entry) => {
+                const row = asObject(entry);
+                if (!row) {
+                  return null;
                 }
-                : {
-                  status: "mismatch",
-                  configuredPublicKey: serverConfiguredPublicKey,
-                  derivedPublicKey: derivedServerPublicKey,
-                };
-          } catch (error) {
-            serverKeyCheck = {
-              status: "error",
-              error: error instanceof Error ? error.message : String(error),
-            };
-          }
-
-          try {
-            const wgConfig = String(
-              execSync("sudo cat /etc/wireguard/wg0.conf 2>/dev/null || true", {
-                encoding: "utf-8",
-                timeout: 5000,
-              }),
-            );
-            serverPeerConfig = parseWireguardConfigPeers(wgConfig);
-          } catch {
-            serverPeerConfig = [];
-          }
+                const target = typeof row.target === "string" ? row.target : "";
+                const reachable = typeof row.reachable === "boolean" ? row.reachable : false;
+                const output = typeof row.output === "string" ? row.output : "";
+                return target ? { target, reachable, output } : null;
+              })
+              .filter((entry): entry is { target: string; reachable: boolean; output: string } =>
+                Boolean(entry),
+              )
+            : [];
         } catch (error) {
-          serverSummary = `Server probe error: ${error instanceof Error ? error.message : String(error)}`;
+          serverSummary =
+            `Server probe error via chawrtd: ${error instanceof Error ? error.message : String(error)}`;
+          serverKeyCheck = {
+            status: "error",
+            error: error instanceof Error ? error.message : String(error),
+          };
         }
 
         // Per-device router-side checks
@@ -3244,48 +2952,33 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
           }
         }
 
-        // Optional ping tests from VPS
-        const pingResults: Array<{ target: string; reachable: boolean; output: string }> = [];
-        for (const target of args.pingTargets ?? []) {
-          // Validate: must be a plain IPv4 address to prevent command injection
-          if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(target)) {
-            pingResults.push({ target, reachable: false, output: "skipped: invalid IPv4 address" });
-            continue;
-          }
-          let reachable = false;
-          let finalOutput = "";
-          for (let attempt = 1; attempt <= 5; attempt++) {
-            try {
-              const out = execSync(`ping -c 2 -W 2 ${target}`, {
-                encoding: "utf-8",
-                timeout: 5000,
-              });
-              reachable = true;
-              finalOutput = out.trim();
-              break;
-            } catch (error) {
-              finalOutput = error instanceof Error ? error.message : String(error);
-              if (attempt < 5) {
-                try { execSync("sleep 2"); } catch { }
-              }
-            }
-          }
-          pingResults.push({ target, reachable, output: finalOutput });
-        }
-
         // Build report
         let report = `## WireGuard Connectivity Report\n\n`;
         report += `### Server Side\n`;
-        report += `- IP Forwarding: ${ipForwardOk ? "✅ enabled" : "❌ disabled"}\n`;
-        report += `- SNAT/MASQUERADE: ${snatOk ? "✅ present" : "❌ missing"}\n`;
-        if (serverKeyCheck) {
-          if (serverKeyCheck.status === "ok") {
-            report += `- Server key pair: ✅ private/public key match\n`;
-          } else if (serverKeyCheck.status === "mismatch") {
-            report += `- Server key pair: ❌ configured public key does not match the derived public key from server_private.key\n`;
-          } else if (serverKeyCheck.status === "error") {
-            report += `- Server key pair: ❌ check failed (${serverKeyCheck.error})\n`;
-          }
+        const renderedServerLines =
+          serverReportLines.length > 0
+            ? serverReportLines
+            : [
+              `- IP Forwarding: ${ipForwardOk ? "✅ enabled" : "❌ disabled"}`,
+              `- SNAT/MASQUERADE: ${snatOk ? "✅ present" : "❌ missing"}`,
+              ...(serverKeyCheck
+                ? serverKeyCheck.status === "ok"
+                  ? ["- Server key pair: ✅ private/public key match"]
+                  : serverKeyCheck.status === "mismatch"
+                    ? [
+                      "- Server key pair: ❌ configured public key does not match the derived public key from server_private.key",
+                    ]
+                    : serverKeyCheck.status === "error"
+                      ? [
+                        `- Server key pair: ❌ check failed (${serverKeyCheck.error})`,
+                      ]
+                      : []
+                : []),
+            ];
+        if (renderedServerLines.length > 0) {
+          report += `${renderedServerLines.join("\n")}\n`;
+        } else {
+          report += `- Server-side details unavailable\n`;
         }
         report += `\`\`\`\n${serverSummary}\n\`\`\`\n\n`;
 
@@ -3889,131 +3582,25 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
       parameters: DeployFrpsSchema,
       execute: async (_toolCallId, rawParams) => {
         logToolInvocation(undefined, "openclaw_deploy_frps", rawParams);
-        const args = rawParams;
-        const { execSync } = await import("node:child_process");
-
-        const configDir = "/etc/nwct";
-        const configPath = path.join(configDir, "nwct-server.toml");
-        const servicePath = "/etc/systemd/system/nwct-server.service";
-        let tempDir: string | undefined;
-
-        let toml = `bindPort = ${args.port}\n`;
-        if (args.token) {
-          toml += `auth.token = ${JSON.stringify(args.token)}\n`;
-        }
-
-        let output = "";
-        try {
-          // 1. Ensure config directory
-          execSync(`sudo mkdir -p ${configDir}`, { encoding: "utf-8" });
-          tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-wrt-nwct-"));
-          const writeSecureTempFile = async (fileName: string, content: string) => {
-            const tempPath = path.join(tempDir as string, fileName);
-            await fs.writeFile(tempPath, content, "utf8");
-            await fs.chmod(tempPath, 0o600);
-            return tempPath;
-          };
-
-          const configTempPath = await writeSecureTempFile("nwct-server.toml", toml);
-          execSync(`sudo install -o root -g root -m 600 ${configTempPath} ${configPath}`, {
-            encoding: "utf-8",
-          });
-
-          // 2. Install binary if missing
-          const binPath = "/usr/bin/nwct-server";
-          let binExists = false;
-          try {
-            // Check if binary exists and is executable
-            execSync(`test -x ${binPath}`, { encoding: "utf-8" });
-            binExists = true;
-            output += `nwct-server binary already exists at ${binPath}.\n`;
-          } catch {
-            output += "nwct-server binary not found. Downloading latest version from GitHub...\n";
-            try {
-              const archMap: Record<string, string> = {
-                x64: "amd64",
-                arm64: "arm64",
-                arm: "arm",
-              };
-              const arch = archMap[process.arch] || "amd64";
-
-              // Get latest version via GitHub API with timeout
-              const latestJson = execSync(
-                "curl -s --max-time 30 --connect-timeout 10 https://api.github.com/repos/fatedier/frp/releases/latest",
-                { encoding: "utf-8", timeout: 35000 },
-              );
-              const latestInfo = JSON.parse(latestJson);
-              const tagName = latestInfo.tag_name;
-              if (!tagName) {
-                throw new Error("Could not determine latest version from GitHub API.");
-              }
-              // Validate tagName before interpolating into shell commands.
-              if (!/^v?\d+\.\d+\.\d+$/.test(tagName)) {
-                throw new Error(`Unexpected tag format from GitHub API: ${tagName}`);
-              }
-              const safeArch = /^[a-z0-9]+$/.test(arch) ? arch : "amd64";
-
-              const version = tagName.startsWith("v") ? tagName.substring(1) : tagName;
-              const folderName = `frp_${version}_linux_${safeArch}`;
-              const filename = `${folderName}.tar.gz`;
-              const downloadUrl = `https://github.com/fatedier/frp/releases/download/${tagName}/${filename}`;
-
-              output += `Target version: ${tagName}, Arch: ${safeArch}\nDownloading from: ${downloadUrl}\n`;
-
-              execSync(`curl -L --max-time 120 --connect-timeout 10 -o /tmp/${filename} ${downloadUrl}`, { encoding: "utf-8", timeout: 125000 });
-              execSync(`tar -C /tmp -zxvf /tmp/${filename}`, { encoding: "utf-8" });
-              execSync(`sudo install -o root -g root -m 755 /tmp/${folderName}/frps ${binPath}`, {
-                encoding: "utf-8",
-              });
-              execSync(`rm -rf /tmp/${filename} /tmp/${folderName}`, { encoding: "utf-8" });
-              output +=
-                "Binary installed successfully to /usr/bin/nwct-server and temporary files removed.\n";
-            } catch (dlError) {
-              output += `Error during binary download/install: ${dlError instanceof Error ? dlError.message : String(dlError)}\n`;
-              output += "Please install the binary manually to /usr/bin/nwct-server or check network connectivity.\n";
-              throw dlError;
-            }
-          }
-
-          // 3. Create systemd service
-          const serviceContent = `[Unit]
-Description=Intranet Penetration Server (NWCT)
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=${binPath} -c ${configPath}
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-`;
-          const serviceTempPath = await writeSecureTempFile("nwct-server.service", serviceContent);
-          execSync(`sudo install -o root -g root -m 644 ${serviceTempPath} ${servicePath}`, {
-            encoding: "utf-8",
-          });
-
-          // 4. Reload and start
-          execSync("sudo systemctl daemon-reload", { encoding: "utf-8" });
-          execSync("sudo systemctl enable nwct-server", { encoding: "utf-8" });
-          output += execSync("sudo systemctl restart nwct-server", { encoding: "utf-8" });
-          output += "\nNWCT service successfully configured and restarted via systemd.";
-        } catch (error) {
-          return buildToolResult(
-            `Deployment failed. Output: ${output}\nError: ${error instanceof Error ? error.message : String(error)}`,
-            { status: "error", output },
-          );
-        } finally {
-          if (tempDir) {
-            await fs.rm(tempDir, { recursive: true, force: true });
-          }
-        }
-
-        return buildToolResult(`Deployment success.\nConfig: ${configPath}\nOutput: ${output}`, {
-          status: "success",
-          configPath,
-          toml,
+        const args = rawParams as Static<typeof DeployFrpsSchema>;
+        const response = await callChawrtd({
+          path: "/v1/frps/deploy",
+          method: "POST",
+          body: {
+            port: args.port,
+            token: args.token,
+          },
         });
+
+        return buildToolResult(
+          `${response.summary ?? "FRPS deployment requested."}${
+            response.output ? `\n\n${response.output}` : ""
+          }`,
+          {
+            status: "success",
+            response,
+          },
+        );
       },
     },
     {
@@ -4024,38 +3611,13 @@ WantedBy=multi-user.target
       parameters: Type.Object({}),
       execute: async () => {
         logToolInvocation(undefined, "openclaw_get_frps_status");
-        const { execSync } = await import("node:child_process");
-        const configPath = "/etc/nwct/nwct-server.toml";
-
-        let configExists = false;
-        let configContent = "";
-        try {
-          configContent = execSync(`sudo cat ${configPath}`, { encoding: "utf-8" });
-          configExists = true;
-        } catch { }
-        const redactedConfigContent = redactFrpsConfigContent(configContent);
-
-        let serviceStatus = "Unknown";
-        try {
-          serviceStatus = execSync("systemctl is-active nwct-server || true", {
-            encoding: "utf-8",
-          }).trim();
-        } catch { }
-
-        let portsInfo = "";
-        try {
-          portsInfo = execSync("sudo ss -tulpn | grep nwct-server || true", {
-            encoding: "utf-8",
-          }).trim();
-        } catch { }
-
-        const details = `Service State: ${serviceStatus}\nConfig: ${configExists ? "Found" : "Not Found"}\nListening Ports:\n${portsInfo || "None"}\n\nConfig Content:\n${redactedConfigContent}`;
-
-        return buildToolResult(details, {
-          serviceStatus,
-          configExists,
-          configContent: redactedConfigContent,
-          portsInfo,
+        const response = await callChawrtd({ path: "/v1/frps/status", method: "GET" });
+        const text = `${response.summary ?? "FRPS status fetched."}${
+          response.output ? `\n\n${response.output}` : ""
+        }`;
+        return buildToolResult(text, {
+          status: "success",
+          response,
         });
       },
     },
@@ -4067,38 +3629,16 @@ WantedBy=multi-user.target
       parameters: ResetFrpsSchema,
       execute: async () => {
         logToolInvocation(undefined, "openclaw_reset_frps");
-        const { execSync } = await import("node:child_process");
-
-        try {
-          execSync("test -x /usr/bin/nwct-server", { encoding: "utf-8" });
-        } catch {
-          return buildToolResult("nwct-server is not installed. Reset skipped.", {
-            status: "skipped",
-          });
-        }
-
-        let output = "";
-        try {
-          execSync("sudo systemctl stop nwct-server || true", { encoding: "utf-8" });
-          execSync("sudo systemctl disable nwct-server || true", { encoding: "utf-8" });
-          output += "Stopped and disabled systemd service.\\n";
-
-          execSync("sudo rm -f /etc/systemd/system/nwct-server.service", { encoding: "utf-8" });
-          execSync("sudo systemctl daemon-reload", { encoding: "utf-8" });
-          output += "Removed systemd service file.\\n";
-
-          execSync("sudo rm -rf /etc/nwct", { encoding: "utf-8" });
-          output += "Removed configuration directory. Binary preserved at /usr/bin/nwct-server for future deployments.\\n";
-
-          return buildToolResult(output + "FRPS has been successfully reset.", {
+        const response = await callChawrtd({ path: "/v1/frps/reset", method: "POST" });
+        return buildToolResult(
+          `${response.summary ?? "FRPS reset requested."}${
+            response.output ? `\n\n${response.output}` : ""
+          }`,
+          {
             status: "success",
-          });
-        } catch (error) {
-          return buildToolResult(
-            `Reset failed. Output: ${output}\\nError: ${error instanceof Error ? error.message : String(error)}`,
-            { status: "error" },
-          );
-        }
+            response,
+          },
+        );
       },
     },
     {
@@ -4110,86 +3650,32 @@ WantedBy=multi-user.target
       execute: async (_toolCallId, rawParams) => {
         logToolInvocation(undefined, "openclaw_reset_wg_server", rawParams);
         const args = rawParams as ResetWgServerParams;
-        const { execSync } = await import("node:child_process");
         const iface = (args.interface ?? "wg0").trim() || "wg0";
-        const removeKeys = args.removeKeys ?? true;
-        const natRuleComment = `OPENCLAW_WG_${iface}`;
 
         if (!/^[a-zA-Z0-9_.@-]+$/.test(iface)) {
           return buildToolResult("Invalid WireGuard interface name.", { status: "error" });
         }
+        const removeKeys = args.removeKeys ?? true;
+        const response = await callChawrtd({
+          path: "/v1/wg/reset",
+          method: "POST",
+          body: {
+            interface: iface,
+            removeKeys,
+          },
+        });
 
-        let output = "";
-        try {
-          let legacyEgressIf = "";
-          try {
-            const confContent = String(
-              execSync(`sudo cat /etc/wireguard/${iface}.conf 2>/dev/null || true`, {
-                encoding: "utf-8",
-              }),
-            );
-            const match = confContent.match(/POSTROUTING\s+-o\s+([^\s;]+)\s+-j\s+MASQUERADE/);
-            legacyEgressIf = match?.[1] ?? "";
-          } catch {
-            // Best-effort only.
-          }
-
-          execSync(`sudo systemctl stop wg-quick@${iface} || true`, { encoding: "utf-8" });
-          execSync(`sudo systemctl disable wg-quick@${iface} || true`, { encoding: "utf-8" });
-          execSync(`sudo wg-quick down ${iface} >/dev/null 2>&1 || true`, { encoding: "utf-8" });
-          output += `Stopped and disabled wg-quick@${iface}.\n`;
-
-          // Explicitly clean up NAT/FORWARD leftovers in case PostDown didn't run.
-          execSync(
-            `while sudo iptables -t nat -C POSTROUTING -m comment --comment ${natRuleComment} -j MASQUERADE 2>/dev/null; do sudo iptables -t nat -D POSTROUTING -m comment --comment ${natRuleComment} -j MASQUERADE; done`,
-            { encoding: "utf-8" },
-          );
-          execSync(
-            "while sudo iptables -C FORWARD -i wg0 -j ACCEPT 2>/dev/null; do sudo iptables -D FORWARD -i wg0 -j ACCEPT; done",
-            { encoding: "utf-8" },
-          );
-          execSync(
-            "while sudo iptables -C FORWARD -o wg0 -j ACCEPT 2>/dev/null; do sudo iptables -D FORWARD -o wg0 -j ACCEPT; done",
-            { encoding: "utf-8" },
-          );
-
-          if (legacyEgressIf && /^[a-zA-Z0-9.\-_@]+$/.test(legacyEgressIf)) {
-            execSync(
-              `while sudo iptables -t nat -C POSTROUTING -o ${legacyEgressIf} -j MASQUERADE 2>/dev/null; do sudo iptables -t nat -D POSTROUTING -o ${legacyEgressIf} -j MASQUERADE; done`,
-              { encoding: "utf-8" },
-            );
-            output += `Removed legacy MASQUERADE rules on ${legacyEgressIf}.\n`;
-          }
-          output += "Removed WireGuard NAT/FORWARD firewall rules.\n";
-
-          execSync(`sudo rm -f /etc/wireguard/${iface}.conf`, { encoding: "utf-8" });
-          output += `Removed /etc/wireguard/${iface}.conf.\n`;
-
-          if (removeKeys) {
-            execSync("sudo rm -f /etc/wireguard/server_private.key /etc/wireguard/server_public.key", {
-              encoding: "utf-8",
-            });
-            output += "Removed server key files.\n";
-          }
-
-          execSync("sudo rm -f /etc/sysctl.d/99-wireguard.conf", { encoding: "utf-8" });
-          output += "Removed WireGuard sysctl config file.\n";
-
-          return buildToolResult(`WireGuard server reset success.\n${output}`, {
+        return buildToolResult(
+          `${response.summary ?? "WireGuard reset requested."}${
+            response.output ? `\n\n${response.output}` : ""
+          }`,
+          {
             status: "success",
             interface: iface,
             removeKeys,
-          });
-        } catch (error) {
-          return buildToolResult(
-            `WireGuard server reset failed. Output: ${output}\nError: ${error instanceof Error ? error.message : String(error)}`,
-            {
-              status: "error",
-              interface: iface,
-              removeKeys,
-            },
-          );
-        }
+            response,
+          },
+        );
       },
     },
     {
@@ -4207,7 +3693,6 @@ WantedBy=multi-user.target
           egressInterface?: string;
           peerBindings?: DeployWgServerPeerParams[];
         };
-        const { execSync } = await import("node:child_process");
         const port = args.port || 51820;
         const tunnelIp = args.tunnelIp || "10.0.0.1/24";
         if (!/^[\w.:/,\- ]+$/.test(tunnelIp)) {
@@ -4226,170 +3711,28 @@ WantedBy=multi-user.target
             },
           );
         }
-        let output = "";
 
-        try {
-          // 1. Install WireGuard tools
-          output += "Checking/Installing WireGuard tools...\n";
-          const installCmd = `
-            if ! command -v wg >/dev/null; then
-              if command -v apt-get >/dev/null; then
-                sudo apt-get update && sudo apt-get install -y wireguard
-              elif command -v dnf >/dev/null; then
-                sudo dnf install -y epel-release elrepo-release && sudo dnf install -y kmod-wireguard wireguard-tools
-              elif command -v pacman >/dev/null; then
-                sudo pacman -S --noconfirm wireguard-tools
-              else
-                echo "Unsupported package manager. Please install wireguard-tools manually."
-                exit 1
-              fi
-            fi
-          `;
-          execSync(installCmd, { encoding: "utf-8" });
-
-          // 2. Enable IP forwarding
-          output += "Enabling IPv4 forwarding...\n";
-          execSync("sudo sysctl -w net.ipv4.ip_forward=1", { encoding: "utf-8" });
-          execSync("echo 'net.ipv4.ip_forward = 1' | sudo tee /etc/sysctl.d/99-wireguard.conf", {
-            encoding: "utf-8",
-          });
-
-          // 3. Generate server keys if missing
-          const privKeyPath = "/etc/wireguard/server_private.key";
-          const pubKeyPath = "/etc/wireguard/server_public.key";
-          try {
-            execSync(`sudo ls ${privKeyPath}`, { encoding: "utf-8" });
-            output += "Server keys already exist.\n";
-          } catch {
-            output += "Generating server keys...\n";
-            execSync(`sudo mkdir -p /etc/wireguard && sudo chmod 700 /etc/wireguard`, {
-              encoding: "utf-8",
-            });
-            execSync(`wg genkey | sudo tee ${privKeyPath} | wg pubkey | sudo tee ${pubKeyPath}`, {
-              encoding: "utf-8",
-            });
-            execSync(`sudo chmod 600 ${privKeyPath}`, { encoding: "utf-8" });
-          }
-          const serverPrivKey = execSync(`sudo cat ${privKeyPath}`, { encoding: "utf-8" }).trim();
-          const serverPubKey = execSync(`sudo cat ${pubKeyPath}`, { encoding: "utf-8" }).trim();
-
-          // 4. Detect egress interface (or use explicit override)
-          const requestedEgress = args.egressInterface?.trim();
-          const egressIf = requestedEgress || detectServerEgressInterface(execSync);
-          if (!egressIf || !/^[a-zA-Z0-9.\-_@]+$/.test(egressIf)) {
-            const interfaces = listServerInterfacesWithIp(execSync);
-            const recommended = detectRecommendedServerInterface(execSync);
-            const recommendationLine = recommended
-              ? `Recommended outbound interface (best guess): ${recommended}\n`
-              : "";
-            return buildToolResult(
-              `WireGuard deployment failed: unable to determine VPS WAN interface automatically.\n` +
-              recommendationLine +
-              `Detected VPS interfaces and IPv4:\n${interfaces}\n` +
-              `Please ask user to choose the outbound interface, then rerun with egressInterface set (for example: \"eth0\").`,
-              {
-                status: "error",
-                output,
-                interfaces,
-                recommendedInterface: recommended || undefined,
-              },
-            );
-          }
-          output += `Egress interface detected: ${egressIf}\n`;
-
-          // 5. Normalize peer bindings and create wg0.conf
-          const peerBindings = args.peerBindings.map((binding) => {
-            const tunnel = parseIPv4Cidr(binding.tunnelIp);
-            if (!tunnel) {
-              throw new Error(`Invalid peer tunnelIp for ${binding.deviceId}: ${binding.tunnelIp}`);
-            }
-            const lan = parseIPv4Cidr(binding.lanCidr);
-            if (!lan) {
-              throw new Error(`Invalid peer lanCidr for ${binding.deviceId}: ${binding.lanCidr}`);
-            }
-            const peerPublicKey = binding.peerPublicKey.trim();
-            if (!isValidWireGuardPublicKey(peerPublicKey)) {
-              throw new Error(
-                `Invalid WireGuard public key for ${binding.deviceId}: ${peerPublicKey.substring(0, 12)}…`,
-              );
-            }
-            return {
-              deviceId: binding.deviceId.trim(),
-              peerPublicKey,
-              tunnelIp: tunnel.normalized,
-              lanCidr: lan.normalized,
-              endpoint: binding.endpoint?.trim() || undefined,
-            };
-          });
-          if (peerBindings.length > 0) {
-            output += `Embedding ${peerBindings.length} peer binding(s) into wg0.conf from LAN collection results.\n`;
-            for (const peer of peerBindings) {
-              output += `- ${peer.deviceId}: tunnel=${peer.tunnelIp} lan=${peer.lanCidr}\n`;
-            }
-          }
-
-          // 6. Create wg0.conf
-          const confPath = "/etc/wireguard/wg0.conf";
-          const confContent = buildWireguardServerConfig({
-            tunnelIp,
+        const response = await callChawrtd({
+          path: "/v1/wg/deploy",
+          method: "POST",
+          body: {
             port,
-            privateKey: serverPrivKey,
-            egressInterface: egressIf,
-            peerBindings,
-          });
-          const crypto = await import("node:crypto");
-          const tempFile = `/tmp/wg0-${crypto.randomBytes(8).toString("hex")}.conf`;
-          await fs.writeFile(tempFile, confContent, { encoding: "utf8", mode: 0o600 });
-          execSync(`sudo install -o root -g root -m 600 ${tempFile} ${confPath}`, {
-            encoding: "utf-8",
-          });
+            tunnelIp,
+            egressInterface: args.egressInterface,
+            peerBindings: args.peerBindings,
+          },
+        });
 
-          // 7. Open UDP port (best effort)
-          output += "Attempting to open UDP port in firewall...\n";
-          const fwCmd = `
-            if systemctl is-active --quiet firewalld; then
-              sudo firewall-cmd --permanent --add-port=${port}/udp
-              sudo firewall-cmd --permanent --add-masquerade
-              sudo firewall-cmd --reload
-            elif command -v ufw >/dev/null && sudo ufw status | grep -q "active"; then
-              sudo ufw allow ${port}/udp
-            fi
-          `;
-          try {
-            execSync(fwCmd, { encoding: "utf-8" });
-          } catch { }
-
-          // 8. Start service
-          execSync("sudo systemctl enable wg-quick@wg0", { encoding: "utf-8" });
-          execSync("sudo systemctl restart wg-quick@wg0", { encoding: "utf-8" });
-          output += "WireGuard server successfully deployed and started.\n";
-
-          return buildToolResult(
-            `WireGuard deployment success.\nPublic Key: ${serverPubKey}\nOutput: ${output}`,
-            {
-              status: "success",
-              executionMarker,
-              serverPubKey,
-              port,
-              tunnelIp,
-              peerBindings: peerBindings.map((peer) => ({
-                deviceId: peer.deviceId,
-                tunnelIp: peer.tunnelIp,
-                lanCidr: peer.lanCidr,
-                endpoint: peer.endpoint,
-              })),
-            },
-          );
-        } catch (error) {
-          return buildToolResult(
-            `WireGuard deployment failed: ${error instanceof Error ? error.message : String(error)}`,
-            {
-              status: "error",
-              executionMarker,
-              output,
-            },
-          );
-        }
+        return buildToolResult(
+          `${response.summary ?? "WireGuard deployment requested."}${
+            response.output ? `\n\n${response.output}` : ""
+          }`,
+          {
+            status: "success",
+            executionMarker,
+            response,
+          },
+        );
       },
     },
     {
@@ -4399,68 +3742,49 @@ WantedBy=multi-user.target
       parameters: Type.Object({}),
       execute: async () => {
         logToolInvocation(undefined, "openclaw_get_wg_status");
-        const { execSync } = await import("node:child_process");
-        try {
-          const wgBinary = execSync("command -v wg", { encoding: "utf-8" }).trim();
-          if (!wgBinary) {
-            return buildToolResult("WireGuard is not installed on this device.", {
-              status: "not_installed",
-              installed: false,
-            });
-          }
-
-          const wgShow = execSync("sudo wg show", { encoding: "utf-8" });
-          const forwarding = execSync("sysctl net.ipv4.ip_forward", { encoding: "utf-8" }).trim();
-          return buildToolResult(`WireGuard Status:\n${wgShow}\n\n${forwarding}`, {
+        const response = await callChawrtd({ path: "/v1/wg/status", method: "GET" });
+        return buildToolResult(
+          `${response.summary ?? "WireGuard status fetched."}${
+            response.output ? `\n\n${response.output}` : ""
+          }`,
+          {
             status: "success",
-            installed: true,
-            wgBinary,
-            wgShow,
-            forwarding,
-          });
-        } catch (error) {
-          return buildToolResult(
-            `Failed to get status: ${error instanceof Error ? error.message : String(error)}`,
-            { status: "error" },
-          );
-        }
+            response,
+          },
+        );
       },
     },
     {
       name: "openclaw_get_wg_server_public_key",
       label: "OpenClaw Get WireGuard Server Public Key",
       description:
-        "Fetch the VPS WireGuard server public key from /etc/wireguard/server_public.key so client setup can consume the exact deployed key without guessing.",
+        "Fetch the VPS WireGuard server public key from chawrtd so client setup can consume the exact deployed key without guessing.",
       parameters: Type.Object({}, { additionalProperties: false }),
       execute: async () => {
         logToolInvocation(undefined, "openclaw_get_wg_server_public_key");
-        const { execSync } = await import("node:child_process");
-        const pubKeyPath = "/etc/wireguard/server_public.key";
-
         try {
-          const serverPublicKey = execSync(`sudo cat ${pubKeyPath}`, { encoding: "utf-8" }).trim();
+          const response = await callChawrtd({ path: "/v1/wg/status", method: "GET" });
+          const serverData = asObject(asObject(response.data)?.server);
+          const serverPublicKey = typeof serverData?.serverPublicKey === "string" ? serverData.serverPublicKey.trim() : "";
           if (!serverPublicKey) {
             return buildToolResult(
-              `WireGuard server public key is empty at ${pubKeyPath}. Re-run openclaw_deploy_wg_server if the server was reset or the key file was removed.`,
+              `WireGuard server public key is unavailable from chawrtd. Re-run openclaw_deploy_wg_server if the server was reset or the key file was removed.`,
               {
                 status: "error",
-                keyPath: pubKeyPath,
                 missingServerPublicKey: true,
               },
             );
           }
 
-          return buildToolResult(`Fetched WireGuard server public key from ${pubKeyPath}.`, {
+          return buildToolResult(`Fetched WireGuard server public key from chawrtd.`, {
             status: "success",
-            keyPath: pubKeyPath,
             serverPublicKey,
           });
         } catch (error) {
           return buildToolResult(
-            `Failed to read WireGuard server public key from ${pubKeyPath}: ${error instanceof Error ? error.message : String(error)}`,
+            `Failed to read WireGuard server public key from chawrtd: ${error instanceof Error ? error.message : String(error)}`,
             {
               status: "error",
-              keyPath: pubKeyPath,
               missingServerPublicKey: true,
             },
           );
@@ -4471,28 +3795,35 @@ WantedBy=multi-user.target
       name: "openclaw_get_vps_public_ip",
       label: "OpenClaw Get VPS Public IP",
       description:
-        "Detect the current VPS public IPv4 address by running curl https://ifconfig.me/ip. If automatic detection fails or returns a non-IPv4 result, the tool reports a structured error so the agent can ask the user to confirm the VPS public IP or domain instead of guessing.",
+        "Detect the current VPS public IPv4 address from chawrtd. If automatic detection fails or returns a non-IPv4 result, the tool reports a structured error so the agent can ask the user to confirm the VPS public IP or domain instead of guessing.",
       parameters: GetVpsPublicIpSchema,
       execute: async () => {
         logToolInvocation(undefined, "openclaw_get_vps_public_ip");
-        const { execSync } = await import("node:child_process");
-
         try {
-          const publicIp = detectVpsPublicIp(execSync);
-          return buildToolResult(`Detected VPS public IPv4 address: ${publicIp}.`, {
+          const response = await callChawrtd({ path: "/v1/vps/public-ip", method: "GET" });
+          const data = asObject(response.data);
+          const publicIp = typeof data?.publicIp === "string" ? data.publicIp.trim() : "";
+          if (!publicIp) {
+            throw new Error("chawrtd returned an empty VPS public IP");
+          }
+          if (!isIPv4(publicIp)) {
+            throw new Error(`chawrtd returned a non-IPv4 VPS public IP: ${publicIp}`);
+          }
+
+          return buildToolResult(`Detected VPS public IPv4 address from chawrtd: ${publicIp}.`, {
             status: "success",
             publicIp,
-            source: "curl https://ifconfig.me/ip",
+            source: "chawrtd /v1/vps/public-ip",
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           return buildToolResult(
-            `Unable to detect the VPS public IP automatically via curl https://ifconfig.me/ip: ${message}. Please ask the user to confirm the VPS public IP or domain, then continue with the confirmed value instead of guessing.`,
+            `Unable to detect the VPS public IP automatically via chawrtd: ${message}. Please ask the user to confirm the VPS public IP or domain, then continue with the confirmed value instead of guessing.`,
             {
               status: "error",
               requiresUserConfirmation: true,
               requiredAction: "confirm_vps_public_ip_or_domain",
-              source: "curl https://ifconfig.me/ip",
+              source: "chawrtd /v1/vps/public-ip",
               error: message,
             },
           );

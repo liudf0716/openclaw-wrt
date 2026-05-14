@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderPortalPageHtml } from "./portal-page-renderer.js";
 import { createClawWRTTools } from "./tool.js";
 
@@ -24,7 +24,7 @@ function defaultExecSyncMockImpl(command: string) {
   return "";
 }
 
-const { execSyncMock, execFileSyncMock } = vi.hoisted(() => ({
+const { execSyncMock, execFileSyncMock, fetchMock } = vi.hoisted(() => ({
   execSyncMock: vi.fn(defaultExecSyncMockImpl),
   execFileSyncMock: vi.fn((file: string, args: string[] = [], options?: { input?: string }) => {
     if (file === "wg" && args[0] === "pubkey") {
@@ -42,7 +42,10 @@ const { execSyncMock, execFileSyncMock } = vi.hoisted(() => ({
     }
     return "";
   }),
+  fetchMock: vi.fn(),
 }));
+
+vi.stubGlobal("fetch", fetchMock);
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
@@ -54,6 +57,10 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 
 describe("openclaw-wrt intent tools", () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+  });
+
   it("router discovery and detail tools mention online and wireless router wording", () => {
     const bridge = {
       listDevices() {
@@ -125,96 +132,83 @@ describe("openclaw-wrt intent tools", () => {
     expect(helloIntro).toContain("WiFi102");
   });
 
-  it("deploy frps uses secure temporary files for the config and systemd unit", async () => {
-    try {
-      execSyncMock.mockClear();
+  it("deploy frps delegates to chawrtd API", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          summary: "FRPS deployed successfully",
+          output: "ok",
+          data: { port: 7000 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
 
-      const bridge = {
-        listDevices() {
-          return [];
-        },
-        getDevice() {
-          return null;
-        },
-      };
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+    };
 
-      const tool = createClawWRTTools({ bridge: bridge as never }).find(
-        (entry) => entry.name === "openclaw_deploy_frps",
-      );
-      expect(tool).toBeTruthy();
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "openclaw_deploy_frps",
+    );
+    expect(tool).toBeTruthy();
 
-      await tool?.execute?.("tool-deploy", {
-        port: 7000,
-      });
+    const result = await tool?.execute?.("tool-deploy", {
+      port: 7000,
+      token: "abc",
+    });
 
-      const installCommands = execSyncMock.mock.calls
-        .map(([command]) => command)
-        .filter(
-          (command): command is string =>
-            typeof command === "string" && command.startsWith("sudo install -o root -g root -m "),
-        );
-
-      expect(installCommands.some((command) => command.includes("sudo install -o root -g root -m 600 "))).toBe(true);
-      expect(installCommands.some((command) => command.includes("sudo install -o root -g root -m 644 "))).toBe(true);
-    } finally {
-      execSyncMock.mockClear();
-    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://127.0.0.1:8090/v1/frps/deploy");
+    expect(init.method).toBe("POST");
+    expect(init.body).toContain('"port":7000');
+    expect(init.body).toContain('"token":"abc"');
+    expect((result as { content?: Array<{ text?: string }> }).content?.[0]?.text).toContain(
+      "FRPS deployed successfully",
+    );
   });
 
-  it("deploy frps installs the binary as root-owned when nwct-server is missing", async () => {
-    const originalExecSyncImpl = execSyncMock.getMockImplementation() ?? defaultExecSyncMockImpl;
-    execSyncMock.mockImplementation(((command: string): string => {
-      if (command.startsWith("test -x ")) {
-        throw new Error("not found");
-      }
-      if (command.includes("api.github.com/repos/fatedier/frp/releases/latest")) {
-        return '{"tag_name":"v1.2.3"}';
-      }
-      if (command.includes("-o /tmp/frp_1.2.3_linux_amd64.tar.gz")) {
-        return "";
-      }
-      if (command.startsWith("tar -C /tmp -zxvf /tmp/frp_1.2.3_linux_amd64.tar.gz")) {
-        return "";
-      }
-      if (command.startsWith("sudo install -o root -g root -m 755 /tmp/frp_1.2.3_linux_amd64/frps /usr/bin/nwct-server")) {
-        return "";
-      }
-      return originalExecSyncImpl(command);
-    }) as any);
+  it("deploy frps forwards chawrtd errors", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ error: "deploy failed" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
 
-    try {
-      const bridge = {
-        listDevices() {
-          return [];
-        },
-        getDevice() {
-          return null;
-        },
-      };
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+    };
 
-      const tool = createClawWRTTools({ bridge: bridge as never }).find(
-        (entry) => entry.name === "openclaw_deploy_frps",
-      );
-      expect(tool).toBeTruthy();
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "openclaw_deploy_frps",
+    );
+    expect(tool).toBeTruthy();
 
-      await tool?.execute?.("tool-deploy-binary", {
-        port: 7000,
-      });
-
-      expect(
-        execSyncMock.mock.calls.some(
-          ([command]) =>
-            typeof command === "string" &&
-            command.includes("sudo install -o root -g root -m 755 /tmp/frp_1.2.3_linux_amd64/frps /usr/bin/nwct-server"),
-        ),
-      ).toBe(true);
-    } finally {
-      execSyncMock.mockImplementation(defaultExecSyncMockImpl);
-    }
+    await expect(tool?.execute?.("tool-deploy-binary", { port: 7000 })).rejects.toThrow("deploy failed");
   });
 
-  it("frps status redacts the auth token from returned config content", async () => {
-    execSyncMock.mockClear();
+  it("frps status fetches details from chawrtd", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          summary: "Fetched FRPS status",
+          output: "SERVICE_STATE=active",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
 
     const bridge = {
       listDevices() {
@@ -232,17 +226,25 @@ describe("openclaw-wrt intent tools", () => {
 
     const result = await tool?.execute?.("tool-status", {});
     const resultText = (result as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? "";
-    const details = (result as { details?: Record<string, unknown> }).details;
-    const configContent = details?.configContent as string | undefined;
-
-    expect(resultText).toContain('auth.token = "[REDACTED]"');
-    expect(resultText).not.toContain("secret-token");
-    expect(configContent).toContain('auth.token = "[REDACTED]"');
-    expect(configContent).not.toContain("secret-token");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(resultText).toContain("Fetched FRPS status");
+    expect(resultText).toContain("SERVICE_STATE=active");
   });
 
   it("detects the VPS public IP via ifconfig.me", async () => {
-    execSyncMock.mockClear();
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          summary: "Detected VPS public IPv4 address",
+          output: "203.0.113.42",
+          data: {
+            publicIp: "203.0.113.42",
+            source: "curl https://ifconfig.me/ip",
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
 
     const bridge = {
       listDevices() {
@@ -261,137 +263,99 @@ describe("openclaw-wrt intent tools", () => {
     const result = await tool?.execute?.("tool-vps-ip", {});
     const details = (result as { details?: Record<string, unknown> }).details ?? {};
 
-    expect(execSyncMock.mock.calls.some(([command]) => command === "curl -4 -fsSL --max-time 8 https://ifconfig.me/ip")).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(details.status).toBe("success");
     expect(details.publicIp).toBe("203.0.113.42");
     expect((result as { content?: Array<{ text?: string }> }).content?.[0]?.text).toContain("203.0.113.42");
   });
 
   it("returns a confirmation-required error when VPS public IP detection fails", async () => {
-    const originalExecSyncImpl = execSyncMock.getMockImplementation() ?? defaultExecSyncMockImpl;
-    execSyncMock.mockImplementation(((command: string): string => {
-      if (command.startsWith("curl -4 -fsSL --max-time 8 https://ifconfig.me/ip")) {
-        throw new Error("curl: (6) Could not resolve host");
-      }
-      return originalExecSyncImpl(command);
-    }) as any);
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ error: "ifconfig.me returned a non-IPv4 response: not-an-ip" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      }),
+    );
 
-    try {
-      const bridge = {
-        listDevices() {
-          return [];
-        },
-        getDevice() {
-          return null;
-        },
-      };
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+    };
 
-      const tool = createClawWRTTools({ bridge: bridge as never }).find(
-        (entry) => entry.name === "openclaw_get_vps_public_ip",
-      );
-      expect(tool).toBeTruthy();
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "openclaw_get_vps_public_ip",
+    );
+    expect(tool).toBeTruthy();
 
-      const result = await tool?.execute?.("tool-vps-ip-fail", {});
-      const details = (result as { details?: Record<string, unknown> }).details ?? {};
+    const result = await tool?.execute?.("tool-vps-ip-fail", {});
+    const details = (result as { details?: Record<string, unknown> }).details ?? {};
 
-      expect(details.status).toBe("error");
-      expect(details.requiresUserConfirmation).toBe(true);
-      expect(details.requiredAction).toBe("confirm_vps_public_ip_or_domain");
-      expect((result as { content?: Array<{ text?: string }> }).content?.[0]?.text).toContain("confirm the VPS public IP or domain");
-    } finally {
-      execSyncMock.mockImplementation(defaultExecSyncMockImpl);
-    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(details.status).toBe("error");
+    expect(details.requiresUserConfirmation).toBe(true);
+    expect(details.requiredAction).toBe("confirm_vps_public_ip_or_domain");
+    expect((result as { content?: Array<{ text?: string }> }).content?.[0]?.text).toContain("confirm the VPS public IP or domain");
   });
 
-  it("deploy wg server writes peer bindings into the generated server config in one pass", async () => {
-    const originalExecSyncImpl = execSyncMock.getMockImplementation() ?? defaultExecSyncMockImpl;
-    let writtenConfigSource = "";
-
-    execSyncMock.mockImplementation(((command: string): string => {
-      if (command.startsWith("command -v wg")) {
-        return "/usr/bin/wg\n";
-      }
-      if (command.startsWith("sudo ls /etc/wireguard/server_private.key")) {
-        throw new Error("missing key");
-      }
-      if (command.startsWith("wg genkey | sudo tee /etc/wireguard/server_private.key | wg pubkey | sudo tee /etc/wireguard/server_public.key")) {
-        return "";
-      }
-      if (command.startsWith("sudo cat /etc/wireguard/server_private.key")) {
-        return "server-private-key\n";
-      }
-      if (command.startsWith("sudo cat /etc/wireguard/server_public.key")) {
-        return "server-public-key\n";
-      }
-      if (command.startsWith("sudo sysctl -w net.ipv4.ip_forward=1")) {
-        return "";
-      }
-      if (command.startsWith("echo 'net.ipv4.ip_forward = 1' | sudo tee /etc/sysctl.d/99-wireguard.conf")) {
-        return "";
-      }
-      if (command.startsWith("sudo install -o root -g root -m 600 ")) {
-        const match = command.match(/^sudo install -o root -g root -m 600 (\S+) \/etc\/wireguard\/wg0\.conf$/);
-        expect(match).toBeTruthy();
-        writtenConfigSource = match?.[1] ?? "";
-        return "";
-      }
-      if (command.startsWith("sudo systemctl enable wg-quick@wg0")) {
-        return "";
-      }
-      if (command.startsWith("sudo systemctl restart wg-quick@wg0")) {
-        return "";
-      }
-      return originalExecSyncImpl(command);
-    }) as any);
-
-    try {
-      const bridge = {
-        listDevices() {
-          return [];
-        },
-        getDevice() {
-          return null;
-        },
-      };
-
-      const tool = createClawWRTTools({ bridge: bridge as never }).find(
-        (entry) => entry.name === "openclaw_deploy_wg_server",
-      );
-      expect(tool).toBeTruthy();
-
-      const result = await tool?.execute?.("tool-deploy-wg", {
-        port: 51820,
-        tunnelIp: "10.0.0.1/24",
-        egressInterface: "eth0",
-        peerBindings: [
-          {
-            deviceId: "dev-1",
-            peerPublicKey: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
-            tunnelIp: "10.0.0.2/32",
-            lanCidr: "192.168.10.0/24",
+  it("deploy wg server forwards peerBindings to chawrtd", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          summary: "WireGuard server deployed successfully",
+          data: {
+            peerBindings: [
+              {
+                deviceId: "dev-1",
+                tunnelIp: "10.0.0.2/32",
+                lanCidr: "192.168.10.0/24",
+              },
+            ],
           },
-        ],
-      });
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
 
-      expect(writtenConfigSource).toMatch(/^\/tmp\/wg0-[a-f0-9]+\.conf$/);
-      const config = await readFile(writtenConfigSource, "utf8");
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+    };
 
-      expect(config).toContain("Address = 10.0.0.1/24");
-      expect(config).toContain("ListenPort = 51820");
-      expect(config).toContain("[Peer]");
-      expect(config).toContain("PublicKey = b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=");
-      expect(config).toContain("AllowedIPs = 10.0.0.2/32, 192.168.10.0/24");
-      expect((result as { details?: Record<string, unknown> }).details?.peerBindings).toEqual([
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "openclaw_deploy_wg_server",
+    );
+    expect(tool).toBeTruthy();
+
+    const result = await tool?.execute?.("tool-deploy-wg", {
+      port: 51820,
+      tunnelIp: "10.0.0.1/24",
+      egressInterface: "eth0",
+      peerBindings: [
         {
           deviceId: "dev-1",
+          peerPublicKey: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
           tunnelIp: "10.0.0.2/32",
           lanCidr: "192.168.10.0/24",
-          endpoint: undefined,
         },
-      ]);
-    } finally {
-      execSyncMock.mockImplementation(originalExecSyncImpl);
-    }
+      ],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://127.0.0.1:8090/v1/wg/deploy");
+    expect(init.method).toBe("POST");
+    expect(init.body).toContain('"peerBindings"');
+    expect((result as { content?: Array<{ text?: string }> }).content?.[0]?.text).toContain(
+      "WireGuard server deployed successfully",
+    );
   });
 
   it("deploy wg server requires peer bindings before starting deployment", async () => {
@@ -1224,6 +1188,29 @@ describe("openclaw-wrt intent tools", () => {
 
   it("wireguard status tool calls get_wireguard_vpn_status op", async () => {
     const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          summary: "Fetched WireGuard server status",
+          output: "WG_BEGIN\nwg0\nWG_END\nNAT_BEGIN\n-A POSTROUTING -j MASQUERADE\nNAT_END\nIP_FORWARD=1\n",
+          data: {
+            server: {
+              wgShow: "wg0",
+              natRules: "-A POSTROUTING -j MASQUERADE",
+              ipForwardOk: true,
+              snatOk: true,
+              serverPublicKey: "SERVERPUBKEYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+              reportLines: [
+                "- IP Forwarding: ✅ enabled",
+                "- SNAT/MASQUERADE: ✅ present",
+                "- Server key pair: ✅ private/public key match",
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
     const bridge = {
       listDevices() {
         return [];
@@ -1249,6 +1236,7 @@ describe("openclaw-wrt intent tools", () => {
       deviceId: "dev-wg",
     });
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
       deviceId: "dev-wg",
@@ -1256,57 +1244,76 @@ describe("openclaw-wrt intent tools", () => {
     });
   });
 
+  it("wireguard server public key tool reads chawrtd status response", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          summary: "Fetched WireGuard server status",
+          output: "WG_BEGIN\nwg0\nWG_END\nNAT_BEGIN\n-A POSTROUTING -j MASQUERADE\nNAT_END\nIP_FORWARD=1\n",
+          data: {
+            server: {
+              serverPublicKey: "SERVERPUBKEYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const tool = createClawWRTTools({ bridge: { listDevices() { return []; }, getDevice() { return null; } } as never }).find(
+      (entry) => entry.name === "openclaw_get_wg_server_public_key",
+    );
+
+    const result = await tool?.execute?.("tool-server-pubkey", {});
+    const text = (result as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? "";
+    const details = (result as { details?: Record<string, unknown> }).details ?? {};
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(text).toContain("Fetched WireGuard server public key from chawrtd.");
+    expect(details).toMatchObject({
+      status: "success",
+      serverPublicKey: "SERVERPUBKEYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    });
+  });
+
   it("wireguard verify reports client/server key mismatches explicitly", async () => {
-    const originalExecSyncImpl = execSyncMock.getMockImplementation() ?? defaultExecSyncMockImpl;
-    const originalExecFileSyncImpl = execFileSyncMock.getMockImplementation();
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          summary: "Verified WireGuard server connectivity",
+          output: "interface: wg0\n",
+          data: {
+            server: {
+              wgShow: "interface: wg0\n",
+              snatOk: true,
+              ipForwardOk: true,
+              serverPublicKey: "WRONGSERVERPUBKEYAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+              keyCheck: {
+                status: "mismatch",
+                configuredPublicKey: "WRONGSERVERPUBKEYAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                derivedPublicKey: "n5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
+              },
+              peerConfig: [
+                {
+                  publicKey: "MISMATCHEDCLIENTPUBKEYAAAAAAAAAAAAAAAAAAAA=",
+                  allowedIps: ["10.0.0.2/32", "192.168.10.0/24"],
+                },
+              ],
+            },
+            pingResults: [
+              {
+                target: "10.0.0.2",
+                reachable: true,
+                output: "3 packets transmitted, 3 received, 0% packet loss",
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
 
-    execSyncMock.mockImplementation(((command: string): string => {
-      if (command === "sudo wg show 2>&1 || echo 'wg not found'") {
-        return "interface: wg0\n";
-      }
-      if (command === "sudo iptables -t nat -S POSTROUTING") {
-        return "-A POSTROUTING -j MASQUERADE\n";
-      }
-      if (command === "sysctl -n net.ipv4.ip_forward") {
-        return "1\n";
-      }
-      if (command === "sudo cat /etc/wireguard/server_private.key") {
-        return "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n";
-      }
-      if (command === "sudo cat /etc/wireguard/server_public.key") {
-        return "WRONGSERVERPUBKEYAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n";
-      }
-      if (command === "sudo cat /etc/wireguard/wg0.conf 2>/dev/null || true") {
-        return [
-          "[Interface]",
-          "Address = 10.0.0.1/24",
-          "",
-          "[Peer]",
-          "PublicKey = MISMATCHEDCLIENTPUBKEYAAAAAAAAAAAAAAAAAAAA=",
-          "AllowedIPs = 10.0.0.2/32, 192.168.10.0/24",
-          "",
-        ].join("\n");
-      }
-      if (command.startsWith("ping -c 3 -W 2 10.0.0.2")) {
-        return "3 packets transmitted, 3 received, 0% packet loss\n";
-      }
-      return originalExecSyncImpl(command);
-    }) as any);
-
-    execFileSyncMock.mockImplementation(((file: string, args: string[] = [], options?: { input?: string }) => {
-      if (file === "wg" && args[0] === "pubkey") {
-        const input = options?.input?.trim();
-        if (input === "KAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") {
-          return "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=\n";
-        }
-        if (input === "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") {
-          return "n5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=\n";
-        }
-      }
-      return originalExecFileSyncImpl?.(file, args, options) ?? "";
-    }) as any);
-
-    try {
+    {
       const bridge = {
         listDevices() {
           return [{ deviceId: "dev-wg", connectedAtMs: 1, lastSeenAtMs: 1 }];
@@ -1372,11 +1379,6 @@ describe("openclaw-wrt intent tools", () => {
             entry.includes("dev-wg: server peer public key does not match the router private key derived public key"),
         ),
       ).toBe(true);
-    } finally {
-      execSyncMock.mockImplementation(originalExecSyncImpl);
-      if (originalExecFileSyncImpl) {
-        execFileSyncMock.mockImplementation(originalExecFileSyncImpl);
-      }
     }
   });
 
