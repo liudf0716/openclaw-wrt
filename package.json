@@ -26,17 +26,15 @@
   ],
   "author": "",
   "license": "MIT",
-  "description": "OpenClaw bridge for OpenClaw WRT device WebSocket control",
+  "description": "OpenClaw plugin for subscribing to chawrtd device events and controlling ClawWRT routers",
   "dependencies": {
-    "@sinclair/typebox": "0.34.49",
-    "ws": "^8.20.0"
+    "@sinclair/typebox": "0.34.49"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^25.0.7",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^15.2.3",
     "@rollup/plugin-typescript": "^11.1.6",
-    "@types/ws": "^8.18.1",
     "openclaw": ">=2026.3.13",
     "rollup": "^4.9.6",
     "rollup-plugin-dts": "^6.1.0",

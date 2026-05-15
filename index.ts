@@ -1,6 +1,6 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/core";
 import { createClawWRTPluginConfigSchema, resolveClawWRTConfig } from "./src/config.js";
-import { ClawWRTBridge } from "./src/manager.js";
+import { ChawrtdEventStreamClient } from "./src/chawrtd-events.js";
 import { createClawWRTTools } from "./src/tool.js";
 
 /** Format a device push event as a human-readable notification message. */
@@ -45,69 +45,59 @@ export default definePluginEntry({
   id: "openclaw-wrt",
   name: "OpenClaw WRT",
   description:
-    "List and inspect online OpenWrt or wireless router devices, publish captive portal HTML pages, and send management requests to connected routers over WebSocket.",
+    "Subscribe to chawrtd device events, inspect online router snapshots, and send management requests through the chawrtd API.",
   configSchema: () => {
     const schema = createClawWRTPluginConfigSchema();
     schema.uiHints = {
-      enabled: { label: "Enable bridge" },
-      bind: { label: "Bind address", advanced: true },
-      port: { label: "Bridge port" },
-      path: { label: "WebSocket path" },
-      allowDeviceIds: {
-        label: "Allowed device IDs",
-        help: "Optional allowlist. Leave empty to accept any device_id.",
+      enabled: { label: "Enable event stream" },
+      chawrtdEventStream: {
+        label: "chawrtd event stream",
+        help: "Configure the chawrtd base URL and SSE event stream path.",
+        advanced: false,
       },
-      requestTimeoutMs: { label: "Default request timeout (ms)", advanced: true },
-      maxPayloadBytes: { label: "Max payload bytes", advanced: true },
-      token: {
-        label: "Device authentication token",
-        help: "Optional shared secret. If set, routers must provide this token in their connect message.",
-        advanced: true,
-      },
-      awasEnabled: { label: "Enable AWAS auth proxy" },
-      awasHost: { label: "AWAS server hostname" },
-      awasPort: { label: "AWAS server port" },
-      awasPath: { label: "AWAS WebSocket path" },
-      awasSsl: { label: "Use TLS (wss://)", advanced: true },
     };
     return schema;
   },
   register(api) {
     const config = resolveClawWRTConfig(api.pluginConfig);
-    const bridge = ClawWRTBridge.getOrCreate({ config, logger: api.logger });
+    const eventStream = new ChawrtdEventStreamClient({
+      logger: api.logger,
+      config,
+      async onEvent(event) {
+        try {
+          const deviceId = typeof event.deviceId === "string" ? event.deviceId.trim() : "";
+          const op = typeof event.op === "string" ? event.op : "unknown";
+          if (!deviceId) {
+            return;
+          }
+
+          const payload = event.data ?? {};
+          const message = formatDeviceEventMessage(deviceId, op, payload);
+          await api.runtime.subagent.run({
+            sessionKey: `openclaw-wrt:device-events:${deviceId}`,
+            message,
+            deliver: true,
+          });
+        } catch (error) {
+          api.logger.warn(`openclaw-wrt: failed to deliver device event: ${String(error)}`);
+        }
+      },
+    });
 
     api.registerService({
-      id: "openclaw-wrt-bridge",
+      id: "openclaw-wrt-chawrtd-events",
       async start() {
-        await bridge.start();
+        eventStream.start();
       },
       async stop() {
-        await bridge.stop();
+        await eventStream.stop();
       },
     });
 
-    api.registerTool(() => createClawWRTTools({ bridge, logger: api.logger }));
-
-    // Forward device push events to the active channel via the subagent runtime.
-    bridge.onDeviceEvent((event) => {
-      const message = formatDeviceEventMessage(event.deviceId, event.op, event.data);
-      api.runtime.subagent
-        .run({
-          sessionKey: `openclaw-wrt:device-events:${event.deviceId}`,
-          message,
-          deliver: true,
-        })
-        .catch((error: unknown) => {
-          api.logger.warn(
-            `openclaw-wrt: failed to deliver device event op=${event.op} device=${event.deviceId}: ${String(error)}`,
-          );
-        });
-    });
+    api.registerTool(() => createClawWRTTools({ config, logger: api.logger }));
   },
 });
 
-// Public API exports (re-exported from api.ts barrel)
-export { ClawWRTBridge, type DeviceSnapshot, type DeviceEvent } from "./src/manager.js";
 export { createClawWRTTools } from "./src/tool.js";
 export {
   createClawWRTPluginConfigSchema,

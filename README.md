@@ -1,15 +1,14 @@
 # OpenClaw WRT
 
-OpenClaw bridge plugin for ClawWRT router device WebSocket control.
+OpenClaw plugin for subscribing to chawrtd device events and controlling ClawWRT routers through the chawrtd API.
 
 **[中文文档](README_zh.md)**
 
 ## Features
 
-- WebSocket bridge server accepting router device connections
-- Request/response correlation via `req_id`
-- Device session management (connect, auth, timeout, alias)
-- AWAS authentication proxy (forwards cloud-mode device connect/heartbeat to AWAS server)
+- Subscribes to chawrtd device events over SSE for live router state
+- Uses the chawrtd HTTP API for router operations and tool calls
+- Resolves online devices and keeps aliases/session state from event data
 - 30+ fine-grained tools covering: WiFi config, client management, BPF traffic monitoring, WireGuard VPN, shell execution, portal page publishing, domain trust list, etc.
 
 ## Installation
@@ -65,21 +64,17 @@ openclaw plugins remove openclaw-wrt
 ## How it works
 
 ```
-┌──────────────┐    WebSocket     ┌──────────────────┐    Tool calls    ┌──────────────────┐
-│   ClawWRT    │ ──────────────>  │  OpenClaw WRT    │ ──────────────>  │  OpenClaw Agent  │
-│   Router     │ <──────────────  │  Bridge Plugin   │ <──────────────  │  (LLM)           │
-│   Device     │    JSON-RPC      │                  │                  │                  │
-│              │                  │  · req_id correl. │                  │  Uses 30+ tools  │
-└──────────────┘                  │  · device mgmt   │                  │  to manage router│
-                                  │  · auth/token    │                  └──────────────────┘
-                                  │  · AWAS proxy    │
-                                  └──────────────────┘
+┌──────────────┐   SSE events    ┌──────────────────┐   HTTP API    ┌──────────────────┐
+│  chawrtd     │ ──────────────> │  OpenClaw WRT    │ ────────────> │  OpenClaw Agent  │
+│  event stream │                 │  plugin          │              │  (LLM)           │
+│  + router API │ <────────────── │  subscribes to   │ <─────────── │  Uses 30+ tools  │
+└──────────────┘   device ops    │  device events   │   tool calls  │  to manage router│
+                                 └──────────────────┘                └──────────────────┘
 ```
 
-1. **Router connects** — Each ClawWRT-enabled router opens a WebSocket to the bridge (`ws://host:8001/ws/clawwrt`) and sends a connect message with its `device_id`.
-2. **Bridge manages sessions** — The plugin maintains a device registry with connection state, aliases, and optional token-based authentication.
-3. **Agent controls devices** — OpenClaw's LLM agent calls 30+ registered tools (e.g., `clawwrt_get_clients`, `clawwrt_set_wifi_info`, `clawwrt_exec_shell`). Each tool call is correlated with the router's response via `req_id`.
-4. **AWAS proxy (optional)** — For cloud-mode devices, the plugin can forward authentication traffic to an AWAS (Auth Server) backend.
+1. **Subscribe to events** — The plugin connects to chawrtd's SSE stream at `/v1/events/stream` and keeps the online device view fresh.
+2. **Call router APIs** — OpenClaw's LLM agent uses the registered `clawwrt_*` and `openclaw_*` tools to call chawrtd's HTTP endpoints.
+3. **Manage devices** — Device state, aliases, and timestamps are derived from the event stream and API responses.
 
 ## Captive portal pages
 
@@ -91,19 +86,11 @@ The page should be self-contained HTML. Keep CSS and JavaScript inline unless yo
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `enabled` | Enable bridge | `true` |
-| `bind` | Bind address | `127.0.0.1` |
-| `port` | Bridge port | `8001` |
-| `path` | WebSocket path | `/ws/clawwrt` |
-| `allowDeviceIds` | Allowed device IDs (allowlist) | *(any)* |
-| `requestTimeoutMs` | Default request timeout (ms) | `10000` |
-| `maxPayloadBytes` | Max payload bytes | `262144` |
-| `token` | Device authentication token | `clawwrt` |
-| `awasEnabled` | Enable AWAS auth proxy | `false` |
-| `awasHost` | AWAS server hostname | `127.0.0.1` |
-| `awasPort` | AWAS server port | `80` |
-| `awasPath` | AWAS WebSocket path | `/ws/clawwrt` |
-| `awasSsl` | Use TLS (wss://) | `false` |
+| `enabled` | Enable the plugin | `true` |
+| `chawrtdEventStream.baseUrl` | chawrtd base URL | `http://127.0.0.1:8001` |
+| `chawrtdEventStream.path` | Event stream path | `/v1/events/stream` |
+| `chawrtdEventStream.reconnectMinMs` | Minimum reconnect delay | `1000` |
+| `chawrtdEventStream.reconnectMaxMs` | Maximum reconnect delay | `30000` |
 
 ### Tool allowlist note
 
@@ -134,7 +121,7 @@ Why this matters:
 
 - `coding` is a core-tool allowlist, not a plugin-tool allowlist
 - `alsoAllow: ["openclaw-wrt"]` expands to the tools registered by this plugin
-- without it, the agent may recognize the plugin conceptually but fail to call tools such as `clawwrt_list_devices`, `clawwrt_get_status`, or `clawwrt_get_clients`
+  - without it, the agent may recognize the plugin conceptually but fail to call tools such as `clawwrt_list_devices`, `clawwrt_get_status`, or `clawwrt_get_clients`
 
 ## Development
 

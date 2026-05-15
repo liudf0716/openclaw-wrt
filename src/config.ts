@@ -1,66 +1,61 @@
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import type { OpenClawPluginConfigSchema } from "openclaw/plugin-sdk/plugin-entry";
-import type { AwasConfig } from "./awas-proxy.js";
 
-const DEFAULT_BIND = "127.0.0.1";
-const DEFAULT_PATH = "/ws/clawwrt";
-const DEFAULT_PORT = 8001;
-const DEFAULT_TOKEN = "clawwrt";
-const DEFAULT_TIMEOUT_MS = 10_000;
-const DEFAULT_MAX_PAYLOAD_BYTES = 256 * 1024;
+const DEFAULT_CHAWRTD_BASE_URL = "http://127.0.0.1:8001";
+const DEFAULT_CHAWRTD_EVENT_STREAM_PATH = "/v1/events/stream";
+const DEFAULT_CHAWRTD_EVENT_STREAM_RECONNECT_MIN_MS = 1000;
+const DEFAULT_CHAWRTD_EVENT_STREAM_RECONNECT_MAX_MS = 15000;
 
-// AWAS (Auth WebSocket Server) defaults
-const DEFAULT_AWAS_HOST = "127.0.0.1";
-const DEFAULT_AWAS_PORT = 80;
-const DEFAULT_AWAS_PATH = "/ws/wifidogx";
-
-export const ClawWRTConfigSchema = Type.Object(
+export const ChawrtdEventStreamConfigSchema = Type.Object(
   {
-    enabled: Type.Optional(Type.Boolean()),
-    bind: Type.Optional(Type.String({ minLength: 1 })),
-    port: Type.Optional(Type.Integer({ minimum: 1, maximum: 65_535 })),
-    path: Type.Optional(Type.String({ minLength: 1 })),
-    allowDeviceIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
-    requestTimeoutMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 120_000 })),
-    maxPayloadBytes: Type.Optional(Type.Integer({ minimum: 1024, maximum: 1_048_576 })),
-    token: Type.Optional(
-      Type.String({ minLength: 1, description: "Shared secret for device authentication." }),
+    baseUrl: Type.Optional(
+      Type.String({ minLength: 1, description: "chawrtd base URL, e.g. http://127.0.0.1:8001" }),
     ),
-    aliasFile: Type.Optional(Type.String({ minLength: 1 })),
-    // AWAS auth server proxy configuration
-    awasEnabled: Type.Optional(Type.Boolean()),
-    awasHost: Type.Optional(Type.String({ minLength: 1 })),
-    awasPort: Type.Optional(Type.Integer({ minimum: 1, maximum: 65_535 })),
-    awasPath: Type.Optional(Type.String({ minLength: 1 })),
-    awasSsl: Type.Optional(Type.Boolean()),
+    path: Type.Optional(
+      Type.String({ minLength: 1, description: "SSE event stream path, e.g. /v1/events/stream" }),
+    ),
+    reconnectMinMs: Type.Optional(
+      Type.Integer({ minimum: 250, maximum: 60_000, description: "Initial reconnect backoff." }),
+    ),
+    reconnectMaxMs: Type.Optional(
+      Type.Integer({ minimum: 1000, maximum: 120_000, description: "Maximum reconnect backoff." }),
+    ),
   },
   { additionalProperties: false },
 );
 
-export type ResolvedClawWRTConfig = {
-  enabled: boolean;
-  bind: string;
-  port: number;
+export const ClawWRTConfigSchema = Type.Object(
+  {
+    enabled: Type.Optional(Type.Boolean()),
+    chawrtdEventStream: Type.Optional(ChawrtdEventStreamConfigSchema),
+  },
+  { additionalProperties: false },
+);
+
+export type ResolvedChawrtdEventStreamConfig = {
+  baseUrl: string;
   path: string;
-  allowDeviceIds: string[];
-  requestTimeoutMs: number;
-  maxPayloadBytes: number;
-  token?: string;
-  aliasFile: string;
-  awas: AwasConfig;
+  reconnectMinMs: number;
+  reconnectMaxMs: number;
 };
 
+export type ResolvedClawWRTConfig = {
+  enabled: boolean;
+  chawrtdEventStream: ResolvedChawrtdEventStreamConfig;
+};
+
+function normalizeBaseUrl(input: string | undefined): string {
+  const trimmed = input?.trim() || DEFAULT_CHAWRTD_BASE_URL;
+  return trimmed.replace(/\/+$/, "");
+}
+
 function normalizePath(input: string | undefined): string {
-  const trimmed = input?.trim() || DEFAULT_PATH;
+  const trimmed = input?.trim() || DEFAULT_CHAWRTD_EVENT_STREAM_PATH;
   if (trimmed.startsWith("/")) {
     return trimmed;
   }
   return `/${trimmed}`;
-}
-
-function uniqSorted(values: readonly string[] | undefined): string[] {
-  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].toSorted();
 }
 
 function asConfigObject(value: unknown): Record<string, unknown> | null {
@@ -86,36 +81,24 @@ function readIntegerInRange(value: unknown, minimum: number, maximum: number): n
     : undefined;
 }
 
-function readStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  return value.every((entry) => typeof entry === "string") ? uniqSorted(value) : undefined;
+function resolveChawrtdEventStreamConfig(value: unknown): ResolvedChawrtdEventStreamConfig {
+  const parsed = Value.Check(ChawrtdEventStreamConfigSchema, value) ? value : asConfigObject(value);
+  return {
+    baseUrl: normalizeBaseUrl(readNonEmptyString(parsed?.baseUrl)),
+    path: normalizePath(readNonEmptyString(parsed?.path)),
+    reconnectMinMs:
+      readIntegerInRange(parsed?.reconnectMinMs, 250, 60_000) ?? DEFAULT_CHAWRTD_EVENT_STREAM_RECONNECT_MIN_MS,
+    reconnectMaxMs:
+      readIntegerInRange(parsed?.reconnectMaxMs, 1000, 120_000) ?? DEFAULT_CHAWRTD_EVENT_STREAM_RECONNECT_MAX_MS,
+  };
 }
 
 export function resolveClawWRTConfig(input: unknown): ResolvedClawWRTConfig {
   const parsed = Value.Check(ClawWRTConfigSchema, input) ? input : asConfigObject(input);
 
   return {
-    // Keep bridge enabled by default when plugin is loaded unless explicitly disabled.
     enabled: readBoolean(parsed?.enabled) !== false,
-    bind: readNonEmptyString(parsed?.bind) || DEFAULT_BIND,
-    port: readIntegerInRange(parsed?.port, 1, 65_535) ?? DEFAULT_PORT,
-    path: normalizePath(readNonEmptyString(parsed?.path)),
-    allowDeviceIds: readStringArray(parsed?.allowDeviceIds) ?? [],
-    requestTimeoutMs:
-      readIntegerInRange(parsed?.requestTimeoutMs, 1000, 120_000) ?? DEFAULT_TIMEOUT_MS,
-    maxPayloadBytes:
-      readIntegerInRange(parsed?.maxPayloadBytes, 1024, 1_048_576) ?? DEFAULT_MAX_PAYLOAD_BYTES,
-    token: parsed?.token === "" ? undefined : readNonEmptyString(parsed?.token) || DEFAULT_TOKEN,
-    aliasFile: readNonEmptyString(parsed?.aliasFile) || ".openclaw/wificlaw/device-aliases.json",
-    awas: {
-      enabled: readBoolean(parsed?.awasEnabled) === true,
-      host: readNonEmptyString(parsed?.awasHost) || DEFAULT_AWAS_HOST,
-      port: readIntegerInRange(parsed?.awasPort, 1, 65_535) ?? DEFAULT_AWAS_PORT,
-      path: normalizePath(readNonEmptyString(parsed?.awasPath) ?? DEFAULT_AWAS_PATH),
-      ssl: readBoolean(parsed?.awasSsl) === true,
-    },
+    chawrtdEventStream: resolveChawrtdEventStreamConfig(parsed?.chawrtdEventStream),
   };
 }
 
@@ -144,30 +127,16 @@ export function createClawWRTPluginConfigSchema(): OpenClawPluginConfigSchema {
       additionalProperties: false,
       properties: {
         enabled: { type: "boolean" },
-        bind: { type: "string" },
-        port: { type: "integer", minimum: 1, maximum: 65535 },
-        path: { type: "string" },
-        allowDeviceIds: {
-          type: "array",
-          items: { type: "string" },
+        chawrtdEventStream: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            baseUrl: { type: "string" },
+            path: { type: "string" },
+            reconnectMinMs: { type: "integer", minimum: 250, maximum: 60000 },
+            reconnectMaxMs: { type: "integer", minimum: 1000, maximum: 120000 },
+          },
         },
-        requestTimeoutMs: {
-          type: "integer",
-          minimum: 1000,
-          maximum: 120000,
-        },
-        maxPayloadBytes: {
-          type: "integer",
-          minimum: 1024,
-          maximum: 1048576,
-        },
-        token: { type: "string" },
-        aliasFile: { type: "string" },
-        awasEnabled: { type: "boolean" },
-        awasHost: { type: "string" },
-        awasPort: { type: "integer", minimum: 1, maximum: 65535 },
-        awasPath: { type: "string" },
-        awasSsl: { type: "boolean" },
       },
     },
   };

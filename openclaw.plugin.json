@@ -1,7 +1,7 @@
 {
   "id": "openclaw-wrt",
   "name": "OpenClaw WRT",
-  "description": "Accept OpenClaw WRT device WebSocket connections and expose a control tool with req_id correlation.",
+  "description": "Subscribe to chawrtd device events and expose OpenClaw WRT control tools through the chawrtd API.",
   "activation": {
     "onStartup": true,
     "onConfigPaths": [
@@ -44,7 +44,6 @@
       "clawwrt_get_trusted_wildcard_domains",
       "clawwrt_get_vpn_routes",
       "clawwrt_get_wireguard_vpn",
-      "clawwrt_get_websocket_serv",
       "clawwrt_get_wifi_info",
       "clawwrt_get_wireguard_vpn_status",
       "clawwrt_get_xfrpc_common",
@@ -65,7 +64,6 @@
       "clawwrt_set_br_lan",
       "clawwrt_set_mqtt_serv",
       "clawwrt_set_vpn_routes",
-      "clawwrt_set_websocket_serv",
       "clawwrt_set_wifi_info",
       "clawwrt_set_wifi_relay",
       "clawwrt_set_wireguard_vpn",
@@ -97,52 +95,27 @@
       "enabled": {
         "type": "boolean"
       },
-      "bind": {
-        "type": "string"
-      },
-      "port": {
-        "type": "integer",
-        "minimum": 1,
-        "maximum": 65535
-      },
-      "path": {
-        "type": "string"
-      },
-      "allowDeviceIds": {
-        "type": "array",
-        "items": {
-          "type": "string"
+      "chawrtdEventStream": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "baseUrl": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "reconnectMinMs": {
+            "type": "integer",
+            "minimum": 250,
+            "maximum": 60000
+          },
+          "reconnectMaxMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 120000
+          }
         }
-      },
-      "requestTimeoutMs": {
-        "type": "integer",
-        "minimum": 1000,
-        "maximum": 120000
-      },
-      "maxPayloadBytes": {
-        "type": "integer",
-        "minimum": 1024,
-        "maximum": 1048576
-      },
-      "token": {
-        "type": "string"
-      },
-      "awasEnabled": {
-        "type": "boolean"
-      },
-      "awasHost": {
-        "type": "string"
-      },
-      "awasPort": {
-        "type": "integer",
-        "minimum": 1,
-        "maximum": 65535
-      },
-      "awasPath": {
-        "type": "string"
-      },
-      "awasSsl": {
-        "type": "boolean"
       }
     }
   }

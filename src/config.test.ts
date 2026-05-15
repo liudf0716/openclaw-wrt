@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveClawWRTConfig } from "./config.js";
 
 describe("resolveClawWRTConfig", () => {
-  it("enables bridge by default", () => {
+  it("enables the plugin by default", () => {
     expect(resolveClawWRTConfig(undefined).enabled).toBe(true);
     expect(resolveClawWRTConfig({}).enabled).toBe(true);
   });
@@ -11,27 +11,38 @@ describe("resolveClawWRTConfig", () => {
     expect(resolveClawWRTConfig({ enabled: false }).enabled).toBe(false);
   });
 
-  it("preserves valid fields when another field is invalid", () => {
+  it("uses defaults for the chawrtd event stream when omitted", () => {
+    const resolved = resolveClawWRTConfig({});
+
+    expect(resolved.chawrtdEventStream.baseUrl).toBe("http://127.0.0.1:8001");
+    expect(resolved.chawrtdEventStream.path).toBe("/v1/events/stream");
+    expect(resolved.chawrtdEventStream.reconnectMinMs).toBe(1000);
+    expect(resolved.chawrtdEventStream.reconnectMaxMs).toBe(15000);
+  });
+
+  it("preserves valid event stream fields when another field is invalid", () => {
     const resolved = resolveClawWRTConfig({
       enabled: false,
-      requestTimeoutMs: 10_000.5,
-      bind: "0.0.0.0",
+      chawrtdEventStream: {
+        baseUrl: "http://chawrtd.local:9000",
+        reconnectMinMs: 999.5,
+      },
     });
 
     expect(resolved.enabled).toBe(false);
-    expect(resolved.bind).toBe("0.0.0.0");
-    expect(resolved.requestTimeoutMs).toBe(10_000);
+    expect(resolved.chawrtdEventStream.baseUrl).toBe("http://chawrtd.local:9000");
+    expect(resolved.chawrtdEventStream.reconnectMinMs).toBe(1000);
   });
 
-  it("falls back only the invalid integer field instead of resetting the whole config", () => {
+  it("falls back only the invalid event stream integers instead of resetting the whole config", () => {
     const resolved = resolveClawWRTConfig({
-      port: 8001.5,
-      awasPort: 81.2,
-      allowDeviceIds: ["dev-b", "dev-a"],
+      chawrtdEventStream: {
+        reconnectMinMs: 8001.5,
+        reconnectMaxMs: 9000,
+      },
     });
 
-    expect(resolved.port).toBe(8001);
-    expect(resolved.awas.port).toBe(80);
-    expect(resolved.allowDeviceIds).toEqual(["dev-a", "dev-b"]);
+    expect(resolved.chawrtdEventStream.reconnectMinMs).toBe(1000);
+    expect(resolved.chawrtdEventStream.reconnectMaxMs).toBe(9000);
   });
 });

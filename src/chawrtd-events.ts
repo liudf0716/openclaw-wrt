@@ -1,0 +1,168 @@
+import type { ResolvedClawWRTConfig } from "./config.js";
+
+export type ChawrtdDeviceEvent = {
+  deviceId?: string;
+  op?: string;
+  data?: Record<string, unknown>;
+};
+
+type Logger = {
+  info(message: string): void;
+  warn(message: string): void;
+  error(message: string): void;
+  debug?(message: string): void;
+};
+
+type EventHandler = (event: ChawrtdDeviceEvent) => void | Promise<void>;
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+
+    const onAbort = (): void => {
+      clearTimeout(timeout);
+      const error = new Error("aborted");
+      error.name = "AbortError";
+      reject(error);
+    };
+
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function parseEventBlock(block: string): ChawrtdDeviceEvent | null {
+  const dataLines: string[] = [];
+  for (const line of block.split(/\r?\n/)) {
+    if (!line || line.startsWith(":")) {
+      continue;
+    }
+    const separator = line.indexOf(":");
+    const field = separator >= 0 ? line.slice(0, separator) : line;
+    const rawValue = separator >= 0 ? line.slice(separator + 1) : "";
+    const value = rawValue.startsWith(" ") ? rawValue.slice(1) : rawValue;
+    if (field === "data") {
+      dataLines.push(value);
+    }
+  }
+
+  if (dataLines.length === 0) {
+    return null;
+  }
+
+  const payloadText = dataLines.join("\n");
+  try {
+    const parsed = JSON.parse(payloadText) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    return {
+      deviceId: typeof parsed.device_id === "string" ? parsed.device_id : undefined,
+      op: typeof parsed.op === "string" ? parsed.op : undefined,
+      data: parsed.data && typeof parsed.data === "object" && !Array.isArray(parsed.data)
+        ? (parsed.data as Record<string, unknown>)
+        : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export class ChawrtdEventStreamClient {
+  private readonly logger: Logger;
+  private readonly onEvent: EventHandler;
+  private readonly config: ResolvedClawWRTConfig;
+  private controller: AbortController | null = null;
+  private running = false;
+
+  constructor(params: { logger: Logger; onEvent: EventHandler; config: ResolvedClawWRTConfig }) {
+    this.logger = params.logger;
+    this.onEvent = params.onEvent;
+    this.config = params.config;
+  }
+
+  start(): void {
+    if (this.running) {
+      return;
+    }
+    this.running = true;
+    this.controller = new AbortController();
+    void this.run(this.controller.signal);
+  }
+
+  async stop(): Promise<void> {
+    this.running = false;
+    this.controller?.abort();
+    this.controller = null;
+  }
+
+  private async run(signal: AbortSignal): Promise<void> {
+    let backoffMs = this.config.chawrtdEventStream.reconnectMinMs;
+    const maxBackoffMs = this.config.chawrtdEventStream.reconnectMaxMs;
+
+    while (this.running && !signal.aborted) {
+      try {
+        const response = await fetch(
+          `${this.config.chawrtdEventStream.baseUrl}${this.config.chawrtdEventStream.path}`,
+          {
+            method: "GET",
+            headers: {
+              Accept: "text/event-stream",
+              "Cache-Control": "no-cache",
+            },
+            signal,
+          },
+        );
+
+        if (!response.ok || !response.body) {
+          throw new Error(`stream request failed with status ${response.status}`);
+        }
+
+        this.logger.info("openclaw-wrt: connected to chawrtd event stream");
+        backoffMs = this.config.chawrtdEventStream.reconnectMinMs;
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (this.running && !signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          let boundary = buffer.indexOf("\n\n");
+          while (boundary >= 0) {
+            const block = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            const event = parseEventBlock(block);
+            if (event) {
+              await this.onEvent(event);
+            }
+            boundary = buffer.indexOf("\n\n");
+          }
+        }
+      } catch (error) {
+        if (signal.aborted || !this.running) {
+          return;
+        }
+        this.logger.warn(`openclaw-wrt: event stream disconnected: ${String(error)}`);
+      }
+
+      if (!this.running || signal.aborted) {
+        return;
+      }
+
+      await sleep(backoffMs, signal).catch(() => undefined);
+      backoffMs = Math.min(backoffMs * 2, maxBackoffMs);
+    }
+  }
+}

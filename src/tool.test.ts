@@ -165,7 +165,7 @@ describe("openclaw-wrt intent tools", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://127.0.0.1:8090/v1/frps/deploy");
+    expect(url).toBe("http://127.0.0.1:8001/v1/frps/deploy");
     expect(init.method).toBe("POST");
     expect(init.body).toContain('"port":7000');
     expect(init.body).toContain('"token":"abc"');
@@ -350,7 +350,7 @@ describe("openclaw-wrt intent tools", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://127.0.0.1:8090/v1/wg/deploy");
+    expect(url).toBe("http://127.0.0.1:8001/v1/wg/deploy");
     expect(init.method).toBe("POST");
     expect(init.body).toContain('"peerBindings"');
     expect((result as { content?: Array<{ text?: string }> }).content?.[0]?.text).toContain(

@@ -1,15 +1,14 @@
 # OpenClaw WRT
 
-OpenClaw 路由器设备桥接插件，通过 WebSocket 控制 ClawWRT 路由器设备。
+OpenClaw 插件，通过订阅 chawrtd 的设备事件并调用 chawrtd API 来管理 ClawWRT 路由器。
 
 **[English](README.md)**
 
 ## 功能特性
 
-- WebSocket 桥接服务端，接收路由器设备连接
-- 通过 `req_id` 实现请求/响应关联
-- 设备会话管理（连接、认证、超时、别名）
-- AWAS 认证代理（将 cloud 模式设备的 connect/heartbeat 转发到 AWAS 服务器）
+- 通过 SSE 订阅 chawrtd 设备事件，实时同步路由器状态
+- 通过 chawrtd 的 HTTP API 执行路由器操作与工具调用
+- 根据事件流和接口响应维护在线设备、别名和时间戳
 - 30+ 细粒度工具，覆盖：WiFi 配置、客户端管理、BPF 流量监控、WireGuard VPN、Shell 执行、portal 页面发布、域名信任列表等
 
 ## 安装
@@ -65,21 +64,17 @@ openclaw plugins remove openclaw-wrt
 ## 工作原理
 
 ```
-┌──────────────┐    WebSocket     ┌──────────────────┐    Tool calls    ┌──────────────────┐
-│   ClawWRT    │ ──────────────>  │  OpenClaw WRT    │ ──────────────>  │  OpenClaw Agent  │
-│   路由器     │ <──────────────  │  Bridge Plugin   │ <──────────────  │  (LLM)           │
-│   设备       │    JSON-RPC      │                  │                  │                  │
-│              │                  │  · req_id 关联   │                  │  通过 30+ 工具   │
-└──────────────┘                  │  · 设备管理      │                  │  管理路由器      │
-                                  │  · 认证/令牌     │                  └──────────────────┘
-                                  │  · AWAS 代理     │
-                                  └──────────────────┘
+┌──────────────┐   SSE 事件流    ┌──────────────────┐   HTTP API    ┌──────────────────┐
+│  chawrtd     │ ──────────────> │  OpenClaw WRT    │ ────────────> │  OpenClaw Agent  │
+│  事件流 +    │                 │  插件            │              │  (LLM)           │
+│  路由器 API  │ <────────────── │  订阅设备事件    │ <─────────── │  通过 30+ 工具   │
+└──────────────┘   设备操作      └──────────────────┘   工具调用    │  管理路由器      │
+                                                                   └──────────────────┘
 ```
 
-1. **路由器连接** — 每台 ClawWRT 路由器通过 WebSocket 连接到桥接服务（`ws://host:8001/ws/clawwrt`），并发送包含 `device_id` 的连接消息。
-2. **桥接管理会话** — 插件维护一个设备注册表，记录连接状态、别名，并支持可选的令牌认证。
-3. **Agent 控制设备** — OpenClaw 的 LLM Agent 调用 30+ 已注册的工具（如 `clawwrt_get_clients`、`clawwrt_set_wifi_info`、`clawwrt_exec_shell`）。每次工具调用通过 `req_id` 与路由器的响应关联。
-4. **AWAS 代理（可选）** — 对于 cloud 模式设备，插件可以将认证流量转发到 AWAS（认证服务器）后端。
+1. **订阅事件** — 插件连接 chawrtd 的 SSE 流 `/v1/events/stream`，持续更新在线设备视图。
+2. **调用路由器 API** — OpenClaw 的 LLM Agent 通过已注册的 `clawwrt_*` 和 `openclaw_*` 工具调用 chawrtd 的 HTTP 接口。
+3. **管理设备** — 在线状态、别名和时间戳均从事件流和接口响应中获得。
 
 ## Portal 页面
 
@@ -91,19 +86,11 @@ openclaw plugins remove openclaw-wrt
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `enabled` | 启用桥接 | `true` |
-| `bind` | 绑定地址 | `127.0.0.1` |
-| `port` | 桥接端口 | `8001` |
-| `path` | WebSocket 路径 | `/ws/clawwrt` |
-| `allowDeviceIds` | 允许的设备 ID（白名单） | *(任意)* |
-| `requestTimeoutMs` | 默认请求超时（毫秒） | `10000` |
-| `maxPayloadBytes` | 最大负载字节数 | `262144` |
-| `token` | 设备认证令牌 | `clawwrt` |
-| `awasEnabled` | 启用 AWAS 认证代理 | `false` |
-| `awasHost` | AWAS 服务器主机名 | `127.0.0.1` |
-| `awasPort` | AWAS 服务器端口 | `80` |
-| `awasPath` | AWAS WebSocket 路径 | `/ws/clawwrt` |
-| `awasSsl` | 使用 TLS (wss://) | `false` |
+| `enabled` | 启用插件 | `true` |
+| `chawrtdEventStream.baseUrl` | chawrtd 基础地址 | `http://127.0.0.1:8001` |
+| `chawrtdEventStream.path` | 事件流路径 | `/v1/events/stream` |
+| `chawrtdEventStream.reconnectMinMs` | 最小重连延迟 | `1000` |
+| `chawrtdEventStream.reconnectMaxMs` | 最大重连延迟 | `30000` |
 
 ### 工具白名单说明
 
