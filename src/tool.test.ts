@@ -1929,4 +1929,92 @@ describe("openclaw-wrt intent tools", () => {
       op: "restart_xfrpc",
     });
   });
+
+  it("xfrpc mutation tools restart xfrpc after updating config", async () => {
+    const cases = [
+      {
+        toolName: "clawwrt_set_xfrpc_common",
+        input: {
+          deviceId: "dev-1",
+          enabled: "1",
+          loglevel: "info",
+          server_addr: "frps.example.com",
+          server_port: "7000",
+          token: "token-1",
+        },
+        expectedOp: "set_xfrpc_common",
+      },
+      {
+        toolName: "clawwrt_add_xfrpc_tcp_service",
+        input: {
+          deviceId: "dev-1",
+          name: "ssh",
+          enabled: "1",
+          local_ip: "127.0.0.1",
+          local_port: "22",
+          remote_port: "6022",
+        },
+        expectedOp: "add_xfrpc_tcp_service",
+      },
+      {
+        toolName: "clawwrt_del_xfrpc_tcp_service",
+        input: {
+          deviceId: "dev-1",
+          name: "ssh",
+        },
+        expectedOp: "del_xfrpc_tcp_service",
+      },
+      {
+        toolName: "clawwrt_disable_xfrpc_tcp_service",
+        input: {
+          deviceId: "dev-1",
+          name: "ssh",
+        },
+        expectedOp: "disable_xfrpc_tcp_service",
+      },
+      {
+        toolName: "clawwrt_disable_xfrpc_service",
+        input: {
+          deviceId: "dev-1",
+        },
+        expectedOp: "disable_xfrpc_service",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+      const bridge = {
+        listDevices() {
+          return [];
+        },
+        getDevice() {
+          return null;
+        },
+        async callDevice(params: {
+          deviceId: string;
+          op: string;
+          payload?: Record<string, unknown>;
+        }) {
+          calls.push(params);
+          return {
+            type: `${params.op}_response`,
+            status: "ok",
+          };
+        },
+      };
+
+      const tool = createClawWRTTools({ bridge: bridge as never }).find((entry) => entry.name === testCase.toolName);
+      await tool?.execute?.(`tool-${testCase.toolName}`, testCase.input as never);
+
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).toMatchObject({
+        deviceId: "dev-1",
+        op: testCase.expectedOp,
+      });
+      expect(calls[1]).toMatchObject({
+        deviceId: "dev-1",
+        op: "restart_xfrpc",
+      });
+    }
+  });
 });

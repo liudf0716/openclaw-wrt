@@ -1372,6 +1372,19 @@ async function callDeviceOp(params: {
   });
 }
 
+async function restartXfrpcService(params: {
+  bridge: ClawWRTBridge;
+  deviceId: string;
+  timeoutMs?: number;
+}) {
+  return await callDeviceOp({
+    bridge: params.bridge,
+    deviceId: params.deviceId,
+    op: "restart_xfrpc",
+    timeoutMs: params.timeoutMs,
+  });
+}
+
 async function publishPortalPage(params: {
   bridge: ClawWRTBridge;
   deviceId: string;
@@ -3432,65 +3445,95 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
         return args.name ? `Fetched XFRPC TCP service '${args.name}' for ${args.deviceId}.` : `Fetched all XFRPC TCP services for ${args.deviceId}.`;
       },
     }),
-    createSimpleOperationTool({
-      bridge,
+    {
       name: "clawwrt_del_xfrpc_tcp_service",
       label: "OpenClaw WRT Delete XFRPC TCP Service",
       description: "Delete a specific XFRPC TCP service by name, or all TCP services if no name is provided.",
-      op: "del_xfrpc_tcp_service",
       parameters: DelXfrpcTcpServiceSchema,
-      buildPayload: (rawParams) => {
+      execute: async (_toolCallId, rawParams) => {
+        logToolInvocation(undefined, "clawwrt_del_xfrpc_tcp_service", rawParams);
         const args = rawParams as DelXfrpcTcpServiceParams;
-        return {
+        const mutationResponse = await callDeviceOp({
+          bridge,
           deviceId: args.deviceId.trim(),
+          op: "del_xfrpc_tcp_service",
           payload: { name: args.name || "" },
           timeoutMs: args.timeoutMs,
-        };
+        });
+        const restartResponse = await restartXfrpcService({
+          bridge,
+          deviceId: args.deviceId.trim(),
+          timeoutMs: args.timeoutMs,
+        });
+        return buildToolResult(
+          args.name
+            ? `Deleted XFRPC TCP service '${args.name}' on ${args.deviceId} and restarted XFRPC.`
+            : `Deleted all XFRPC TCP services on ${args.deviceId} and restarted XFRPC.`,
+          {
+            mutationResponse,
+            restartResponse,
+          },
+        );
       },
-      summarize: (_response, rawParams) => {
-        const args = rawParams as DelXfrpcTcpServiceParams;
-        return args.name ? `Deleted XFRPC TCP service '${args.name}' on ${args.deviceId}.` : `Deleted all XFRPC TCP services on ${args.deviceId}.`;
-      },
-    }),
-    createSimpleOperationTool({
-      bridge,
+    },
+    {
       name: "clawwrt_disable_xfrpc_tcp_service",
       label: "OpenClaw WRT Disable XFRPC TCP Service",
       description: "Disable a specific XFRPC TCP service by name (sets enabled=0).",
-      op: "disable_xfrpc_tcp_service",
       parameters: DisableXfrpcTcpServiceSchema,
-      buildPayload: (rawParams) => {
+      execute: async (_toolCallId, rawParams) => {
+        logToolInvocation(undefined, "clawwrt_disable_xfrpc_tcp_service", rawParams);
         const args = rawParams as DisableXfrpcTcpServiceParams;
-        return {
+        const mutationResponse = await callDeviceOp({
+          bridge,
           deviceId: args.deviceId.trim(),
+          op: "disable_xfrpc_tcp_service",
           payload: { name: args.name },
           timeoutMs: args.timeoutMs,
-        };
+        });
+        const restartResponse = await restartXfrpcService({
+          bridge,
+          deviceId: args.deviceId.trim(),
+          timeoutMs: args.timeoutMs,
+        });
+        return buildToolResult(`Disabled XFRPC TCP service '${args.name}' on ${args.deviceId} and restarted XFRPC.`, {
+          mutationResponse,
+          restartResponse,
+        });
       },
-      summarize: (_response, rawParams) => {
-        const args = rawParams as DisableXfrpcTcpServiceParams;
-        return `Disabled XFRPC TCP service '${args.name}' on ${args.deviceId}.`;
-      },
-    }),
-    createSimpleOperationTool({
-      bridge,
+    },
+    {
       name: "clawwrt_disable_xfrpc_service",
       label: "OpenClaw WRT Disable XFRPC Service",
       description: "Disable the global XFRPC service on the router (sets enabled=0 in common).",
-      op: "disable_xfrpc_service",
-      summarize: (_response, rawParams) => {
+      parameters: DeviceOnlySchema,
+      execute: async (_toolCallId, rawParams) => {
+        logToolInvocation(undefined, "clawwrt_disable_xfrpc_service", rawParams);
         const args = rawParams as DeviceOnlyParams;
-        return `Disabled global XFRPC service on ${args.deviceId}.`;
+        const mutationResponse = await callDeviceOp({
+          bridge,
+          deviceId: args.deviceId.trim(),
+          op: "disable_xfrpc_service",
+          timeoutMs: args.timeoutMs,
+        });
+        const restartResponse = await restartXfrpcService({
+          bridge,
+          deviceId: args.deviceId.trim(),
+          timeoutMs: args.timeoutMs,
+        });
+        return buildToolResult(`Disabled global XFRPC service on ${args.deviceId} and restarted XFRPC.`, {
+          mutationResponse,
+          restartResponse,
+        });
       },
-    }),
-    createSimpleOperationTool({
-      bridge,
+    },
+    {
       name: "clawwrt_set_xfrpc_common",
       label: "OpenClaw WRT Set XFRPC Common",
       description: "Set XFRPC common configuration (server address, port, token) on the router.",
-      op: "set_xfrpc_common",
       parameters: SetXfrpcCommonSchema,
-      buildPayload: (rawParams) => {
+      execute: async (_toolCallId, rawParams) => {
+        logToolInvocation(undefined, "clawwrt_set_xfrpc_common", rawParams);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const args = rawParams as any;
         const payload: JsonRecord = {};
@@ -3509,26 +3552,31 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
         if (args.token !== undefined) {
           payload.token = args.token;
         }
-        return {
+        const mutationResponse = await callDeviceOp({
+          bridge,
           deviceId: args.deviceId.trim(),
+          op: "set_xfrpc_common",
           payload,
           timeoutMs: args.timeoutMs,
-        };
+        });
+        const restartResponse = await restartXfrpcService({
+          bridge,
+          deviceId: args.deviceId.trim(),
+          timeoutMs: args.timeoutMs,
+        });
+        return buildToolResult(`Updated XFRPC common config on ${args.deviceId} and restarted XFRPC.`, {
+          mutationResponse,
+          restartResponse,
+        });
       },
-      summarize: (_response, rawParams) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const args = rawParams as any;
-        return `Updated XFRPC common config on ${args.deviceId}.`;
-      },
-    }),
-    createSimpleOperationTool({
-      bridge,
+    },
+    {
       name: "clawwrt_add_xfrpc_tcp_service",
       label: "OpenClaw WRT Add XFRPC TCP Service",
       description: "Add a TCP intranet penetration service to the router.",
-      op: "add_xfrpc_tcp_service",
       parameters: AddXfrpcTcpServiceSchema,
-      buildPayload: (rawParams) => {
+      execute: async (_toolCallId, rawParams) => {
+        logToolInvocation(undefined, "clawwrt_add_xfrpc_tcp_service", rawParams);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const args = rawParams as any;
         const payload: JsonRecord = { name: args.name };
@@ -3550,18 +3598,24 @@ export function createClawWRTTools(params: { bridge: ClawWRTBridge; logger?: Log
         if (args.end_time !== undefined) {
           payload.end_time = args.end_time;
         }
-        return {
+        const mutationResponse = await callDeviceOp({
+          bridge,
           deviceId: args.deviceId.trim(),
+          op: "add_xfrpc_tcp_service",
           payload,
           timeoutMs: args.timeoutMs,
-        };
+        });
+        const restartResponse = await restartXfrpcService({
+          bridge,
+          deviceId: args.deviceId.trim(),
+          timeoutMs: args.timeoutMs,
+        });
+        return buildToolResult(`Added XFRPC TCP service '${args.name}' on ${args.deviceId} and restarted XFRPC.`, {
+          mutationResponse,
+          restartResponse,
+        });
       },
-      summarize: (_response, rawParams) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const args = rawParams as any;
-        return `Added XFRPC TCP service '${args.name}' on ${args.deviceId}.`;
-      },
-    }),
+    },
     createSimpleOperationTool({
       bridge,
       name: "clawwrt_restart_xfrpc",
