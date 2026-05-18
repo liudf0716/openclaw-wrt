@@ -2791,7 +2791,13 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
           | undefined;
         let serverPeerConfig: Array<{ publicKey: string | undefined; allowedIps: string[] }> = [];
         let serverReportLines: string[] = [];
-        let pingResults: Array<{ target: string; reachable: boolean; output: string }> = [];
+        let pingResults: Array<{
+          target: string;
+          reachable: boolean;
+          output: string;
+          confidence?: "confirmed" | "inconclusive" | "failed";
+          message?: string;
+        }> = [];
         try {
           const verifyResponse = await callChawrtd({
             path: "/v1/wg/verify",
@@ -2888,9 +2894,43 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
                 const target = typeof row.target === "string" ? row.target : "";
                 const reachable = typeof row.reachable === "boolean" ? row.reachable : false;
                 const output = typeof row.output === "string" ? row.output : "";
-                return target ? { target, reachable, output } : null;
+                const confidenceRaw = typeof row.confidence === "string" ? row.confidence : "";
+                const confidence: "confirmed" | "inconclusive" | "failed" | undefined =
+                  confidenceRaw === "confirmed" ||
+                  confidenceRaw === "inconclusive" ||
+                  confidenceRaw === "failed"
+                    ? confidenceRaw
+                    : undefined;
+                const message = typeof row.message === "string" ? row.message : undefined;
+                if (!target) {
+                  return null;
+                }
+
+                const parsed: {
+                  target: string;
+                  reachable: boolean;
+                  output: string;
+                  confidence?: "confirmed" | "inconclusive" | "failed";
+                  message?: string;
+                } = { target, reachable, output };
+                if (confidence) {
+                  parsed.confidence = confidence;
+                }
+                if (message) {
+                  parsed.message = message;
+                }
+                return parsed;
               })
-              .filter((entry): entry is { target: string; reachable: boolean; output: string } =>
+              .filter(
+                (
+                  entry,
+                ): entry is {
+                  target: string;
+                  reachable: boolean;
+                  output: string;
+                  confidence?: "confirmed" | "inconclusive" | "failed";
+                  message?: string;
+                } =>
                 Boolean(entry),
               )
             : [];
@@ -3087,7 +3127,14 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
         if (pingResults.length > 0) {
           report += `\n### Ping Tests\n`;
           for (const p of pingResults) {
-            report += `- ${p.target}: ${p.reachable ? "✅ reachable" : "❌ unreachable"} — ${p.output.split("\n").at(-2) ?? p.output}\n`;
+            const pingState =
+              p.reachable || p.confidence === "confirmed"
+                ? "✅ reachable"
+                : p.confidence === "inconclusive"
+                  ? "⚠️ inconclusive"
+                  : "❌ unreachable";
+            const pingDetail = p.message ?? p.output.split("\n").at(-2) ?? p.output;
+            report += `- ${p.target}: ${pingState} — ${pingDetail}\n`;
           }
         }
 
@@ -3108,7 +3155,9 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
           }
         }
         for (const p of pingResults) {
-          if (!p.reachable) warnings.push(`ping ${p.target}: unreachable`);
+          if (!p.reachable && p.confidence !== "inconclusive") {
+            warnings.push(`ping ${p.target}: unreachable`);
+          }
         }
 
         return buildToolResult(report, {
