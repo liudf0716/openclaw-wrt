@@ -1337,8 +1337,13 @@ async function getDevicesListViaChawrtd(config?: ResolvedClawWRTConfig): Promise
       path: "/v1/devices",
       method: "GET",
     });
-    const data = asObject(response.data);
-    const devices = Array.isArray(data?.devices) ? data.devices : [];
+    const dataWrapped = asObject(response.data);
+    const topLevel = asObject(response);
+    const devices = Array.isArray(dataWrapped?.devices)
+      ? dataWrapped.devices
+      : Array.isArray(topLevel?.devices)
+        ? topLevel.devices
+        : [];
     return devices.map((entry) => parseChawrtdDeviceSnapshot(entry)).filter(
       (entry): entry is DeviceSnapshot => entry !== null,
     );
