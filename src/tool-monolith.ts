@@ -2154,7 +2154,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
         const args = rawParams as SetWifiInfoParams;
         return {
           deviceId: args.deviceId.trim(),
-          payload: { data: args.data },
+          payload: args.data,
           timeoutMs: args.timeoutMs,
         };
       },
