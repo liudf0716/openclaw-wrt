@@ -227,7 +227,7 @@ export const KickoffClientSchema = Type.Object(
     clientIp: Type.Optional(
       Type.String({ minLength: 1, description: "Client IPv4 address if already known." }),
     ),
-    gwId: Type.Optional(Type.String({ minLength: 1, description: "Gateway ID if already known." })),
+    gwId: Type.String({ minLength: 1, description: "Gateway ID for the target gateway." }),
     timeoutMs: TimeoutField,
   },
   { additionalProperties: false },

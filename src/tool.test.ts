@@ -404,7 +404,7 @@ describe("openclaw-wrt intent tools", () => {
     expect(html).not.toContain("<script>alert(1)</script>");
   });
 
-  it("kickoff tool resolves client IP from get_clients and infers gwId from a single gateway", async () => {
+  it("kickoff tool resolves client IP from get_clients with explicit gwId", async () => {
     const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
     const bridge = {
       listDevices() {
@@ -445,6 +445,7 @@ describe("openclaw-wrt intent tools", () => {
     const result = await tool?.execute?.("tool-1", {
       deviceId: "dev-1",
       clientMac: "aa-bb-cc-dd-ee-ff",
+      gwId: "gw-1",
     });
 
     expect(calls).toHaveLength(2);

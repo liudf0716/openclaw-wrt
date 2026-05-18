@@ -331,7 +331,7 @@ const KickoffClientSchema = Type.Object(
     clientIp: Type.Optional(
       Type.String({ minLength: 1, description: "Client IPv4 address if already known." }),
     ),
-    gwId: Type.Optional(Type.String({ minLength: 1, description: "Gateway ID if already known." })),
+    gwId: Type.String({ minLength: 1, description: "Gateway ID for the target gateway." }),
     timeoutMs: TimeoutField,
   },
   { additionalProperties: false },
@@ -2061,7 +2061,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
       name: "clawwrt_kickoff_client",
       label: "OpenClaw WRT Kickoff Client",
       description:
-        "Disconnect an authenticated client by MAC address. If client IP is omitted, the tool looks it up from get_clients. If the router has exactly one gateway, gwId is inferred automatically.",
+        "Disconnect an authenticated client by MAC address. If client IP is omitted, the tool looks it up from get_clients. gwId is required.",
       parameters: KickoffClientSchema,
       execute: async (_toolCallId, rawParams) => {
         logToolInvocation(undefined, "clawwrt_kickoff_client", rawParams);
@@ -2086,10 +2086,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
         if (!clientIp) {
           throw new Error(`client IP not found for ${clientMac}; provide clientIp explicitly`);
         }
-        const gwId = args.gwId?.trim() || getSingleGatewayId(device);
-        if (!gwId) {
-          throw new Error("gwId required when the device has multiple gateways");
-        }
+        const gwId = args.gwId.trim();
         const response = await callDeviceOp({
           bridge,
           deviceId,
