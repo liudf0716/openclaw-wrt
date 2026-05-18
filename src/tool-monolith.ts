@@ -2628,10 +2628,8 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
         return {
           deviceId: args.deviceId.trim(),
           payload: {
-            data: {
-              interface: interfacePayload,
-              peers: peersPayload,
-            },
+            interface: interfacePayload,
+            peers: peersPayload,
           },
           timeoutMs: args.timeoutMs,
         };
@@ -2660,7 +2658,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
         }
         return {
           deviceId: args.deviceId.trim(),
-          payload: { data: payload },
+          payload,
           timeoutMs: args.timeoutMs,
         };
       },
@@ -3242,10 +3240,8 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
             deviceId,
             op: "set_vpn_routes",
             payload: {
-              data: {
-                mode: args.mode,
-                routes: mergedRoutes,
-              },
+              mode: args.mode,
+              routes: mergedRoutes,
             },
             timeoutMs: args.timeoutMs,
           });
