@@ -414,7 +414,7 @@ export function buildPortalPageName(deviceId: string, explicitPageName?: string)
  * Checks in order: nginx config, explicit override, environment variables, and candidate directories.
  */
 export async function resolvePortalWebRoot(explicitRoot?: string): Promise<string> {
-  const candidates: (string | null)[] = [
+  const candidates: Array<string | null | undefined> = [
     await extractNginxRootFromConfig(), // Check nginx config first
     explicitRoot?.trim(),
     process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT?.trim(),
