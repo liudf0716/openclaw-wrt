@@ -256,10 +256,10 @@ export const SetAuthServerSchema = Type.Object(
 export const PublishPortalPageSchema = Type.Object(
   {
     deviceId: DeviceIdField,
-    tmpPath: Type.String({
+    filePath: Type.String({
       minLength: 1,
       description:
-        "Absolute path to the temp HTML file produced by clawwrt_generate_portal_page (details.tmpPath). The file will be read and written to nginx web root.",
+        "Absolute file path to the portal HTML file produced by clawwrt_generate_portal_page (details.filePath). The file will be read and published to the router.",
     }),
     pageName: Type.Optional(
       Type.String({
@@ -285,7 +285,7 @@ export const GeneratePortalPageSchema = Type.Object(
       Type.String({
         minLength: 1,
         description:
-          "Optional suggested file name. Returned as details.pageName for use in clawwrt_publish_portal_page.",
+          "Optional suggested file name. Returned as details.pageName and details.filePath for use in clawwrt_publish_portal_page.",
       }),
     ),
   },

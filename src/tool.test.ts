@@ -706,11 +706,11 @@ describe("openclaw-wrt intent tools", () => {
       expect(tool).toBeTruthy();
 
       const html = "<html><body><h1>Welcome</h1></body></html>";
-      const tmpPath = path.join(os.tmpdir(), "portal-dev-portal.html");
-      await writeFile(tmpPath, html, "utf8");
+      const filePath = path.join(webRoot, "portal-dev-portal.html");
+      await writeFile(filePath, html, "utf8");
       const result = await tool?.execute?.("tool-portal", {
         deviceId: "dev-portal",
-        tmpPath,
+        filePath,
         webRoot,
       });
 
@@ -732,7 +732,7 @@ describe("openclaw-wrt intent tools", () => {
     }
   });
 
-  it("publish tool rejects requests when tmpPath is omitted", async () => {
+  it("publish tool rejects requests when filePath is omitted", async () => {
     const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
     const bridge = {
       listDevices() {
@@ -763,7 +763,7 @@ describe("openclaw-wrt intent tools", () => {
           deviceId: "dev-template",
           webRoot,
         }),
-      ).rejects.toThrow("tmpPath is required for clawwrt_publish_portal_page");
+      ).rejects.toThrow("filePath is required for clawwrt_publish_portal_page");
 
       expect(calls).toHaveLength(0);
     } finally {
@@ -808,8 +808,8 @@ describe("openclaw-wrt intent tools", () => {
     expect(calls).toHaveLength(0);
     const details = (result as { details?: Record<string, unknown> }).details;
     expect(details?.pageName).toBe("portal-dev-generate.html");
-    expect(typeof details?.tmpPath).toBe("string");
-    const writtenHtml = await readFile(String(details?.tmpPath), "utf8");
+    expect(typeof details?.filePath).toBe("string");
+    const writtenHtml = await readFile(String(details?.filePath), "utf8");
     expect(writtenHtml).toContain("请先阅读并同意使用条款");
     expect(writtenHtml).toContain("请遵守现场规则。");
     expect(writtenHtml).toContain("同意并继续");
@@ -842,11 +842,11 @@ describe("openclaw-wrt intent tools", () => {
       expect(tool).toBeTruthy();
 
       const html = "<html><body><h1>Welcome</h1></body></html>";
-      const tmpPath = path.join(os.tmpdir(), "loki-dev-two.html");
-      await writeFile(tmpPath, html, "utf8");
+      const filePath = path.join(webRoot, "loki-dev-two.html");
+      await writeFile(filePath, html, "utf8");
       await tool?.execute?.("tool-portal", {
         deviceId: "dev-two",
-        tmpPath,
+        filePath,
         pageName: "loki-dev-two.html",
         webRoot,
       });

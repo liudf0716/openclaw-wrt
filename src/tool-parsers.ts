@@ -335,6 +335,30 @@ export function mapWireguardPeerPayload(input: JsonRecord): JsonRecord {
 // ============================================================================
 
 /**
+ * Extract the root directory from nginx configuration file.
+ * Parses /etc/nginx/sites-enabled/default for the 'root' directive.
+ */
+export async function extractNginxRootFromConfig(): Promise<string | null> {
+  const configPath = "/etc/nginx/sites-enabled/default";
+  try {
+    const content = await fs.readFile(configPath, "utf8");
+    // Match 'root /path/to/directory;'
+    const match = content.match(/^\s*root\s+([^;]+);/m);
+    if (match && match[1]) {
+      const root = match[1].trim();
+      // Remove quotes if present
+      const cleaned = root.replace(/^['"]|['"]$/g, "").trim();
+      if (cleaned) {
+        return cleaned;
+      }
+    }
+  } catch {
+    // Config file not readable, silently continue
+  }
+  return null;
+}
+
+/**
  * Candidate directories for nginx web root (in priority order).
  */
 export const PORTAL_WEB_ROOT_CANDIDATES = [
@@ -387,18 +411,24 @@ export function buildPortalPageName(deviceId: string, explicitPageName?: string)
 
 /**
  * Resolve the writable nginx web root directory.
- * Checks explicit override, environment variables, and candidate directories in order.
+ * Checks in order: nginx config, explicit override, environment variables, and candidate directories.
  */
 export async function resolvePortalWebRoot(explicitRoot?: string): Promise<string> {
-  const envRoot =
-    process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT?.trim() ?? process.env.OPENCLAW_WRT_WEB_ROOT?.trim();
-  const candidates = [explicitRoot?.trim(), envRoot, ...PORTAL_WEB_ROOT_CANDIDATES].filter(
+  const candidates: (string | null)[] = [
+    await extractNginxRootFromConfig(), // Check nginx config first
+    explicitRoot?.trim(),
+    process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT?.trim(),
+    process.env.OPENCLAW_WRT_WEB_ROOT?.trim(),
+    ...PORTAL_WEB_ROOT_CANDIDATES,
+  ];
+
+  const filteredCandidates = candidates.filter(
     (value): value is string => typeof value === "string" && value.trim() !== "",
   );
 
-  for (const candidate of candidates) {
+  for (const candidate of filteredCandidates) {
     const resolved = sanitizePortalHtmlRoot(candidate);
-    if (explicitRoot?.trim() === candidate || envRoot === candidate) {
+    if (explicitRoot?.trim() === candidate) {
       await fs.mkdir(resolved, { recursive: true });
       return resolved;
     }
@@ -411,7 +441,7 @@ export async function resolvePortalWebRoot(explicitRoot?: string): Promise<strin
   }
 
   throw new Error(
-    `unable to locate a writable nginx web root; set OPENCLAW_WRT_PORTAL_WEB_ROOT or pass webRoot (checked: ${PORTAL_WEB_ROOT_CANDIDATES.join(", ")})`,
+    `unable to locate a writable nginx web root; checked nginx config, set OPENCLAW_WRT_PORTAL_WEB_ROOT, or pass webRoot (fallback candidates: ${PORTAL_WEB_ROOT_CANDIDATES.join(", ")})`,
   );
 }
 
