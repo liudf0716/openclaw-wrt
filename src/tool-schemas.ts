@@ -256,13 +256,17 @@ export const SetAuthServerSchema = Type.Object(
 export const PublishPortalPageSchema = Type.Object(
   {
     deviceId: DeviceIdField,
-    html: Type.Optional(
-      Type.String({ minLength: 1, description: "Optional complete portal HTML content." }),
-    ),
-    template: Type.Optional(PortalTemplateField),
-    content: Type.Optional(PortalContentSchema),
+    tmpPath: Type.String({
+      minLength: 1,
+      description:
+        "Absolute path to the temp HTML file produced by clawwrt_generate_portal_page (details.tmpPath). The file will be read and written to nginx web root.",
+    }),
     pageName: Type.Optional(
-      Type.String({ minLength: 1, description: "Optional HTML file name for the portal page." }),
+      Type.String({
+        minLength: 1,
+        description:
+          "Output file name under nginx web root. Use details.pageName from clawwrt_generate_portal_page, or omit to auto-generate.",
+      }),
     ),
     webRoot: Type.Optional(
       Type.String({ minLength: 1, description: "Optional nginx web root override." }),
@@ -278,12 +282,12 @@ export const GeneratePortalPageSchema = Type.Object(
     template: Type.Optional(PortalTemplateField),
     content: Type.Optional(PortalContentSchema),
     pageName: Type.Optional(
-      Type.String({ minLength: 1, description: "Optional HTML file name for the portal page." }),
+      Type.String({
+        minLength: 1,
+        description:
+          "Optional suggested file name. Returned as details.pageName for use in clawwrt_publish_portal_page.",
+      }),
     ),
-    webRoot: Type.Optional(
-      Type.String({ minLength: 1, description: "Optional nginx web root override." }),
-    ),
-    timeoutMs: TimeoutField,
   },
   { additionalProperties: false },
 );

@@ -12,8 +12,6 @@ import type {
   ClawWRTBridge,
   DeviceSnapshot,
   ChawrtdToolResult,
-  PortalTemplate,
-  PortalContent,
 } from "./tool-types.js";
 import {
   asObject,
@@ -24,11 +22,6 @@ import {
   resolvePortalWebRoot,
   buildPortalPageName,
 } from "./tool-parsers.js";
-import {
-  renderPortalPageHtml,
-  type PortalTemplate as PortalTemplateType,
-  type PortalContent as PortalContentType,
-} from "./portal-page-renderer.js";
 
 // ============================================================================
 // Global State Management
@@ -384,15 +377,38 @@ export async function restartXfrpcService(params: {
 // ============================================================================
 
 /**
+ * Get VPS public IP from chawrtd.
+ */
+async function getVpsPublicIP(config?: ResolvedClawWRTConfig, timeoutMs?: number): Promise<string | null> {
+  try {
+    const response = await callChawrtd({
+      config,
+      path: "/v1/vps/public-ip",
+      method: "GET",
+      timeoutMs: timeoutMs ?? 10_000,
+    });
+
+    // Extract public IP from response
+    const dataObj = asObject(response.data);
+    const publicIp = dataObj?.publicIp;
+    if (typeof publicIp === "string" && publicIp.trim()) {
+      return publicIp.trim();
+    }
+    return null;
+  } catch (error) {
+    console.warn("Failed to get VPS public IP from chawrtd:", error);
+    return null;
+  }
+}
+
+/**
  * Publish a captive portal page to a device.
  */
 export async function publishPortalPage(params: {
   bridge?: ClawWRTBridge;
   config?: ResolvedClawWRTConfig;
   deviceId: string;
-  html?: string;
-  template?: PortalTemplate;
-  content?: PortalContent;
+  html: string;
   pageName?: string;
   webRoot?: string;
   timeoutMs?: number;
@@ -404,29 +420,37 @@ export async function publishPortalPage(params: {
 }> {
   logToolInvocation(undefined, "publishPortalPage", {
     deviceId: params.deviceId,
-    template: params.template,
     pageName: params.pageName,
     webRoot: params.webRoot,
   });
   const pageName = buildPortalPageName(params.deviceId, params.pageName);
   const root = await resolvePortalWebRoot(params.webRoot);
   const filePath = path.join(root, pageName);
-  const html =
-    params.html?.trim() ||
-    renderPortalPageHtml({
-      deviceId: params.deviceId,
-      template: params.template,
-      content: params.content,
-    });
+  const html = params.html.trim();
+  if (!html) {
+    throw new Error("publishPortalPage requires non-empty html");
+  }
 
   await fs.writeFile(filePath, html, "utf8");
+
+  // Determine if we should fetch the public IP URL
+  // Only try to get public IP if using chawrtd (not local bridge)
+  const shouldFetchPublicIp = !params.bridge && params.config;
+  let portalUrl = pageName;
+  
+  if (shouldFetchPublicIp) {
+    const publicIp = await getVpsPublicIP(params.config, params.timeoutMs);
+    if (publicIp) {
+      portalUrl = `http://${publicIp}/${pageName}`;
+    }
+  }
 
   const response = await callDeviceOp({
     bridge: params.bridge,
     config: params.config,
     deviceId: params.deviceId,
     op: "set_local_portal",
-    payload: { portal: pageName },
+    payload: { portal: portalUrl },
     timeoutMs: params.timeoutMs,
     expectResponse: true,
   });

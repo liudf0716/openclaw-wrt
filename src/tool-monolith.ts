@@ -412,13 +412,17 @@ const PortalContentSchema = Type.Object(
 const PublishPortalPageSchema = Type.Object(
   {
     deviceId: DeviceIdField,
-    html: Type.Optional(
-      Type.String({ minLength: 1, description: "Optional complete portal HTML content." }),
-    ),
-    template: Type.Optional(PortalTemplateField),
-    content: Type.Optional(PortalContentSchema),
+    tmpPath: Type.String({
+      minLength: 1,
+      description:
+        "Absolute path to the temp HTML file produced by clawwrt_generate_portal_page (details.tmpPath). The file will be read and written to nginx web root.",
+    }),
     pageName: Type.Optional(
-      Type.String({ minLength: 1, description: "Optional HTML file name for the portal page." }),
+      Type.String({
+        minLength: 1,
+        description:
+          "Output file name under nginx web root. Use details.pageName from clawwrt_generate_portal_page, or omit to auto-generate.",
+      }),
     ),
     webRoot: Type.Optional(
       Type.String({ minLength: 1, description: "Optional nginx web root override." }),
@@ -434,12 +438,12 @@ const GeneratePortalPageSchema = Type.Object(
     template: Type.Optional(PortalTemplateField),
     content: Type.Optional(PortalContentSchema),
     pageName: Type.Optional(
-      Type.String({ minLength: 1, description: "Optional HTML file name for the portal page." }),
+      Type.String({
+        minLength: 1,
+        description:
+          "Optional suggested file name. Returned as details.pageName for use in clawwrt_publish_portal_page.",
+      }),
     ),
-    webRoot: Type.Optional(
-      Type.String({ minLength: 1, description: "Optional nginx web root override." }),
-    ),
-    timeoutMs: TimeoutField,
   },
   { additionalProperties: false },
 );
@@ -1770,17 +1774,23 @@ function createPublishPortalPageTool(params: { bridge: ClawWRTBridge; logger?: L
   return {
     name: "clawwrt_publish_portal_page",
     label: "OpenClaw WRT Publish Portal Page",
-    description: "Publish a captive portal HTML page to the device-specific portal file.",
+    description:
+      "Step 2 of 2: Read the HTML from the temp file written by clawwrt_generate_portal_page, write it to the VPS nginx web root, detect VPS public IP, and push the resulting URL to the router via set_local_portal. Pass tmpPath from details.tmpPath and pageName from details.pageName of the generate step.",
     parameters: PublishPortalPageSchema,
     execute: async (_toolCallId, rawParams) => {
       logToolInvocation(params.logger, "clawwrt_publish_portal_page", rawParams);
       const args = rawParams as PublishPortalPageParams;
       const deviceId = args.deviceId.trim();
+      const tmpPath = typeof args.tmpPath === "string" ? args.tmpPath.trim() : "";
+      if (!tmpPath) {
+        throw new Error(
+          "tmpPath is required for clawwrt_publish_portal_page. Use clawwrt_generate_portal_page first to generate the HTML file.",
+        );
+      }
+      const html = await fs.readFile(tmpPath, "utf8");
       const result = await renderAndPublishPortalPage({
         deviceId,
-        html: args.html,
-        template: args.template,
-        content: args.content,
+        html,
         pageName: args.pageName,
         webRoot: args.webRoot,
         timeoutMs: args.timeoutMs,
@@ -1793,7 +1803,7 @@ function createPublishPortalPageTool(params: { bridge: ClawWRTBridge; logger?: L
           pageName: result.pageName,
           webRoot: result.root,
           filePath: result.filePath,
-          template: args.template ?? null,
+          portalUrl: result.response?.portal ?? null,
           response: result.response,
         },
       );
@@ -1806,30 +1816,29 @@ function createGeneratePortalPageTool(params: { bridge: ClawWRTBridge; logger?: 
     name: "clawwrt_generate_portal_page",
     label: "OpenClaw WRT Generate Portal Page",
     description:
-      "Generate a captive portal HTML page and publish it to the device-specific portal file.",
+      "Step 1 of 2: Generate captive portal HTML from a template and write it to a temp file. Does NOT contact the router. Returns details.tmpPath (temp file path) and details.pageName. Pass both to clawwrt_publish_portal_page to complete deployment.",
     parameters: GeneratePortalPageSchema,
     execute: async (_toolCallId, rawParams) => {
       logToolInvocation(params.logger, "clawwrt_generate_portal_page", rawParams);
       const args = rawParams as GeneratePortalPageParams;
       const deviceId = args.deviceId.trim();
-      const result = await renderAndPublishPortalPage({
+      const pageName = buildPortalPageName(deviceId, args.pageName);
+      const html = renderPortalPageHtml({
         deviceId,
         template: args.template,
         content: args.content,
-        pageName: args.pageName,
-        webRoot: args.webRoot,
-        timeoutMs: args.timeoutMs,
       });
 
+      const tmpPath = path.join(os.tmpdir(), pageName);
+      await fs.writeFile(tmpPath, html, "utf8");
+
       return buildToolResult(
-        `Generated and published portal page ${result.pageName} for ${deviceId}.`,
+        `Generated portal HTML for ${deviceId} at ${tmpPath}. Next step: call clawwrt_publish_portal_page with tmpPath=details.tmpPath and pageName=details.pageName.`,
         {
           deviceId,
-          pageName: result.pageName,
-          webRoot: result.root,
-          filePath: result.filePath,
+          pageName,
+          tmpPath,
           template: args.template ?? "default",
-          response: result.response,
         },
       );
     },

@@ -1,4 +1,4 @@
-import type { JsonRecord, PortalContent, PortalTemplate } from "./tool-types.js";
+import type { JsonRecord } from "./tool-types.js";
 import {
   buildPortalPageName,
   resolvePortalWebRoot,
@@ -17,9 +17,7 @@ export {
 
 export async function renderAndPublishPortalPage(params: {
   deviceId: string;
-  html?: string;
-  template?: PortalTemplate;
-  content?: PortalContent;
+  html: string;
   pageName?: string;
   webRoot?: string;
   timeoutMs?: number;

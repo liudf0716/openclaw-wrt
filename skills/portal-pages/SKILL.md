@@ -6,7 +6,22 @@ user-invocable: false
 
 # OpenClaw WRT 门户页生成
 
-优先使用 `clawwrt_generate_portal_page` 调用内置的高级渲染器。只有用户已经提供完整 HTML 时，才使用 `clawwrt_publish_portal_page`。
+## 两步发布工作流
+
+门户页的生成与发布是严格分离的两个工具，必须按顺序调用：
+
+1. **`clawwrt_generate_portal_page`**（第一步）  
+   渲染 HTML 并写入 VPS 临时目录，返回：
+   - `details.tmpPath`：临时文件的绝对路径（如 `/tmp/portal-AW123.html`）
+   - `details.pageName`：建议的输出文件名
+
+2. **`clawwrt_publish_portal_page`**（第二步）  
+   接受上一步的 `tmpPath`，读取文件内容后写入 nginx webroot，检测公网 IP，并通过 chawrtd 将门户 URL 下发到路由器。  
+   必须传入：
+   - `tmpPath = details.tmpPath`（来自第一步的返回值）
+   - `pageName = details.pageName`（可选，建议同时传入）
+
+> **不要**将 HTML 字符串直接传给 publish；也**不要**跳过 generate 步骤直接调用 publish。
 
 ## 代码驱动设计
 

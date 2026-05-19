@@ -706,9 +706,11 @@ describe("openclaw-wrt intent tools", () => {
       expect(tool).toBeTruthy();
 
       const html = "<html><body><h1>Welcome</h1></body></html>";
+      const tmpPath = path.join(os.tmpdir(), "portal-dev-portal.html");
+      await writeFile(tmpPath, html, "utf8");
       const result = await tool?.execute?.("tool-portal", {
         deviceId: "dev-portal",
-        html,
+        tmpPath,
         webRoot,
       });
 
@@ -730,7 +732,7 @@ describe("openclaw-wrt intent tools", () => {
     }
   });
 
-  it("renders a portal template when html is omitted", async () => {
+  it("publish tool rejects requests when tmpPath is omitted", async () => {
     const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
     const bridge = {
       listDevices() {
@@ -756,40 +758,20 @@ describe("openclaw-wrt intent tools", () => {
       );
       expect(tool).toBeTruthy();
 
-      const result = await tool?.execute?.("tool-template", {
-        deviceId: "dev-template",
-        template: "welcome",
-        content: {
-          venueName: "龙虾访客网络",
-          body: "页面已打开，继续浏览即可。",
-          buttonText: "继续浏览",
-          footerText: "感谢您的光临。",
-        },
-        webRoot,
-      });
+      await expect(
+        tool?.execute?.("tool-template", {
+          deviceId: "dev-template",
+          webRoot,
+        }),
+      ).rejects.toThrow("tmpPath is required for clawwrt_publish_portal_page");
 
-      expect(calls).toHaveLength(1);
-      expect(calls[0]).toMatchObject({
-        deviceId: "dev-template",
-        op: "set_local_portal",
-        payload: {
-          portal: "portal-dev-template.html",
-        },
-      });
-
-      const html = await readFile(path.join(webRoot, "portal-dev-template.html"), "utf8");
-      expect(html).toContain("欢迎来到 龙虾访客网络");
-      expect(html).toContain("继续浏览");
-      expect((result as { details?: Record<string, unknown> }).details).toMatchObject({
-        pageName: "portal-dev-template.html",
-        template: "welcome",
-      });
+      expect(calls).toHaveLength(0);
     } finally {
       await rm(webRoot, { recursive: true, force: true });
     }
   });
 
-  it("generates a portal page through the template-first tool", async () => {
+  it("generates portal HTML without publishing", async () => {
     const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
     const bridge = {
       listDevices() {
@@ -808,40 +790,29 @@ describe("openclaw-wrt intent tools", () => {
       },
     };
 
-    const webRoot = await mkdtemp(path.join(os.tmpdir(), "openclaw-wrt-portal-"));
-    try {
-      const tool = createClawWRTTools({ bridge: bridge as never }).find(
-        (entry) => entry.name === "clawwrt_generate_portal_page",
-      );
-      expect(tool).toBeTruthy();
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "clawwrt_generate_portal_page",
+    );
+    expect(tool).toBeTruthy();
 
-      await tool?.execute?.("tool-generate", {
-        deviceId: "dev-generate",
-        template: "terms",
-        content: {
-          brandName: "龙虾网络",
-          rules: ["请遵守现场规则。", "如需帮助，请联系工作人员。"],
-          buttonText: "同意并继续",
-        },
-        webRoot,
-      });
+    const result = await tool?.execute?.("tool-generate", {
+      deviceId: "dev-generate",
+      template: "terms",
+      content: {
+        brandName: "龙虾网络",
+        rules: ["请遵守现场规则。", "如需帮助，请联系工作人员。"],
+        buttonText: "同意并继续",
+      },
+    });
 
-      expect(calls).toHaveLength(1);
-      expect(calls[0]).toMatchObject({
-        deviceId: "dev-generate",
-        op: "set_local_portal",
-        payload: {
-          portal: "portal-dev-generate.html",
-        },
-      });
-
-      const html = await readFile(path.join(webRoot, "portal-dev-generate.html"), "utf8");
-      expect(html).toContain("请先阅读并同意使用条款");
-      expect(html).toContain("请遵守现场规则。");
-      expect(html).toContain("同意并继续");
-    } finally {
-      await rm(webRoot, { recursive: true, force: true });
-    }
+    expect(calls).toHaveLength(0);
+    const details = (result as { details?: Record<string, unknown> }).details;
+    expect(details?.pageName).toBe("portal-dev-generate.html");
+    expect(typeof details?.tmpPath).toBe("string");
+    const writtenHtml = await readFile(String(details?.tmpPath), "utf8");
+    expect(writtenHtml).toContain("请先阅读并同意使用条款");
+    expect(writtenHtml).toContain("请遵守现场规则。");
+    expect(writtenHtml).toContain("同意并继续");
   });
 
   it("publishes a portal page with an explicit filename when provided", async () => {
@@ -871,9 +842,11 @@ describe("openclaw-wrt intent tools", () => {
       expect(tool).toBeTruthy();
 
       const html = "<html><body><h1>Welcome</h1></body></html>";
+      const tmpPath = path.join(os.tmpdir(), "loki-dev-two.html");
+      await writeFile(tmpPath, html, "utf8");
       await tool?.execute?.("tool-portal", {
         deviceId: "dev-two",
-        html,
+        tmpPath,
         pageName: "loki-dev-two.html",
         webRoot,
       });
