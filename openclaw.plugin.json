@@ -116,6 +116,10 @@
             "maximum": 120000
           }
         }
+      },
+      "notificationTarget": {
+        "type": "string",
+        "description": "Optional delivery target for device events, e.g. \"feishu:chat:oc_xxx\""
       }
     }
   }
