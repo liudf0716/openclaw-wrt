@@ -3,6 +3,17 @@ import { createClawWRTPluginConfigSchema, resolveClawWRTConfig } from "./src/con
 import { ChawrtdEventStreamClient } from "./src/chawrtd-events.js";
 import { createClawWRTTools } from "./src/tool.js";
 
+function resolveSessionStoreKeys(sessionKey: string): string[] {
+  const trimmed = sessionKey.trim();
+  if (!trimmed) {
+    return [];
+  }
+  if (trimmed.startsWith("agent:")) {
+    return [trimmed];
+  }
+  return [trimmed, `agent:main:${trimmed}`];
+}
+
 /** Format a device push event as a human-readable notification message. */
 function formatDeviceEventMessage(deviceId: string, op: string, data: Record<string, unknown>): string {
   switch (op) {
@@ -85,11 +96,13 @@ export default definePluginEntry({
                 const to = match[2];
                 const storePath = api.runtime.agent.session.resolveStorePath();
                 const store = await Promise.resolve(api.runtime.agent.session.loadSessionStore(storePath));
-                store[sessionKey] = {
-                  ...(store[sessionKey] as any || {}),
-                  lastChannel: channel,
-                  lastTo: to,
-                };
+                for (const storeKey of resolveSessionStoreKeys(sessionKey)) {
+                  store[storeKey] = {
+                    ...(store[storeKey] as any || {}),
+                    lastChannel: channel,
+                    lastTo: to,
+                  };
+                }
                 await Promise.resolve(api.runtime.agent.session.saveSessionStore(storePath, store));
               }
             } catch (err) {
@@ -128,3 +141,4 @@ export {
   resolveClawWRTConfig,
   type ResolvedClawWRTConfig,
 } from "./src/config.js";
+export { resolveSessionStoreKeys };
