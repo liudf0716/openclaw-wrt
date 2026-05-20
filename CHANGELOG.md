@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.5.20
+
+### Features
+
+- Add optional `notificationTarget` plugin config for device event delivery context injection.
+- Publish `notificationTarget` in the plugin config schema and manifest.
+
 ## 2026.4.5
 
 ### Features

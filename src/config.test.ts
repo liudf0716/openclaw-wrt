@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resolveClawWRTConfig } from "./config.js";
+import pluginManifest from "../openclaw.plugin.json";
+import { createClawWRTPluginConfigSchema, resolveClawWRTConfig } from "./config.js";
 
 describe("resolveClawWRTConfig", () => {
   it("enables the plugin by default", () => {
@@ -44,5 +45,24 @@ describe("resolveClawWRTConfig", () => {
 
     expect(resolved.chawrtdEventStream.reconnectMinMs).toBe(1000);
     expect(resolved.chawrtdEventStream.reconnectMaxMs).toBe(9000);
+  });
+
+  it("accepts notificationTarget in the runtime config schema", () => {
+    const schema = createClawWRTPluginConfigSchema();
+    const parsed = schema.safeParse({
+      notificationTarget: "feishu:chat:oc_xxx",
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.notificationTarget).toBe("feishu:chat:oc_xxx");
+    }
+  });
+
+  it("publishes notificationTarget in the plugin manifest schema", () => {
+    expect(pluginManifest.configSchema.properties.notificationTarget).toEqual({
+      type: "string",
+      description: 'Optional delivery target for device events, e.g. "feishu:chat:oc_xxx"',
+    });
   });
 });
