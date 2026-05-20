@@ -84,13 +84,37 @@ The page should be self-contained HTML. Keep CSS and JavaScript inline unless yo
 
 ## Configuration
 
+Configure this plugin under `plugins.entries.openclaw-wrt.config` in `~/.openclaw/openclaw.json`.
+
+Example:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "openclaw-wrt": {
+        "enabled": true,
+        "config": {
+          "chawrtdEventStream": {
+            "baseUrl": "http://127.0.0.1:8001",
+            "path": "/v1/events/stream"
+          },
+          "notificationTarget": "feishu:chat:oc_xxx"
+        }
+      }
+    }
+  }
+}
+```
+
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `enabled` | Enable the plugin | `true` |
-| `chawrtdEventStream.baseUrl` | chawrtd base URL | `http://127.0.0.1:8001` |
-| `chawrtdEventStream.path` | Event stream path | `/v1/events/stream` |
-| `chawrtdEventStream.reconnectMinMs` | Minimum reconnect delay | `1000` |
-| `chawrtdEventStream.reconnectMaxMs` | Maximum reconnect delay | `30000` |
+| `enabled` | Enable the plugin entry | `true` |
+| `config.chawrtdEventStream.baseUrl` | chawrtd base URL | `http://127.0.0.1:8001` |
+| `config.chawrtdEventStream.path` | Event stream path | `/v1/events/stream` |
+| `config.chawrtdEventStream.reconnectMinMs` | Minimum reconnect delay | `1000` |
+| `config.chawrtdEventStream.reconnectMaxMs` | Maximum reconnect delay | `30000` |
+| `config.notificationTarget` | Optional device event delivery target | unset |
 
 ### Tool allowlist note
 

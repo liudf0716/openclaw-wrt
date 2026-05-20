@@ -84,13 +84,37 @@ openclaw plugins remove openclaw-wrt
 
 ## 配置项
 
+请在 `~/.openclaw/openclaw.json` 的 `plugins.entries.openclaw-wrt.config` 下配置本插件。
+
+示例：
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "openclaw-wrt": {
+        "enabled": true,
+        "config": {
+          "chawrtdEventStream": {
+            "baseUrl": "http://127.0.0.1:8001",
+            "path": "/v1/events/stream"
+          },
+          "notificationTarget": "feishu:chat:oc_xxx"
+        }
+      }
+    }
+  }
+}
+```
+
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `enabled` | 启用插件 | `true` |
-| `chawrtdEventStream.baseUrl` | chawrtd 基础地址 | `http://127.0.0.1:8001` |
-| `chawrtdEventStream.path` | 事件流路径 | `/v1/events/stream` |
-| `chawrtdEventStream.reconnectMinMs` | 最小重连延迟 | `1000` |
-| `chawrtdEventStream.reconnectMaxMs` | 最大重连延迟 | `30000` |
+| `enabled` | 启用插件条目 | `true` |
+| `config.chawrtdEventStream.baseUrl` | chawrtd 基础地址 | `http://127.0.0.1:8001` |
+| `config.chawrtdEventStream.path` | 事件流路径 | `/v1/events/stream` |
+| `config.chawrtdEventStream.reconnectMinMs` | 最小重连延迟 | `1000` |
+| `config.chawrtdEventStream.reconnectMaxMs` | 最大重连延迟 | `30000` |
+| `config.notificationTarget` | 可选的设备事件投递目标 | 未设置 |
 
 ### 工具白名单说明
 
