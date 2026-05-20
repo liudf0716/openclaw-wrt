@@ -29,6 +29,12 @@ export const ClawWRTConfigSchema = Type.Object(
   {
     enabled: Type.Optional(Type.Boolean()),
     chawrtdEventStream: Type.Optional(ChawrtdEventStreamConfigSchema),
+    notificationTarget: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description: 'Optional delivery target for device events, e.g. "feishu:chat:oc_xxx"',
+      }),
+    ),
   },
   { additionalProperties: false },
 );
@@ -43,6 +49,7 @@ export type ResolvedChawrtdEventStreamConfig = {
 export type ResolvedClawWRTConfig = {
   enabled: boolean;
   chawrtdEventStream: ResolvedChawrtdEventStreamConfig;
+  notificationTarget?: string;
 };
 
 function normalizeBaseUrl(input: string | undefined): string {
@@ -99,6 +106,7 @@ export function resolveClawWRTConfig(input: unknown): ResolvedClawWRTConfig {
   return {
     enabled: readBoolean(parsed?.enabled) !== false,
     chawrtdEventStream: resolveChawrtdEventStreamConfig(parsed?.chawrtdEventStream),
+    notificationTarget: readNonEmptyString(parsed?.notificationTarget),
   };
 }
 
@@ -137,6 +145,7 @@ export function createClawWRTPluginConfigSchema(): OpenClawPluginConfigSchema {
             reconnectMaxMs: { type: "integer", minimum: 1000, maximum: 120000 },
           },
         },
+        notificationTarget: { type: "string" },
       },
     },
   };

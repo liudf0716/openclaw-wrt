@@ -73,8 +73,32 @@ export default definePluginEntry({
 
           const payload = event.data ?? {};
           const message = formatDeviceEventMessage(deviceId, op, payload);
+          const sessionKey = `openclaw-wrt:device-events:${deviceId}`;
+
+          // Inject delivery context if a notification target is configured.
+          // This ensures background runs know where to deliver the message.
+          if (config.notificationTarget) {
+            try {
+              const match = config.notificationTarget.match(/^([^:]+):(.+)$/);
+              if (match) {
+                const channel = match[1];
+                const to = match[2];
+                const storePath = api.runtime.agent.session.resolveStorePath();
+                const store = await Promise.resolve(api.runtime.agent.session.loadSessionStore(storePath));
+                store[sessionKey] = {
+                  ...(store[sessionKey] as any || {}),
+                  lastChannel: channel,
+                  lastTo: to,
+                };
+                await Promise.resolve(api.runtime.agent.session.saveSessionStore(storePath, store));
+              }
+            } catch (err) {
+              api.logger.warn(`openclaw-wrt: failed to inject session delivery context: ${String(err)}`);
+            }
+          }
+
           await api.runtime.subagent.run({
-            sessionKey: `openclaw-wrt:device-events:${deviceId}`,
+            sessionKey,
             message,
             deliver: true,
           });
