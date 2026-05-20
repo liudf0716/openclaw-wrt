@@ -109,6 +109,9 @@ export class ChawrtdEventStreamClient {
 
     while (this.running && !signal.aborted) {
       try {
+        this.logger.info(
+          `openclaw-wrt: connecting to chawrtd event stream url=${this.config.chawrtdEventStream.baseUrl}${this.config.chawrtdEventStream.path}`,
+        );
         const response = await fetch(
           `${this.config.chawrtdEventStream.baseUrl}${this.config.chawrtdEventStream.path}`,
           {
@@ -145,7 +148,17 @@ export class ChawrtdEventStreamClient {
             buffer = buffer.slice(boundary + 2);
             const event = parseEventBlock(block);
             if (event) {
+              this.logger.debug?.(
+                `openclaw-wrt: parsed chawrtd event deviceId=${event.deviceId ?? "<missing>"} op=${event.op ?? "<missing>"}`,
+              );
+              if (event.data && Object.keys(event.data).length > 0) {
+                this.logger.debug?.(
+                  `openclaw-wrt: parsed chawrtd event payload keys=${Object.keys(event.data).join(",")}`,
+                );
+              }
               await this.onEvent(event);
+            } else {
+              this.logger.debug?.("openclaw-wrt: ignored non-data SSE block from chawrtd stream");
             }
             boundary = buffer.indexOf("\n\n");
           }

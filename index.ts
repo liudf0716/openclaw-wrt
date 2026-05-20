@@ -52,6 +52,11 @@ function formatDeviceEventMessage(deviceId: string, op: string, data: Record<str
   }
 }
 
+function summarizeEventData(data: Record<string, unknown>): string {
+  const keys = Object.keys(data);
+  return keys.length > 0 ? keys.join(",") : "<empty>";
+}
+
 export default definePluginEntry({
   id: "openclaw-wrt",
   name: "OpenClaw WRT",
@@ -78,13 +83,18 @@ export default definePluginEntry({
         try {
           const deviceId = typeof event.deviceId === "string" ? event.deviceId.trim() : "";
           const op = typeof event.op === "string" ? event.op : "unknown";
+          api.logger.info(`openclaw-wrt: received device event deviceId=${deviceId || "<missing>"} op=${op}`);
           if (!deviceId) {
+            api.logger.warn("openclaw-wrt: dropping device event with empty deviceId");
             return;
           }
 
           const payload = event.data ?? {};
           const message = formatDeviceEventMessage(deviceId, op, payload);
           const sessionKey = `openclaw-wrt:device-events:${deviceId}`;
+          api.logger.debug?.(
+            `openclaw-wrt: event payload summary deviceId=${deviceId} op=${op} keys=${summarizeEventData(payload)}`,
+          );
 
           // Inject delivery context if a notification target is configured.
           // This ensures background runs know where to deliver the message.
@@ -94,6 +104,9 @@ export default definePluginEntry({
               if (match) {
                 const channel = match[1];
                 const to = match[2];
+                api.logger.info(
+                  `openclaw-wrt: preparing delivery context deviceId=${deviceId} channel=${channel} to=${to} sessionKey=${sessionKey}`,
+                );
                 const storePath = api.runtime.agent.session.resolveStorePath();
                 const store = await Promise.resolve(api.runtime.agent.session.loadSessionStore(storePath));
                 for (const storeKey of resolveSessionStoreKeys(sessionKey)) {
@@ -102,19 +115,33 @@ export default definePluginEntry({
                     lastChannel: channel,
                     lastTo: to,
                   };
+                  api.logger.debug?.(`openclaw-wrt: wrote delivery route storeKey=${storeKey}`);
                 }
                 await Promise.resolve(api.runtime.agent.session.saveSessionStore(storePath, store));
+                api.logger.info(
+                  `openclaw-wrt: saved delivery context for deviceId=${deviceId} target=${config.notificationTarget}`,
+                );
+              } else {
+                api.logger.warn(
+                  `openclaw-wrt: notificationTarget did not match expected format deviceId=${deviceId} target=${config.notificationTarget}`,
+                );
               }
             } catch (err) {
               api.logger.warn(`openclaw-wrt: failed to inject session delivery context: ${String(err)}`);
             }
+          } else {
+            api.logger.warn(`openclaw-wrt: notificationTarget is unset, event will not be routed to Feishu directly deviceId=${deviceId}`);
           }
 
+          api.logger.info(
+            `openclaw-wrt: dispatching device event via subagent deviceId=${deviceId} op=${op} sessionKey=${sessionKey}`,
+          );
           await api.runtime.subagent.run({
             sessionKey,
             message,
             deliver: true,
           });
+          api.logger.info(`openclaw-wrt: subagent delivery completed deviceId=${deviceId} op=${op}`);
         } catch (error) {
           api.logger.warn(`openclaw-wrt: failed to deliver device event: ${String(error)}`);
         }
