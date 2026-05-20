@@ -14,6 +14,49 @@ function resolveSessionStoreKeys(sessionKey: string): string[] {
   return [trimmed, `agent:main:${trimmed}`];
 }
 
+type NotificationRoute = {
+  channel: string;
+  to: string;
+};
+
+type DirectOutboundAdapter = {
+  sendText?: (ctx: { cfg: unknown; to: string; text: string }) => Promise<unknown>;
+};
+
+function parseNotificationTarget(target: string | undefined): NotificationRoute | null {
+  const trimmed = target?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const match = trimmed.match(/^([^:]+):(.+)$/);
+  if (!match) {
+    return null;
+  }
+  const channel = match[1]?.trim() ?? "";
+  const to = match[2]?.trim() ?? "";
+  if (!channel || !to) {
+    return null;
+  }
+  return { channel, to };
+}
+
+async function deliverDeviceEventDirect(params: {
+  cfg: unknown;
+  loadAdapter: (channelId: string) => Promise<DirectOutboundAdapter | undefined>;
+  route: NotificationRoute;
+  message: string;
+}) {
+  const adapter = await params.loadAdapter(params.route.channel);
+  if (!adapter?.sendText) {
+    throw new Error(`Direct outbound sendText unavailable for channel ${params.route.channel}`);
+  }
+  return await adapter.sendText({
+    cfg: params.cfg,
+    to: params.route.to,
+    text: params.message,
+  });
+}
+
 /** Format a device push event as a human-readable notification message. */
 function formatDeviceEventMessage(deviceId: string, op: string, data: Record<string, unknown>): string {
   switch (op) {
@@ -92,56 +135,36 @@ export default definePluginEntry({
           const payload = event.data ?? {};
           const message = formatDeviceEventMessage(deviceId, op, payload);
           const sessionKey = `openclaw-wrt:device-events:${deviceId}`;
+          const route = parseNotificationTarget(config.notificationTarget);
           api.logger.debug?.(
             `openclaw-wrt: event payload summary deviceId=${deviceId} op=${op} keys=${summarizeEventData(payload)}`,
           );
 
-          // Inject delivery context if a notification target is configured.
-          // This ensures background runs know where to deliver the message.
-          if (config.notificationTarget) {
-            try {
-              const match = config.notificationTarget.match(/^([^:]+):(.+)$/);
-              if (match) {
-                const channel = match[1];
-                const to = match[2];
-                api.logger.info(
-                  `openclaw-wrt: preparing delivery context deviceId=${deviceId} channel=${channel} to=${to} sessionKey=${sessionKey}`,
-                );
-                const storePath = api.runtime.agent.session.resolveStorePath();
-                const store = await Promise.resolve(api.runtime.agent.session.loadSessionStore(storePath));
-                for (const storeKey of resolveSessionStoreKeys(sessionKey)) {
-                  store[storeKey] = {
-                    ...(store[storeKey] as any || {}),
-                    lastChannel: channel,
-                    lastTo: to,
-                  };
-                  api.logger.debug?.(`openclaw-wrt: wrote delivery route storeKey=${storeKey}`);
-                }
-                await Promise.resolve(api.runtime.agent.session.saveSessionStore(storePath, store));
-                api.logger.info(
-                  `openclaw-wrt: saved delivery context for deviceId=${deviceId} target=${config.notificationTarget}`,
-                );
-              } else {
-                api.logger.warn(
-                  `openclaw-wrt: notificationTarget did not match expected format deviceId=${deviceId} target=${config.notificationTarget}`,
-                );
-              }
-            } catch (err) {
-              api.logger.warn(`openclaw-wrt: failed to inject session delivery context: ${String(err)}`);
-            }
-          } else {
-            api.logger.warn(`openclaw-wrt: notificationTarget is unset, event will not be routed to Feishu directly deviceId=${deviceId}`);
+          if (!route) {
+            api.logger.warn(
+              `openclaw-wrt: notificationTarget is unset or invalid, skipping direct event delivery deviceId=${deviceId} target=${config.notificationTarget ?? "<unset>"}`,
+            );
+            return;
           }
 
           api.logger.info(
-            `openclaw-wrt: dispatching device event via subagent deviceId=${deviceId} op=${op} sessionKey=${sessionKey}`,
+            `openclaw-wrt: direct event delivery deviceId=${deviceId} channel=${route.channel} to=${route.to} sessionKey=${sessionKey}`,
           );
-          await api.runtime.subagent.run({
-            sessionKey,
+          const result = await deliverDeviceEventDirect({
+            cfg: api.runtime.config.loadConfig(),
+            loadAdapter: api.runtime.channel.outbound.loadAdapter as unknown as (
+              channelId: string,
+            ) => Promise<DirectOutboundAdapter | undefined>,
+            route,
             message,
-            deliver: true,
           });
-          api.logger.info(`openclaw-wrt: subagent delivery completed deviceId=${deviceId} op=${op}`);
+          const messageId =
+            result && typeof result === "object" && "messageId" in result
+              ? String((result as { messageId?: unknown }).messageId ?? "")
+              : "";
+          api.logger.info(
+            `openclaw-wrt: direct event delivery completed deviceId=${deviceId} op=${op}${messageId ? ` messageId=${messageId}` : ""}`,
+          );
         } catch (error) {
           api.logger.warn(`openclaw-wrt: failed to deliver device event: ${String(error)}`);
         }
@@ -168,4 +191,4 @@ export {
   resolveClawWRTConfig,
   type ResolvedClawWRTConfig,
 } from "./src/config.js";
-export { resolveSessionStoreKeys };
+export { deliverDeviceEventDirect, parseNotificationTarget, resolveSessionStoreKeys };
