@@ -1,4 +1,25 @@
+import { createRequire } from "node:module";
 import type { ResolvedClawWRTConfig } from "./config.js";
+
+const require = createRequire(import.meta.url);
+
+type UndiciAgentLike = {
+  close?: () => Promise<void> | void;
+};
+
+function createSseDispatcher(): unknown {
+  try {
+    const undici = require("undici") as {
+      Agent?: new (options?: Record<string, unknown>) => UndiciAgentLike;
+    };
+    if (typeof undici.Agent === "function") {
+      return new undici.Agent({ bodyTimeout: 0, headersTimeout: 0 });
+    }
+  } catch {
+    // Keep using global fetch defaults when undici runtime is unavailable.
+  }
+  return undefined;
+}
 
 export type ChawrtdDeviceEvent = {
   deviceId?: string;
@@ -16,6 +37,7 @@ type Logger = {
 };
 
 type EventHandler = (event: ChawrtdDeviceEvent) => void | Promise<void>;
+type RequestInitWithDispatcher = Omit<RequestInit, "dispatcher"> & { dispatcher?: unknown };
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -83,6 +105,8 @@ export class ChawrtdEventStreamClient {
   private readonly logger: Logger;
   private readonly onEvent: EventHandler;
   private readonly config: ResolvedClawWRTConfig;
+  // Keep SSE reads alive indefinitely; default undici body timeout is too short for quiet streams.
+  private readonly streamDispatcher = createSseDispatcher();
   private controller: AbortController | null = null;
   private running = false;
 
@@ -116,16 +140,19 @@ export class ChawrtdEventStreamClient {
         this.logger.info(
           `openclaw-wrt: connecting to chawrtd event stream url=${this.config.chawrtdEventStream.baseUrl}${this.config.chawrtdEventStream.path}`,
         );
+        const requestInit: RequestInitWithDispatcher = {
+          method: "GET",
+          headers: {
+            Accept: "text/event-stream",
+            "Cache-Control": "no-cache",
+          },
+          signal,
+          ...(this.streamDispatcher ? { dispatcher: this.streamDispatcher } : {}),
+        };
+
         const response = await fetch(
           `${this.config.chawrtdEventStream.baseUrl}${this.config.chawrtdEventStream.path}`,
-          {
-            method: "GET",
-            headers: {
-              Accept: "text/event-stream",
-              "Cache-Control": "no-cache",
-            },
-            signal,
-          },
+          requestInit as RequestInit,
         );
 
         if (!response.ok || !response.body) {
