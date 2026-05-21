@@ -4,6 +4,7 @@ import { pickLegacyTools, type ToolFactoryParams } from "./tool-factories.js";
 const SERVER_INFRA_TOOL_NAMES = [
   "openclaw_deploy_frps",
   "openclaw_get_frps_status",
+  "openclaw_verify_frps",
   "openclaw_reset_frps",
   "openclaw_reset_wg_server",
   "openclaw_deploy_wg_server",

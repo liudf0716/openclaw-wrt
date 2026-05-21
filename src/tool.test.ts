@@ -231,6 +231,48 @@ describe("openclaw-wrt intent tools", () => {
     expect(resultText).toContain("SERVICE_STATE=active");
   });
 
+  it("frps verify checks the vps listener via chawrtd", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          summary: "FRPS listener is active",
+          output: "STATUS=LISTENING\nPROTOCOL=tcp\nPORT=7070",
+          data: { protocol: "tcp", port: 7070, listening: true },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "openclaw_verify_frps",
+    );
+    expect(tool).toBeTruthy();
+
+    const result = await tool?.execute?.("tool-frps-verify", {
+      protocol: "tcp",
+      port: 7070,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://127.0.0.1:8001/v1/frps/verify");
+    expect(init.method).toBe("POST");
+    expect(init.body).toContain('"protocol":"tcp"');
+    expect(init.body).toContain('"port":7070');
+    expect((result as { content?: Array<{ text?: string }> }).content?.[0]?.text).toContain(
+      "Intranet-penetration service listener is active",
+    );
+  });
+
   it("detects the VPS public IP via ifconfig.me", async () => {
     fetchMock.mockResolvedValue(
       new Response(

@@ -81,6 +81,7 @@
       "openclaw_get_vps_public_ip",
       "openclaw_get_wg_server_public_key",
       "openclaw_get_wg_status",
+      "openclaw_verify_frps",
       "openclaw_reset_frps",
       "openclaw_reset_wg_server"
     ]

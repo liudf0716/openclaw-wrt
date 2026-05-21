@@ -34,6 +34,7 @@ import type {
   ResetWireguardVpnSchema,
   SetBrLanSchema,
   ResetWgServerSchema,
+  VerifyFrpsSchema,
   GetXfrpcTcpServiceSchema,
   DelXfrpcTcpServiceSchema,
   DisableXfrpcTcpServiceSchema,
@@ -214,6 +215,7 @@ export type SetVpnRoutesParams = Static<typeof SetVpnRoutesSchema>;
 export type ResetWireguardVpnParams = Static<typeof ResetWireguardVpnSchema>;
 export type SetBrLanParams = Static<typeof SetBrLanSchema>;
 export type ResetWgServerParams = Static<typeof ResetWgServerSchema>;
+export type VerifyFrpsParams = Static<typeof VerifyFrpsSchema>;
 export type GetXfrpcTcpServiceParams = Static<typeof GetXfrpcTcpServiceSchema>;
 export type DelXfrpcTcpServiceParams = Static<typeof DelXfrpcTcpServiceSchema>;
 export type DisableXfrpcTcpServiceParams = Static<typeof DisableXfrpcTcpServiceSchema>;

@@ -56,7 +56,7 @@
 2. 若 `server_addr` 尚未确认，调用 `openclaw_get_vps_public_ip`，再按模板 C 让用户确认公网 IP 或域名。
 3. 按模板 A 和模板 B 收集客户端配置所需参数。
 4. 执行最小参数校验；若失败，明确指出错误项并要求用户修正。
-5. 调用 `clawwrt_set_xfrpc_common`，写入 `server_addr`、`server_port`、`token`。
+5. 调用 `clawwrt_set_xfrpc_common`，一次性全量写入 `server_addr`、`server_port`、`token`（如需启用，再同时携带 `enabled='1'`）。
 6. 调用 `clawwrt_add_xfrpc_tcp_service`，创建单条 TCP 映射。
 7. 调用 `clawwrt_get_xfrpc_common_config` 或 `clawwrt_get_xfrpc_tcp_service` 回读配置，确认客户端公共配置和映射规则已落盘。
 8. 向用户说明下一步将进入 `references/verify.md` 做成功验证。
@@ -65,9 +65,11 @@
 
 1. 不得自行猜测 `device_id`、本地 IP、本地端口或远端端口。
 2. 调用 `clawwrt_set_xfrpc_common` 前，必须确认 `token` 非空；若为空，回到服务端部署阶段。
-3. 如果用户要求查看、禁用或删除特定映射，使用 `clawwrt_get_xfrpc_tcp_service`、`clawwrt_disable_xfrpc_tcp_service`、`clawwrt_del_xfrpc_tcp_service` 的精细化接口。
-4. 如果用户要求清空某台设备上全部映射，调用 `clawwrt_del_xfrpc_tcp_service` 且不传 `name`。
-5. 如果用户要求全局关闭客户端内网穿透功能，调用 `clawwrt_disable_xfrpc_service`。
+3. `clawwrt_set_xfrpc_common` 属于公共配置全量写入接口；禁止只传 `enabled` 或仅传单个字段。
+4. 若任一 `server_addr`、`server_port`、`token` 缺失，必须先补齐参数再调用；不得以“先开开关后补参数”的方式执行。
+5. 如果用户要求查看、禁用或删除特定映射，使用 `clawwrt_get_xfrpc_tcp_service`、`clawwrt_disable_xfrpc_tcp_service`、`clawwrt_del_xfrpc_tcp_service` 的精细化接口。
+6. 如果用户要求清空某台设备上全部映射，调用 `clawwrt_del_xfrpc_tcp_service` 且不传 `name`。
+7. 如果用户要求全局关闭客户端内网穿透功能，调用 `clawwrt_disable_xfrpc_service`。
 
 ## 成功输出
 
