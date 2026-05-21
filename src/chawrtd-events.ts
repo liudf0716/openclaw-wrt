@@ -2,6 +2,8 @@ import type { ResolvedClawWRTConfig } from "./config.js";
 
 export type ChawrtdDeviceEvent = {
   deviceId?: string;
+  alias?: string;
+  time?: number;
   op?: string;
   data?: Record<string, unknown>;
 };
@@ -65,6 +67,8 @@ function parseEventBlock(block: string): ChawrtdDeviceEvent | null {
     }
     return {
       deviceId: typeof parsed.device_id === "string" ? parsed.device_id : undefined,
+      alias: typeof parsed.alias === "string" ? parsed.alias : undefined,
+      time: typeof parsed.time === "number" && Number.isFinite(parsed.time) ? parsed.time : undefined,
       op: typeof parsed.op === "string" ? parsed.op : undefined,
       data: parsed.data && typeof parsed.data === "object" && !Array.isArray(parsed.data)
         ? (parsed.data as Record<string, unknown>)
