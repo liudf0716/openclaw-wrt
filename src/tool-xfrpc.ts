@@ -11,6 +11,7 @@ const XFRPC_TOOL_NAMES = [
   "clawwrt_set_xfrpc_common",
   "clawwrt_add_xfrpc_tcp_service",
   "clawwrt_restart_xfrpc",
+  "openclaw_frps_full_status",
 ] as const;
 
 export function createXfrpcTools(params: ToolFactoryParams): AnyAgentTool[] {

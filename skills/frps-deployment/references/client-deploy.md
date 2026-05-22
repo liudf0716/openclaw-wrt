@@ -2,85 +2,37 @@
 
 ## 适用场景
 
-当服务端已具备可用的 `server_addr`、`server_port`、`token`，需要把某台路由器的内网服务映射到公网时，使用本模块。
+服务端已准备好，需要把某台路由器上的服务映射到公网时使用。
 
 ## 前置条件
-
-必须已拿到以下三个值：
 
 1. `server_addr`
 2. `server_port`
 3. `token`
+4. 目标 `device_id`
 
-其中 `token` 和 `server_port` 必须直接来自 `openclaw_get_frps_status` 获取的服务端真实配置，`server_addr` 必须来自 `openclaw_get_vps_public_ip` 或用户确认的有效值。
-**严禁沿用 `clawwrt_get_xfrpc_common_config` 获取到的客户端旧配置。如果客户端旧配置有误，必须无条件使用服务端当前正确参数覆盖。**
-若任一值缺失，先返回 `references/status.md` 或 `references/server-deploy.md`，不得继续。
-
-## 标准提问模板
-
-### 模板 A：首轮收集
-
-请按顺序向用户确认以下信息：
-
-1. 请提供目标路由器 `device_id`，从设备列表中选择要下发配置的路由器。
-2. 请确认是否使用当前已获取的服务端公网 IP 作为 `server_addr`；如果要使用域名，请直接提供域名。
-3. 请说明要映射的本地服务类型，例如 SSH、Web、数据库；这会影响后续本地端口和远端端口的确认。
-
-### 模板 B：创建单条映射前的参数确认
-
-请按顺序向用户确认以下信息：
-
-1. 请提供本地 IP 地址，也就是被穿透服务实际所在主机地址，例如 `192.168.1.10`。
-2. 请提供本地端口，也就是该服务真实监听端口，例如 SSH 常见 `22`。
-3. 请提供远端端口，也就是 VPS 对外开放端口，外部用户将通过 `VPS_IP:远端端口` 访问该服务。
-
-### 模板 C：缺失 `server_addr` 时
-
-若 `server_addr` 尚未确认，请先调用 `openclaw_get_vps_public_ip`，再向用户说明：
-
-- 我已通过系统接口获取到当前 VPS 的公网 IP 为 `[自动填入获取的 IP]`，请确认是否使用该 IP 作为服务端连接地址；如果需要使用域名，请直接提供域名。
-
-## 参数合法性快速校验清单
-
-调用工具前必须至少确认：
-
-1. `device_id` 不为空，且来自 `clawwrt_list_devices` 返回列表。
-2. `server_addr` 不为空，且不能是 `localhost`、`127.0.0.1`、`0.0.0.0`。
-3. 本地 IP 地址是有效 IPv4 地址，不得使用猜测值。
-4. 本地端口是 `1-65535` 的整数。
-5. 远端端口是 `1-65535` 的整数，且不能与服务端监听端口冲突。
-6. 若用户不确定本地端口，先确认服务真实监听端口，再决定远端端口。
-7. 若同一设备上已存在相同远端端口映射，先提示冲突并要求改端口。
+其中 `server_port` 和 `token` 来自服务端真实状态，`server_addr` 来自公网 IP 或用户确认的域名。
 
 ## 执行流程
 
-1. 调用 `clawwrt_list_devices` 获取在线设备列表，并让用户明确确认目标 `device_id`。
-2. 若 `server_addr` 尚未确认，调用 `openclaw_get_vps_public_ip`，再按模板 C 让用户确认公网 IP 或域名。
-3. 按模板 A 和模板 B 收集客户端配置所需参数。
-4. 执行最小参数校验；若失败，明确指出错误项并要求用户修正。
-5. 调用 `clawwrt_set_xfrpc_common`，一次性全量写入 `server_addr`、`server_port`、`token`（如需启用，再同时携带 `enabled='1'`）；其中这三个参数必须严格使用服务端真实配置（严禁使用旧客户端的错误配置）。
-6. 调用 `clawwrt_add_xfrpc_tcp_service`，创建单条 TCP 映射。
-7. 调用 `clawwrt_get_xfrpc_common_config` 或 `clawwrt_get_xfrpc_tcp_service` 回读配置，确认客户端公共配置和映射规则已落盘。
-8. 完成配置回读后，立即且必须在当前处理流程中，无缝读取 `references/verify.md` 并执行全部验证步骤，绝对不能中途输出中间成功信息、暂停或等待用户确认。在验证的所有动作执行完毕后，一次性输出最终合并的配置与验证报告。
+1. 调用 `clawwrt_list_devices`，确认目标 `device_id`。
+2. 若 `server_addr` 未确认，先调用 `openclaw_get_vps_public_ip`。
+3. 收集本地 IP、本地端口和远端端口。
+4. 调用 `clawwrt_set_xfrpc_common`，一次性写入 `server_addr`、`server_port`、`token`。
+5. 调用 `clawwrt_add_xfrpc_tcp_service` 创建 TCP 映射。端口范围和冲突检查由工具层处理。
+6. 回读配置后，直接进入 `references/verify.md`。
 
 ## 规则
 
-1. 不得自行猜测 `device_id`、本地 IP、本地端口或远端端口。
-2. 调用 `clawwrt_set_xfrpc_common` 前，必须确认 `token` 非空；若为空，回到服务端部署阶段。
-3. `clawwrt_set_xfrpc_common` 属于公共配置全量写入接口；禁止只传 `enabled` 或仅传单个字段。
-4. 若任一 `server_addr`、`server_port`、`token` 缺失，必须先补齐参数再调用；不得以“先开开关后补参数”的方式执行。
-5. 如果用户要求查看、禁用或删除特定映射，使用 `clawwrt_get_xfrpc_tcp_service`、`clawwrt_disable_xfrpc_tcp_service`、`clawwrt_del_xfrpc_tcp_service` 的精细化接口。
-6. 如果用户要求清空某台设备上全部映射，调用 `clawwrt_del_xfrpc_tcp_service` 且不传 `name`。
-7. 如果用户要求全局关闭客户端内网穿透功能，调用 `clawwrt_disable_xfrpc_service`。
+1. 不猜测 `device_id`、本地 IP、本地端口或远端端口。
+2. `clawwrt_set_xfrpc_common` 必须全量写入三项连接参数。
+3. 如果要查看、禁用或删除映射，使用对应的精细化接口。
+4. 如果要清空全部映射，调用 `clawwrt_del_xfrpc_tcp_service` 且不传 `name`。
 
-## 成功输出（配置与验证合并报告）
-
-请注意：此处的成功输出是在配置和 `references/verify.md` 验证都完成后一次性输出的最终报告。必须至少包含：
+## 成功输出
 
 1. 目标设备及 `device_id`
-2. 已写入的客户端全局连接配置（服务端地址和端口）
-3. 已创建的本地 IP、本地端口、远端端口映射
+2. 客户端全局连接配置
+3. 已创建的 TCP 映射
 4. 配置回读结果
-5. 内网穿透服务监听验证结果（来自 `openclaw_verify_frps` 的回读）
-6. 是否执行过客户端重启以及重启后的重新验证结果
-7. 引导用户通过 `server_addr:远端端口` 进行实际访问测试的清晰示例说明
+5. 验证结果

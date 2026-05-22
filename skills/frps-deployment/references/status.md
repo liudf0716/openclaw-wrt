@@ -2,67 +2,33 @@
 
 ## 适用场景
 
-用户想知道 VPS 侧是否已经安装并运行内网穿透服务端，或者想盘点当前哪些路由器已经配置过哪些映射服务、避免重复配置时，使用本模块。
+需要先判断服务端状态，或想一次性盘点服务端、公网 IP 和所有在线设备配置时使用。
 
 ## 固定入口
 
-先调用：
-
-1. `openclaw_get_frps_status`
-
-紧接着必须组合调用以下接口，盘点并向用户全面展示所有设备的客户端配置现状：
-
-2. `clawwrt_list_devices`
-3. `clawwrt_get_xfrpc_common_config` 或 `clawwrt_get_xfrpc_common`
-4. `clawwrt_get_xfrpc_tcp_service`（不传 `name`，读取该设备全部 TCP 映射）
+优先调用 `openclaw_frps_full_status`。如果只需要最小服务端判断，再单独调用 `openclaw_get_frps_status`。
 
 ## 执行流程
 
-1. 调用 `openclaw_get_frps_status`，判断当前服务端状态。
-2. 若返回“未安装”或“未运行”：
-   1. 明确告知用户当前 VPS 侧尚未准备好。
-   2. 下一步进入 `references/server-deploy.md`。
-3. 若返回“已运行但 token 为空”：
-   1. 明确告知用户当前服务端不可直接复用。
-   2. 下一步进入 `references/server-deploy.md`，重新部署并写入有效 token。
-4. 若返回“已运行且 token 正常”：
-   1. 记录当前监听端口和 token，后续客户端部署必须严格复用服务端的这个配置，不允许重新生成，**也绝对不允许沿用客户端旧配置中的值**。
-   2. 再调用 `openclaw_get_vps_public_ip` 获取公网 IP。
-   3. 无论用户意图是新增、修改还是仅查询状态，必须继续执行客户端配置盘点（见下文第 6 步），将所有设备的配置现状展示给用户。
-5. 若返回结果中包含路由器侧已有旧客户端配置的信息：
-   1. 只把它作为“后续客户端应覆盖旧配置”的提醒。
-   2. 仍以当前服务端状态作为唯一决策依据。
-6. 盘点当前已配置客户端的强制操作步骤（**严禁依赖上下文记忆，必须真实调用API**）：
-   1. 调用 `clawwrt_list_devices` 获取在线设备列表。
-   2. 对每台目标设备调用 `clawwrt_get_xfrpc_common_config` 或 `clawwrt_get_xfrpc_common`，读取全局连接配置。
-   3. 对同一设备调用 `clawwrt_get_xfrpc_tcp_service`，且不传 `name`，读取该设备全部 TCP 映射服务。
-   4. 将以下信息整理后展示给用户：
-      1. 设备名称和 `device_id`
-      2. 客户端全局开关是否启用
-      3. 当前使用的 `server_addr`
-      4. 当前使用的 `server_port`
-      5. 当前已配置的每条映射服务：服务名、启用状态、本地 IP、本地端口、远端端口
-   5. 将客户端全局配置与 VPS 当前服务端状态做一次对照：
-      1. `server_addr` 是否与当前公网 IP 或用户确认的域名一致
-      2. `server_port` 是否与 VPS 当前监听端口一致
-      3. `token` 是否存在，且明显不是空值
-   6. 若发现某台设备的客户端配置与当前服务端参数不一致，明确标记为“旧配置，不建议复用”，并强调**在后续部署客户端时必须使用服务端当前正确参数覆盖**。
-   7. 若发现某台设备已经存在相同远端端口或明显同用途的映射，先展示该现状，再询问用户是复用、修改还是删除，避免直接重复创建。
-7. 状态盘点完成后，再决定下一步：
-   1. 服务端缺失或异常，进入 `references/server-deploy.md`
+1. 调用 `openclaw_frps_full_status`，拿到服务端状态、公网 IP、设备全局配置和 TCP 映射。
+2. 如果聚合结果不可用，再回退到：
+   1. `openclaw_get_frps_status`
+   2. `openclaw_get_vps_public_ip`
+   3. `clawwrt_list_devices`
+   4. `clawwrt_get_xfrpc_common_config` 或 `clawwrt_get_xfrpc_common`
+   5. `clawwrt_get_xfrpc_tcp_service`（不传 `name`）
+3. 根据结果判断下一步：
+   1. 服务端缺失或 token 为空，进入 `references/server-deploy.md`
    2. 服务端正常但客户端未配置，进入 `references/client-deploy.md`
-   3. 服务端正常且客户端已有配置，先向用户展示现状，再决定是复用、修改、删除还是新增映射
+   3. 服务端和客户端都已配置，先展示现状，再决定是否复用、修改、删除或新增映射
+4. 服务端状态正常时，不要让用户在“继续下一步”与“重置配置”之间做默认选择；重置只在用户明确要求时进入 `references/reset.md`。
 
 ## 规则
 
-1. 本模块负责“状态判断 + 已有配置盘点 + 下一步决策”，但不直接执行部署或改写客户端配置。
-2. 在确认需要新增或修改映射前，不询问本地 IP、本地端口或远端端口。
-3. 必须先盘点并展示全部在线设备上的已配服务；若准备修改或新增某台设备的配置，必须在后续模块中让用户明确确认 `device_id`。
-4. 若服务端状态异常或返回字段不完整，不得假设默认端口、默认 token 或默认公网地址。
-5. 若自动获取公网 IP 失败，可以在进入客户端配置前让用户确认公网 IP 或域名，但不能跳过服务端状态判断。
-6. `clawwrt_get_xfrpc_tcp_service` 不传 `name` 时，优先用于列出某台设备全部已配置映射；这是避免重复配置的核心接口。
-7. `clawwrt_get_xfrpc_common_config` 或 `clawwrt_get_xfrpc_common` 用于判断客户端当前连向哪个服务端、是否启用、是否与 VPS 当前状态一致。
-8. **绝对禁止依赖记忆**：获取在线设备及客户端内网穿透配置时，**必须且只能**通过真实调用 `clawwrt_get_xfrpc_tcp_service` 等接口获取实时数据，严禁依赖历史对话上下文（Memory）直接输出旧数据，严禁凭空捏造配置信息。
+1. 不依赖记忆输出设备或映射状态。
+2. 发现旧客户端配置时，只把它标记为旧配置，不直接复用。
+3. `clawwrt_get_xfrpc_tcp_service` 不传 `name` 时，用于读取某台设备的全部 TCP 映射。
+4. `clawwrt_get_xfrpc_common_config` 或 `clawwrt_get_xfrpc_common` 用于判断客户端当前连向哪个服务端。
 
 ## 成功输出
 
@@ -70,10 +36,7 @@
 
 1. 当前服务端状态
 2. 是否需要进入服务端部署
-3. 若可复用，记录监听端口
-4. 若可复用，记录认证密钥
-5. 若已获取，记录公网 IP
-6. 若已盘点客户端，列出每台设备当前的全局配置摘要
-7. 若已盘点客户端，列出每台设备当前全部 TCP 映射服务摘要
-8. 明确标记哪些配置可复用，哪些是旧配置或疑似重复配置
-9. 下一步建议
+3. 公网 IP
+4. 每台设备的全局配置摘要
+5. 每台设备的 TCP 映射摘要
+6. 下一步建议

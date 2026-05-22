@@ -133,16 +133,30 @@ describe("openclaw-wrt intent tools", () => {
   });
 
   it("deploy frps delegates to chawrtd API", async () => {
-    fetchMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          summary: "FRPS deployed successfully",
-          output: "ok",
-          data: { port: 7000 },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
-    );
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            summary: "FRPS deployed successfully",
+            output: "ok",
+            data: { port: 7000 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            summary: "Fetched FRPS status",
+            data: {
+              token: "abc",
+              port: 7000,
+              listen_addr: "0.0.0.0",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
 
     const bridge = {
       listDevices() {
@@ -163,15 +177,66 @@ describe("openclaw-wrt intent tools", () => {
       token: "abc",
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://127.0.0.1:8001/v1/frps/deploy");
-    expect(init.method).toBe("POST");
-    expect(init.body).toContain('"port":7000');
-    expect(init.body).toContain('"token":"abc"');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [deployUrl, deployInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [statusUrl] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(deployUrl).toBe("http://127.0.0.1:8001/v1/frps/deploy");
+    expect(statusUrl).toBe("http://127.0.0.1:8001/v1/frps/status");
+    const deployBody = JSON.parse(String(deployInit.body)) as { port?: number; token?: string };
+    expect(deployBody.port).toBe(7000);
+    expect(deployBody.token).toBe("abc");
+    expect((result as { details?: Record<string, unknown> }).details?.token).toBe("abc");
     expect((result as { content?: Array<{ text?: string }> }).content?.[0]?.text).toContain(
       "FRPS deployed successfully",
     );
+  });
+
+  it("deploy frps auto-generates a token when omitted", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            summary: "FRPS deployed successfully",
+            data: { port: 7070 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            summary: "Fetched FRPS status",
+            data: { token: "generated-token", port: 7070 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "openclaw_deploy_frps",
+    );
+    expect(tool).toBeTruthy();
+
+    const result = await tool?.execute?.("tool-deploy-auto-token", {
+      port: 7070,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [, deployInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const deployBody = JSON.parse(String(deployInit.body)) as { port?: number; token?: string };
+    expect(deployBody.port).toBe(7070);
+    expect(typeof deployBody.token).toBe("string");
+    expect(deployBody.token).toMatch(/\S+/);
+    expect((result as { details?: Record<string, unknown> }).details?.token).toBe("generated-token");
   });
 
   it("deploy frps forwards chawrtd errors", async () => {
@@ -271,6 +336,78 @@ describe("openclaw-wrt intent tools", () => {
     expect((result as { content?: Array<{ text?: string }> }).content?.[0]?.text).toContain(
       "Intranet-penetration service listener is active",
     );
+  });
+
+  it("frps full status aggregates server, public ip, and device xfrpc snapshots", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            summary: "Fetched FRPS status",
+            data: {
+              token: "token-1",
+              port: "7070",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            summary: "Detected VPS public IPv4 address",
+            data: {
+              publicIp: "203.0.113.42",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const bridge = {
+      listDevices() {
+        return [{ deviceId: "dev-1" }];
+      },
+      getDevice(deviceId: string) {
+        if (deviceId === "dev-1") {
+          return { deviceId: "dev-1", connectedAtMs: 1, lastSeenAtMs: 1 };
+        }
+        return null;
+      },
+      async callDevice(params: { deviceId: string; op: string; payload?: Record<string, unknown> }) {
+        if (params.op === "get_xfrpc_common") {
+          return {
+            enabled: "1",
+            loglevel: "7",
+            server_addr: "203.0.113.42",
+            server_port: "7070",
+            token: "token-1",
+          };
+        }
+        if (params.op === "get_xfrpc_tcp_service") {
+          return [{ name: "ssh", remote_port: "6022" }];
+        }
+        return { status: "ok" };
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "openclaw_frps_full_status",
+    );
+    expect(tool).toBeTruthy();
+
+    const result = await tool?.execute?.("tool-frps-full-status", {});
+    const details = (result as { details?: Record<string, unknown> }).details ?? {};
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(details.status).toBe("success");
+    expect(details.publicIp).toBe("203.0.113.42");
+    expect(Array.isArray(details.devices)).toBe(true);
+    expect((details.devices as Array<Record<string, unknown>>)[0]).toMatchObject({
+      deviceId: "dev-1",
+      consistent: true,
+    });
+    expect((details.conflicts as Array<Record<string, unknown>>)).toHaveLength(0);
   });
 
   it("detects the VPS public IP via ifconfig.me", async () => {
@@ -2070,15 +2207,76 @@ describe("openclaw-wrt intent tools", () => {
       const tool = createClawWRTTools({ bridge: bridge as never }).find((entry) => entry.name === testCase.toolName);
       await tool?.execute?.(`tool-${testCase.toolName}`, testCase.input as never);
 
-      expect(calls).toHaveLength(2);
-      expect(calls[0]).toMatchObject({
-        deviceId: "dev-1",
-        op: testCase.expectedOp,
-      });
-      expect(calls[1]).toMatchObject({
-        deviceId: "dev-1",
-        op: "restart_xfrpc",
-      });
+      if (testCase.toolName === "clawwrt_add_xfrpc_tcp_service") {
+        expect(calls).toHaveLength(3);
+        expect(calls[0]).toMatchObject({
+          deviceId: "dev-1",
+          op: "get_xfrpc_tcp_service",
+          payload: {},
+        });
+        expect(calls[1]).toMatchObject({
+          deviceId: "dev-1",
+          op: testCase.expectedOp,
+        });
+        expect(calls[2]).toMatchObject({
+          deviceId: "dev-1",
+          op: "restart_xfrpc",
+        });
+      } else {
+        expect(calls).toHaveLength(2);
+        expect(calls[0]).toMatchObject({
+          deviceId: "dev-1",
+          op: testCase.expectedOp,
+        });
+        expect(calls[1]).toMatchObject({
+          deviceId: "dev-1",
+          op: "restart_xfrpc",
+        });
+      }
     }
+  });
+
+  it("add xfrpc tcp service rejects remote port conflicts before mutation", async () => {
+    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+      async callDevice(params: { deviceId: string; op: string; payload?: Record<string, unknown> }) {
+        calls.push(params);
+        if (params.op === "get_xfrpc_tcp_service") {
+          return {
+            type: "get_xfrpc_tcp_service_response",
+            services: [{ name: "ssh", remote_port: "6022" }],
+          };
+        }
+        return {
+          type: `${params.op}_response`,
+          status: "ok",
+        };
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "clawwrt_add_xfrpc_tcp_service",
+    );
+    expect(tool).toBeTruthy();
+
+    await expect(
+      tool?.execute?.("tool-add-conflict", {
+        deviceId: "dev-1",
+        name: "web",
+        remote_port: "6022",
+      }),
+    ).rejects.toThrow("remote_port 6022 already in use on this device");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      deviceId: "dev-1",
+      op: "get_xfrpc_tcp_service",
+    });
   });
 });
