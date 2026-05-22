@@ -61,7 +61,7 @@
 5. 调用 `clawwrt_set_xfrpc_common`，一次性全量写入 `server_addr`、`server_port`、`token`（如需启用，再同时携带 `enabled='1'`）；其中这三个参数必须严格使用服务端真实配置（严禁使用旧客户端的错误配置）。
 6. 调用 `clawwrt_add_xfrpc_tcp_service`，创建单条 TCP 映射。
 7. 调用 `clawwrt_get_xfrpc_common_config` 或 `clawwrt_get_xfrpc_tcp_service` 回读配置，确认客户端公共配置和映射规则已落盘。
-8. 向用户说明下一步将进入 `references/verify.md` 做成功验证。
+8. 完成配置回读后，立即读取 `references/verify.md` 并自动执行验证流程，不要中断等待。
 
 ## 规则
 
