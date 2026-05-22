@@ -61,7 +61,7 @@
 5. 调用 `clawwrt_set_xfrpc_common`，一次性全量写入 `server_addr`、`server_port`、`token`（如需启用，再同时携带 `enabled='1'`）；其中这三个参数必须严格使用服务端真实配置（严禁使用旧客户端的错误配置）。
 6. 调用 `clawwrt_add_xfrpc_tcp_service`，创建单条 TCP 映射。
 7. 调用 `clawwrt_get_xfrpc_common_config` 或 `clawwrt_get_xfrpc_tcp_service` 回读配置，确认客户端公共配置和映射规则已落盘。
-8. 完成配置回读后，立即读取 `references/verify.md` 并自动执行验证流程，不要中断等待。
+8. 完成配置回读后，立即且必须在当前处理流程中，无缝读取 `references/verify.md` 并执行全部验证步骤，绝对不能中途输出中间成功信息、暂停或等待用户确认。在验证的所有动作执行完毕后，一次性输出最终合并的配置与验证报告。
 
 ## 规则
 
@@ -73,12 +73,14 @@
 6. 如果用户要求清空某台设备上全部映射，调用 `clawwrt_del_xfrpc_tcp_service` 且不传 `name`。
 7. 如果用户要求全局关闭客户端内网穿透功能，调用 `clawwrt_disable_xfrpc_service`。
 
-## 成功输出
+## 成功输出（配置与验证合并报告）
 
-至少包含：
+请注意：此处的成功输出是在配置和 `references/verify.md` 验证都完成后一次性输出的最终报告。必须至少包含：
 
-1. 目标设备
-2. 已写入的服务端地址和端口
+1. 目标设备及 `device_id`
+2. 已写入的客户端全局连接配置（服务端地址和端口）
 3. 已创建的本地 IP、本地端口、远端端口映射
 4. 配置回读结果
-5. 下一步建议：进入成功验证
+5. 内网穿透服务监听验证结果（来自 `openclaw_verify_frps` 的回读）
+6. 是否执行过客户端重启以及重启后的重新验证结果
+7. 引导用户通过 `server_addr:远端端口` 进行实际访问测试的清晰示例说明
