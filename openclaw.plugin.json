@@ -77,6 +77,7 @@
       "clawwrt_verify_wireguard_connectivity",
       "openclaw_deploy_frps",
       "openclaw_deploy_wg_server",
+      "openclaw_frps_full_status",
       "openclaw_get_frps_status",
       "openclaw_get_vps_public_ip",
       "openclaw_get_wg_server_public_key",

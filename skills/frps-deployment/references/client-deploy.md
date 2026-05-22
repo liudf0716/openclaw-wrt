@@ -19,8 +19,9 @@
 2. 若 `server_addr` 未确认，先调用 `openclaw_get_vps_public_ip`。
 3. 收集本地 IP、本地端口和远端端口。
 4. 调用 `clawwrt_set_xfrpc_common`，一次性写入 `server_addr`、`server_port`、`token`。
-5. 调用 `clawwrt_add_xfrpc_tcp_service` 创建 TCP 映射。端口范围和冲突检查由工具层处理。
-6. 回读配置后，直接进入 `references/verify.md`。
+5. 调用 `clawwrt_add_xfrpc_tcp_service` 创建 TCP 映射。`remote_port` 的范围和同设备冲突检查由工具层处理。
+6. 回读配置：调用 `clawwrt_get_xfrpc_common` 或 `clawwrt_get_xfrpc_common_config`，以及 `clawwrt_get_xfrpc_tcp_service`。
+7. 回读成功后，进入 `references/verify.md`。
 
 ## 规则
 

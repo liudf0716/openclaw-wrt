@@ -22,7 +22,7 @@ Prefer the specific `clawwrt_*` tools over the low-level `clawwrt` tool for rout
 
 | 用户意图 | 专属 Skill | 第一步 |
 |---------|-----------|--------|
-| 内网穿透 / 穿透 / 映射端口 / 远程访问路由器 / xfrpc 配置 | `frps-deployment` | 立即调用 `openclaw_get_frps_status`，禁止先列设备 |
+| 内网穿透 / 穿透 / 映射端口 / 远程访问路由器 / xfrpc 配置 | `frps-deployment` | 优先调用 `openclaw_frps_full_status`；若不可用，再调用 `openclaw_get_frps_status`，禁止先列设备 |
 | WireGuard VPN 部署 / 组网 / VPN 隧道 | `wireguard-deployment` | 遵循该 Skill 的入口步骤 |
 
 ❌ **禁止**：收到上述任务请求时先调用 `clawwrt_list_devices` 或询问路由器信息。必须先执行专属 Skill 指定的服务端检查步骤。
@@ -81,4 +81,3 @@ When a user explicitly asks for any of the following operations, call the low-le
             ├─ 否 → 告知用户该操作暂不支持，禁止用 shell
             └─ 是 → 展示命令 → 等待用户 Approve → 调用 clawwrt_execute_shell
 ```
-

@@ -3940,7 +3940,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
       name: "openclaw_get_frps_status",
       label: "OpenClaw Get FRPS Status",
       description:
-        "ENTRY POINT for all intranet-penetration tasks. Call this FIRST before asking the user anything. Returns service state, listening ports, and current token/port config. Use the result to decide next step: deploy if not installed, re-deploy if token is empty, or proceed to client config if already running.",
+        "Lightweight FRPS server-only status check. Use this when you only need the VPS-side service state, listening ports, or token/port config, or as a fallback when the aggregated full-status tool is unavailable.",
       parameters: Type.Object({}),
       execute: async () => {
         logToolInvocation(undefined, "openclaw_get_frps_status");
