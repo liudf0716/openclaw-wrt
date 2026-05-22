@@ -12,8 +12,8 @@
 2. `server_port`
 3. `token`
 
-其中 `token` 必须直接来自 `references/status.md` 里回读到的服务端当前值；不得重新生成，也不得手工补写一个新 token。
-
+其中 `token` 和 `server_port` 必须直接来自 `openclaw_get_frps_status` 获取的服务端真实配置，`server_addr` 必须来自 `openclaw_get_vps_public_ip` 或用户确认的有效值。
+**严禁沿用 `clawwrt_get_xfrpc_common_config` 获取到的客户端旧配置。如果客户端旧配置有误，必须无条件使用服务端当前正确参数覆盖。**
 若任一值缺失，先返回 `references/status.md` 或 `references/server-deploy.md`，不得继续。
 
 ## 标准提问模板
@@ -58,7 +58,7 @@
 2. 若 `server_addr` 尚未确认，调用 `openclaw_get_vps_public_ip`，再按模板 C 让用户确认公网 IP 或域名。
 3. 按模板 A 和模板 B 收集客户端配置所需参数。
 4. 执行最小参数校验；若失败，明确指出错误项并要求用户修正。
-5. 调用 `clawwrt_set_xfrpc_common`，一次性全量写入 `server_addr`、`server_port`、`token`（如需启用，再同时携带 `enabled='1'`）；其中 `token` 必须沿用状态盘点阶段回读到的值。
+5. 调用 `clawwrt_set_xfrpc_common`，一次性全量写入 `server_addr`、`server_port`、`token`（如需启用，再同时携带 `enabled='1'`）；其中这三个参数必须严格使用服务端真实配置（严禁使用旧客户端的错误配置）。
 6. 调用 `clawwrt_add_xfrpc_tcp_service`，创建单条 TCP 映射。
 7. 调用 `clawwrt_get_xfrpc_common_config` 或 `clawwrt_get_xfrpc_tcp_service` 回读配置，确认客户端公共配置和映射规则已落盘。
 8. 向用户说明下一步将进入 `references/verify.md` 做成功验证。
