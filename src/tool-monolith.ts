@@ -4,17 +4,70 @@ import { isIPv4 } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { Type, type Static } from "@sinclair/typebox";
-import { optionalStringEnum, stringEnum } from "openclaw/plugin-sdk/core";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import type { ResolvedClawWRTConfig } from "./config.js";
-import type { ClawWRTBridge as SharedClawWRTBridge, Logger as SharedLogger } from "./tool-types.js";
+import type {
+  ClawWRTBridge,
+  Logger,
+  JsonRecord,
+  DeviceSnapshot,
+  ChawrtdToolResult,
+  ChawrtdDeviceSnapshot,
+  ExecFileSyncRunner,
+  IPv4CidrInfo,
+  BpfJsonTable,
+  WireguardProtectedRoutePlan,
+  WireguardProtectedRoutePlanFile,
+  PortalTemplate,
+  PortalContent,
+  GenericToolParams,
+  DeviceOnlyParams,
+  ClientInfoParams,
+  AuthClientParams,
+  KickoffClientParams,
+  UpdateDeviceInfoParams,
+  SetAuthServerParams,
+  PublishPortalPageParams,
+  GeneratePortalPageParams,
+  SetMqttServerParams,
+  SetWireguardVpnParams,
+  TmpPassParams,
+  SetWifiInfoParams,
+  ScanWifiParams,
+  SetWifiRelayParams,
+  DomainSyncParams,
+  TrustedMacSyncParams,
+  ShellCommandParams,
+  BpfAddParams,
+  BpfJsonParams,
+  BpfDeleteParams,
+  BpfFlushParams,
+  BpfUpdateParams,
+  BpfUpdateAllParams,
+  SetVpnRoutesParams,
+  ResetWireguardVpnParams,
+  SetBrLanParams,
+  ResetWgServerParams,
+  GetXfrpcTcpServiceParams,
+  DelXfrpcTcpServiceParams,
+  DisableXfrpcTcpServiceParams,
+  DeployWgServerPeerParams,
+  CollectWireguardProtectedRoutesParams,
+  VerifyWireguardConnectivityParams,
+  RunSpeedtestParams,
+} from "./tool-types.js";
 import * as SharedSchemas from "./tool-schemas.js";
 import {
   normalizeMac as parserNormalizeMac,
+  normalizeBpfAddress as parserNormalizeBpfAddress,
   sanitizePortalHtmlRoot as parserSanitizePortalHtmlRoot,
   resolvePortalWebRoot as parserResolvePortalWebRoot,
   sanitizePortalPageName as parserSanitizePortalPageName,
   buildPortalPageName as parserBuildPortalPageName,
+  parseChawrtdTimestamp as parserParseChawrtdTimestamp,
+  parseChawrtdDeviceSnapshot as parserParseChawrtdDeviceSnapshot,
+  formatDuration as parserFormatDuration,
+  getCategoryEmoji as parserGetCategoryEmoji,
 } from "./tool-parsers.js";
 import {
   parseIPv4Cidr as validatorParseIPv4Cidr,
@@ -23,6 +76,8 @@ import {
   isValidWireGuardPublicKey as validatorIsValidWireGuardPublicKey,
   isValidWireGuardPrivateKey as validatorIsValidWireGuardPrivateKey,
   deriveWireGuardPublicKeyFromPrivateKey as validatorDeriveWireGuardPublicKeyFromPrivateKey,
+  ipv4ToInt as validatorIpv4ToInt,
+  intToIpv4 as validatorIntToIpv4,
 } from "./tool-validators.js";
 import { renderAndPublishPortalPage } from "./tool-portal-utils.js";
 import { loadWireguardRoutePlanOrThrow } from "./tool-wireguard-routes.js";
@@ -30,71 +85,26 @@ import {
   setActiveClawWRTConfig as setChawrtdActiveClawWRTConfig,
   setActiveBridgeFallback as setChawrtdBridgeFallback,
   setActiveToolLogger as setChawrtdToolLogger,
+  callChawrtd,
+  callDeviceOp,
+  getDevicesListViaChawrtd,
+  getDeviceViaChawrtd,
+  ensureDevice,
+  getSingleGatewayId,
+  restartXfrpcService,
+  publishPortalPage,
+  lookupClientByMac,
+  readWireguardProtectedRoutePlanFile,
+  collectWireguardProtectedRoutePlans,
 } from "./tool-chawrtd.js";
 import {
-  PORTAL_TEMPLATE_VALUES,
   renderPortalPageHtml,
-  type PortalContent as PortalContentType,
-  type PortalTemplate as PortalTemplateType,
 } from "./portal-page-renderer.js";
-
-type JsonRecord = Record<string, unknown>;
-
-type ClawWRTBridge = SharedClawWRTBridge;
-
-type DeviceSnapshot = {
-  deviceId: string;
-  connectedAtMs: number;
-  lastSeenAtMs: number;
-  remoteAddress?: string;
-  gateway?: unknown;
-  deviceInfo?: unknown;
-  authMode?: number;
-  alias?: string;
-};
-
-type WireguardProtectedRoutePlan = {
-  deviceId: string;
-  deviceName?: string;
-  lanCidr: string;
-  routes: string[];
-};
-
-type WireguardProtectedRoutePlanFile = {
-  version: 1;
-  generatedAt: string;
-  serverTunnelIp: string;
-  serverTunnelCidr: string;
-  deviceIds: string[];
-  devices: Array<{
-    deviceId: string;
-    deviceName?: string;
-    lanCidr?: string;
-    error?: string;
-  }>;
-  failedDevices: Array<{
-    deviceId: string;
-    deviceName?: string;
-    lanCidr?: string;
-    error?: string;
-  }>;
-  conflicts: Array<{
-    leftDeviceId: string;
-    leftLanCidr: string;
-    rightDeviceId: string;
-    rightLanCidr: string;
-  }>;
-  blockedDeviceIds: string[];
-  hasConflict: boolean;
-  routePlans: WireguardProtectedRoutePlan[];
-};
 
 const WIREGUARD_PROTECTED_ROUTE_PLAN_FILE = path.join(
   os.tmpdir(),
   "openclaw-wrt-wireguard-protected-routes.json",
 );
-
-type Logger = SharedLogger;
 
 let activeToolLogger: Logger | undefined;
 let activeClawWRTConfig: ResolvedClawWRTConfig | undefined;
@@ -126,156 +136,6 @@ function getClientsFromResponse(response: JsonRecord): unknown[] {
   return Array.isArray(data?.clients) ? data.clients : [];
 }
 
-type ChawrtdToolResult = {
-  summary?: string;
-  output?: string;
-  data?: JsonRecord;
-  error?: string;
-};
-
-type ChawrtdDeviceSnapshot = {
-  device_id?: string;
-  connected_at?: string;
-  last_seen_at?: string;
-  remote_addr?: string;
-  gateway?: unknown;
-  device_info?: unknown;
-  auth_mode?: number | string;
-  alias?: string;
-};
-
-const DEFAULT_CHAWRTD_BASE_URL = "http://127.0.0.1:8001";
-
-function getChawrtdBaseUrl(config?: ResolvedClawWRTConfig): string {
-  return ((config ?? activeClawWRTConfig)?.chawrtdEventStream?.baseUrl ?? DEFAULT_CHAWRTD_BASE_URL).replace(/\/+$/, "");
-}
-
-async function callChawrtd(params: {
-  config?: ResolvedClawWRTConfig;
-  path: string;
-  method?: "GET" | "POST";
-  body?: JsonRecord;
-  timeoutMs?: number;
-}): Promise<ChawrtdToolResult> {
-  const controller = new AbortController();
-  const timeoutMs = params.timeoutMs ?? 180_000;
-  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(`${getChawrtdBaseUrl(params.config)}${params.path}`, {
-      method: params.method ?? "GET",
-      headers: { "Content-Type": "application/json" },
-      body: params.body ? JSON.stringify(params.body) : undefined,
-      signal: controller.signal,
-    });
-
-    const payload = (await response.json().catch(() => ({}))) as ChawrtdToolResult;
-    if (!response.ok) {
-      const message =
-        typeof payload?.error === "string" && payload.error
-          ? payload.error
-          : `chawrtd request failed (${response.status})`;
-      throw new Error(message);
-    }
-    return payload;
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`chawrtd request timed out after ${timeoutMs}ms`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeoutHandle);
-  }
-}
-
-function parseChawrtdTimestamp(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value > 1e12 ? value : value * 1000;
-  }
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Date.parse(value);
-    if (!Number.isNaN(parsed)) {
-      return parsed;
-    }
-  }
-  return Date.now();
-}
-
-function parseChawrtdDeviceSnapshot(value: unknown): DeviceSnapshot | null {
-  const rawEntry = asObject(value);
-  if (!rawEntry) {
-    return null;
-  }
-
-  const entry = rawEntry as ChawrtdDeviceSnapshot;
-  const deviceId = typeof entry.device_id === "string" ? entry.device_id.trim() : "";
-  if (!deviceId) {
-    return null;
-  }
-
-  return {
-    deviceId,
-    connectedAtMs: parseChawrtdTimestamp(entry.connected_at),
-    lastSeenAtMs: parseChawrtdTimestamp(entry.last_seen_at),
-    remoteAddress: typeof entry.remote_addr === "string" ? entry.remote_addr : undefined,
-    gateway: entry.gateway,
-    deviceInfo: entry.device_info,
-    authMode: typeof entry.auth_mode === "number" ? entry.auth_mode : undefined,
-    alias: typeof entry.alias === "string" ? entry.alias : undefined,
-  };
-}
-
-function formatDuration(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  if (days > 0) return `${days}d ${hours % 24}h`;
-  if (hours > 0) return `${hours}h ${minutes % 60}m`;
-  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
-  return `${seconds}s`;
-}
-
-function getCategoryEmoji(key: string): string {
-  switch (key) {
-    case "mgmt":
-      return "⚙️";
-    case "wifi":
-      return "📶";
-    case "qos":
-      return "⏳";
-    case "nwct":
-      return "🔌";
-    case "vpn":
-      return "🛡️";
-    case "portal":
-      return "🎨";
-    case "social":
-      return "📢";
-    default:
-      return "🔹";
-  }
-}
-
-type ExecFileSyncRunner = (
-  file: string,
-  args?: readonly string[],
-  options?: unknown,
-) => string | Uint8Array;
-
-const DeviceIdField = Type.String({
-  minLength: 1,
-  description: "Target openclaw-wrt device_id.",
-});
-const TimeoutField = Type.Optional(
-  Type.Integer({
-    minimum: 1000,
-    maximum: 120_000,
-    description: "Request timeout in milliseconds.",
-  }),
-);
-
 const GenericToolSchema = SharedSchemas.GenericToolSchema;
 
 const DeviceOnlySchema = SharedSchemas.DeviceOnlySchema;
@@ -286,37 +146,9 @@ const AuthClientSchema = SharedSchemas.AuthClientSchema;
 
 const KickoffClientSchema = SharedSchemas.KickoffClientSchema;
 
-const WifiConfigDataField = Type.Object(
-  {
-    ssid: Type.Optional(
-      Type.String({ minLength: 1, description: "Wi-Fi SSID (network name) to set." }),
-    ),
-    radio: Type.Optional(
-      Type.String({
-        minLength: 1,
-        description: "Radio interface name (e.g., 'radio0', 'radio1').",
-      }),
-    ),
-    interface: Type.Optional(
-      Type.String({ minLength: 1, description: "Wireless interface name (e.g., 'wifnet0')." }),
-    ),
-    encryption: Type.Optional(
-      Type.String({ description: "Encryption type (e.g., 'psk2', 'none')." }),
-    ),
-    key: Type.Optional(Type.String({ description: "Wi-Fi password/key." })),
-    hidden: Type.Optional(Type.Boolean({ description: "Whether to hide the SSID." })),
-  },
-  { additionalProperties: true, description: "Wi-Fi configuration fields to update." },
-);
-
 const SetWifiInfoSchema = SharedSchemas.SetWifiInfoSchema;
 
 const SetAuthServerSchema = SharedSchemas.SetAuthServerSchema;
-
-const PortalTemplateField = stringEnum(PORTAL_TEMPLATE_VALUES, {
-  description:
-    "Portal page template. default:通用弹出页, welcome:品牌承接/品宣, business:企业/办公网络, cafe:餐饮场景, hotel:酒店宾客, terms:条款确认, voucher:券码口令输入, event:活动推广页. 不明确时默认用 default.",
-});
 
 const PortalContentSchema = SharedSchemas.PortalContentSchema;
 
@@ -331,20 +163,6 @@ const WireguardInterfaceSchema = SharedSchemas.WireguardInterfaceSchema;
 const WireguardPeerSchema = SharedSchemas.WireguardPeerSchema;
 
 const SetWireguardVpnSchema = SharedSchemas.SetWireguardVpnSchema;
-const JsonObjectField = Type.Record(Type.String(), Type.Unknown(), {
-  description: "Arbitrary JSON object payload.",
-});
-
-const StringArrayField = Type.Array(Type.String({ minLength: 1 }));
-const BandField = optionalStringEnum(["2g", "5g"] as const, {
-  description: "Wi-Fi band to scan: 2g or 5g.",
-});
-const BpfTableField = stringEnum(["ipv4", "ipv6", "mac"] as const, {
-  description: "BPF table to target: ipv4, ipv6, or mac.",
-});
-const BpfJsonTableField = stringEnum(["ipv4", "ipv6", "mac", "sid", "l7"] as const, {
-  description: "BPF JSON table to query: ipv4, ipv6, mac, sid, or l7.",
-});
 
 const UpdateDeviceInfoSchema = SharedSchemas.UpdateDeviceInfoSchema;
 
@@ -378,12 +196,6 @@ const BpfUpdateAllSchema = SharedSchemas.BpfUpdateAllSchema;
 
 const SetXfrpcCommonSchema = SharedSchemas.SetXfrpcCommonSchema;
 
-const XfrpcServiceNameField = Type.String({
-  minLength: 1,
-  pattern: "^[A-Za-z0-9_]+$",
-  description: "Service name. Use letters, numbers, and underscore only.",
-});
-
 const AddXfrpcTcpServiceSchema = SharedSchemas.AddXfrpcTcpServiceSchema;
 
 const GetXfrpcTcpServiceSchema = SharedSchemas.GetXfrpcTcpServiceSchema;
@@ -406,7 +218,6 @@ const SetBrLanSchema = SharedSchemas.SetBrLanSchema;
 
 const SetVpnRoutesSchema = SharedSchemas.SetVpnRoutesSchema;
 
-
 const DeployWgServerSchema = SharedSchemas.DeployWgServerSchema;
 
 const CollectWireguardProtectedRoutesSchema = SharedSchemas.CollectWireguardProtectedRoutesSchema;
@@ -416,107 +227,6 @@ const VerifyWireguardConnectivitySchema = SharedSchemas.VerifyWireguardConnectiv
 const ResetWgServerSchema = SharedSchemas.ResetWgServerSchema;
 
 const RunSpeedtestSchema = SharedSchemas.RunSpeedtestSchema;
-
-type GenericToolParams = Static<typeof GenericToolSchema>;
-type DeviceOnlyParams = Static<typeof DeviceOnlySchema>;
-type ClientInfoParams = Static<typeof ClientInfoSchema>;
-type AuthClientParams = Static<typeof AuthClientSchema>;
-type KickoffClientParams = Static<typeof KickoffClientSchema>;
-type UpdateDeviceInfoParams = Static<typeof UpdateDeviceInfoSchema>;
-type SetAuthServerParams = Static<typeof SetAuthServerSchema>;
-type PortalTemplate = PortalTemplateType;
-type PortalContentParams = PortalContentType;
-type PublishPortalPageParams = Static<typeof PublishPortalPageSchema>;
-type GeneratePortalPageParams = Static<typeof GeneratePortalPageSchema>;
-type SetMqttServerParams = Static<typeof SetMqttServerSchema>;
-type SetWireguardVpnParams = Static<typeof SetWireguardVpnSchema>;
-type TmpPassParams = Static<typeof TmpPassSchema>;
-type SetWifiInfoParams = Static<typeof SetWifiInfoSchema>;
-type ScanWifiParams = Static<typeof ScanWifiSchema>;
-type SetWifiRelayParams = Static<typeof SetWifiRelaySchema>;
-type DomainSyncParams = Static<typeof DomainSyncSchema>;
-type TrustedMacSyncParams = Static<typeof TrustedMacSyncSchema>;
-type ShellCommandParams = Static<typeof ShellCommandSchema>;
-type BpfAddParams = Static<typeof BpfAddSchema>;
-type BpfJsonParams = Static<typeof BpfJsonSchema>;
-type BpfDeleteParams = Static<typeof BpfDeleteSchema>;
-type BpfFlushParams = Static<typeof BpfFlushSchema>;
-type BpfUpdateParams = Static<typeof BpfUpdateSchema>;
-type BpfUpdateAllParams = Static<typeof BpfUpdateAllSchema>;
-type SetVpnRoutesParams = Static<typeof SetVpnRoutesSchema>;
-type ResetWireguardVpnParams = Static<typeof ResetWireguardVpnSchema>;
-type SetBrLanParams = Static<typeof SetBrLanSchema>;
-type ResetWgServerParams = Static<typeof ResetWgServerSchema>;
-type GetXfrpcTcpServiceParams = Static<typeof GetXfrpcTcpServiceSchema>;
-type DelXfrpcTcpServiceParams = Static<typeof DelXfrpcTcpServiceSchema>;
-type DisableXfrpcTcpServiceParams = Static<typeof DisableXfrpcTcpServiceSchema>;
-type DeployWgServerPeerParams = Static<NonNullable<(typeof DeployWgServerSchema)["properties"]["peerBindings"]>>[number];
-type BpfJsonTable = "ipv4" | "ipv6" | "mac" | "sid" | "l7";
-
-const PORTAL_WEB_ROOT_CANDIDATES = [
-  "/usr/share/nginx/html",
-  "/var/www/html",
-  "/www",
-  "/srv/http",
-  "/usr/local/www/nginx/html",
-  "/usr/local/www",
-];
-
-function normalizeMac(input: string): string {
-  return parserNormalizeMac(input);
-}
-
-function normalizeBpfAddress(table: "ipv4" | "ipv6" | "mac", address: string): string {
-  const trimmed = address.trim();
-  if (table === "mac") {
-    return normalizeMac(trimmed).toLowerCase();
-  }
-  return trimmed;
-}
-
-type IPv4CidrInfo = {
-  input: string;
-  normalized: string;
-  network: number;
-  broadcast: number;
-  prefix: number;
-};
-
-function ipv4ToInt(ip: string): number {
-  const parts = ip.split(".").map((part) => Number.parseInt(part, 10));
-  return (((parts[0] << 24) >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3]) >>> 0;
-}
-
-function intToIpv4(value: number): string {
-  return [value >>> 24, (value >>> 16) & 255, (value >>> 8) & 255, value & 255].join(".");
-}
-
-function parseIPv4Cidr(input: string): IPv4CidrInfo | null {
-  return validatorParseIPv4Cidr(input) as IPv4CidrInfo | null;
-}
-
-function parseIPv4WithMask(ip: string, mask: string): IPv4CidrInfo | null {
-  return validatorParseIPv4WithMask(ip, mask) as IPv4CidrInfo | null;
-}
-
-function cidrOverlaps(left: IPv4CidrInfo, right: IPv4CidrInfo): boolean {
-  return validatorCidrOverlaps(left, right);
-}
-
-function isValidWireGuardPublicKey(key: string): boolean {
-  return validatorIsValidWireGuardPublicKey(key);
-}
-
-function isValidWireGuardPrivateKey(key: string): boolean {
-  return validatorIsValidWireGuardPrivateKey(key);
-}
-
-function deriveWireGuardPublicKeyFromPrivateKey(
-  privateKey: string,
-  execFileSync: ExecFileSyncRunner,
-): string {
-  return validatorDeriveWireGuardPublicKeyFromPrivateKey(privateKey, execFileSync);
-}
 
 function collectNestedJsonObjects(value: unknown, depth = 0): JsonRecord[] {
   if (!value || typeof value !== "object" || depth > 5) {
@@ -613,7 +323,7 @@ function findServerPeerPublicKeyForTunnelIp(
 
   for (const peer of peers) {
     for (const allowedIp of peer.allowedIps) {
-      const parsed = parseIPv4Cidr(allowedIp);
+      const parsed = validatorParseIPv4Cidr(allowedIp);
       if (!parsed || parsed.prefix !== 32) {
         continue;
       }
@@ -701,276 +411,9 @@ function summarizeBpfJsonResponse(
   return `Fetched ${table} BPF stats for ${deviceId}${count > 0 ? ` (${count} entries)` : ""}.`;
 }
 
-function sanitizePortalHtmlRoot(root: string): string {
-  return parserSanitizePortalHtmlRoot(root);
-}
-
-async function resolvePortalWebRoot(explicitRoot?: string): Promise<string> {
-  return parserResolvePortalWebRoot(explicitRoot);
-}
-
-function sanitizePortalPageName(input: string): string {
-  return parserSanitizePortalPageName(input);
-}
-
-function buildPortalPageName(deviceId: string, explicitPageName?: string): string {
-  return parserBuildPortalPageName(deviceId, explicitPageName);
-}
-
-async function getDevicesListViaChawrtd(config?: ResolvedClawWRTConfig): Promise<DeviceSnapshot[]> {
-  const bridge = activeBridgeFallback as
-    | {
-        listDevices?: () => Array<{ deviceId?: string } & Partial<DeviceSnapshot>>;
-        getDevice?: (deviceId: string) => DeviceSnapshot | null;
-      }
-    | undefined;
-  if (!config && typeof bridge?.listDevices === "function") {
-    const listedDevices = bridge.listDevices();
-    if (typeof bridge.getDevice !== "function") {
-      return listedDevices.filter((entry): entry is DeviceSnapshot => Boolean(entry?.deviceId));
-    }
-    const getDevice = bridge.getDevice;
-    const resolvedDevices = await Promise.all(
-      listedDevices.map(async (entry) => {
-        const deviceId = entry?.deviceId?.trim();
-        if (!deviceId) {
-          return null;
-        }
-        return (await getDevice(deviceId)) ?? (entry as DeviceSnapshot);
-      }),
-    );
-    return resolvedDevices.filter((entry): entry is DeviceSnapshot => entry !== null);
-  }
-  try {
-    const response = await callChawrtd({
-      config,
-      path: "/v1/devices",
-      method: "GET",
-    });
-    const dataWrapped = asObject(response.data);
-    const topLevel = asObject(response);
-    const devices = Array.isArray(dataWrapped?.devices)
-      ? dataWrapped.devices
-      : Array.isArray(topLevel?.devices)
-        ? topLevel.devices
-        : [];
-    return devices.map((entry) => parseChawrtdDeviceSnapshot(entry)).filter(
-      (entry): entry is DeviceSnapshot => entry !== null,
-    );
-  } catch (error) {
-    console.error("Failed to get devices list from chawrtd:", error);
-    return [];
-  }
-}
-
-async function getDeviceViaChawrtd(
-  deviceId: string,
-  config?: ResolvedClawWRTConfig,
-): Promise<DeviceSnapshot | null> {
-  const bridge = activeBridgeFallback as { getDevice?: (deviceId: string) => DeviceSnapshot | null } | undefined;
-  if (!config && typeof bridge?.getDevice === "function") {
-    return bridge.getDevice(deviceId);
-  }
-  try {
-    const response = await callChawrtd({
-      config,
-      path: `/v1/device/${deviceId}`,
-      method: "GET",
-    });
-    return parseChawrtdDeviceSnapshot(response.data ?? response);
-  } catch (error) {
-    console.error(`Failed to get device ${deviceId} from chawrtd:`, error);
-    return null;
-  }
-}
-
-async function ensureDevice(deviceId: string, config?: ResolvedClawWRTConfig): Promise<DeviceSnapshot> {
-  const device = await getDeviceViaChawrtd(deviceId, config);
-  if (!device) {
-    throw new Error(`device not connected: ${deviceId}`);
-  }
-  return device;
-}
-
-function getSingleGatewayId(device: DeviceSnapshot): string | undefined {
-  const gateways = Array.isArray(device.gateway) ? device.gateway : [];
-  if (gateways.length !== 1) {
-    return undefined;
-  }
-  const gateway = gateways[0];
-  if (!gateway || typeof gateway !== "object" || Array.isArray(gateway)) {
-    return undefined;
-  }
-  const gwId = (gateway as JsonRecord).gw_id;
-  return typeof gwId === "string" && gwId.trim() ? gwId.trim() : undefined;
-}
-
-async function callDeviceOp(params: {
-  bridge?: ClawWRTBridge;
-  config?: ResolvedClawWRTConfig;
-  deviceId: string;
-  op: string;
-  payload?: JsonRecord;
-  timeoutMs?: number;
-  expectResponse?: boolean;
-}) {
-  logToolInvocation(undefined, "callDeviceOp", {
-    deviceId: params.deviceId,
-    op: params.op,
-    payload: params.payload,
-  });
-  const bridge = (params.bridge ?? activeBridgeFallback) as
-    | {
-        callDevice?: (input: {
-          deviceId: string;
-          op: string;
-          payload?: JsonRecord;
-          timeoutMs?: number;
-          expectResponse?: boolean;
-        }) => Promise<JsonRecord>;
-      }
-    | undefined;
-  if (!params.config && typeof bridge?.callDevice === "function") {
-    return await bridge.callDevice({
-      deviceId: params.deviceId,
-      op: params.op,
-      payload: params.payload,
-      timeoutMs: params.timeoutMs,
-      expectResponse: params.expectResponse,
-    });
-  }
-  return await callDeviceOpViaChawrtd({
-    config: params.config,
-    deviceId: params.deviceId,
-    op: params.op,
-    payload: params.payload,
-    timeoutMs: params.timeoutMs,
-  });
-}
-
 /**
  * Call a device operation via the chawrtd gateway (new centralized architecture)
  */
-async function callDeviceOpViaChawrtd(params: {
-  bridge?: ClawWRTBridge;
-  config?: ResolvedClawWRTConfig;
-  deviceId: string;
-  op: string;
-  payload?: JsonRecord;
-  timeoutMs?: number;
-}): Promise<JsonRecord> {
-  logToolInvocation(undefined, "callDeviceOpViaChawrtd", {
-    deviceId: params.deviceId,
-    op: params.op,
-    payload: params.payload,
-  });
-
-  try {
-    const response = await callChawrtd({
-      config: params.config,
-      path: `/v1/device/${params.deviceId}/${params.op}`,
-      method: "POST",
-      body: params.payload ?? {},
-      timeoutMs: params.timeoutMs,
-    });
-
-    if (response.error) {
-      throw new Error(response.error);
-    }
-
-    return response.data ?? response;
-  } catch (error) {
-    throw error;
-  }
-}
-
-async function restartXfrpcService(params: {
-  bridge?: ClawWRTBridge;
-  config?: ResolvedClawWRTConfig;
-  deviceId: string;
-  timeoutMs?: number;
-}) {
-  return await callDeviceOp({
-    bridge: params.bridge,
-    config: params.config,
-    deviceId: params.deviceId,
-    op: "restart_xfrpc",
-    timeoutMs: params.timeoutMs,
-  });
-}
-
-async function publishPortalPage(params: {
-  bridge?: ClawWRTBridge;
-  config?: ResolvedClawWRTConfig;
-  deviceId: string;
-  html?: string;
-  template?: PortalTemplate;
-  content?: PortalContentParams;
-  pageName?: string;
-  webRoot?: string;
-  timeoutMs?: number;
-}) {
-  logToolInvocation(undefined, "publishPortalPage", {
-    deviceId: params.deviceId,
-    template: params.template,
-    pageName: params.pageName,
-    webRoot: params.webRoot,
-  });
-  const pageName = buildPortalPageName(params.deviceId, params.pageName);
-  const root = await resolvePortalWebRoot(params.webRoot);
-  const filePath = path.join(root, pageName);
-  const html =
-    params.html?.trim() ||
-    renderPortalPageHtml({
-      deviceId: params.deviceId,
-      template: params.template,
-      content: params.content,
-    });
-
-  await fs.writeFile(filePath, html, "utf8");
-
-  const response = await callDeviceOp({
-    bridge: params.bridge,
-    config: params.config,
-    deviceId: params.deviceId,
-    op: "set_local_portal",
-    payload: { portal: pageName },
-    timeoutMs: params.timeoutMs,
-    expectResponse: true,
-  });
-
-  return { pageName, root, filePath, response };
-}
-
-async function lookupClientByMac(params: {
-  bridge?: ClawWRTBridge;
-  config?: ResolvedClawWRTConfig;
-  deviceId: string;
-  clientMac: string;
-  timeoutMs?: number;
-}): Promise<JsonRecord | null> {
-  logToolInvocation(undefined, "lookupClientByMac", {
-    deviceId: params.deviceId,
-    clientMac: params.clientMac,
-  });
-  const response = await callDeviceOp({
-    bridge: params.bridge,
-    config: params.config,
-    deviceId: params.deviceId,
-    op: "get_clients",
-    timeoutMs: params.timeoutMs,
-  });
-  const clients = getClientsFromResponse(response);
-  const normalized = normalizeMac(params.clientMac);
-  const found = clients.find((entry: unknown) => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      return false;
-    }
-    const mac = (entry as JsonRecord).mac;
-    return typeof mac === "string" && normalizeMac(mac) === normalized;
-  });
-  return found && typeof found === "object" && !Array.isArray(found) ? (found as JsonRecord) : null;
-}
 
 function buildToolResult(text: string, details: JsonRecord) {
   return {
@@ -1119,156 +562,6 @@ async function resolveXfrpcCommonSettings(params: { timeoutMs?: number }): Promi
   }
 
   return { serverAddr, serverPort, token };
-}
-
-async function readWireguardProtectedRoutePlanFile(
-  routePlanFile: string,
-): Promise<WireguardProtectedRoutePlanFile | null> {
-  try {
-    const raw = await fs.readFile(routePlanFile, "utf8");
-    const parsed = JSON.parse(raw) as JsonRecord;
-    if (parsed?.version !== 1 || !Array.isArray(parsed.routePlans)) {
-      return null;
-    }
-    return parsed as WireguardProtectedRoutePlanFile;
-  } catch {
-    return null;
-  }
-}
-
-async function collectWireguardProtectedRoutePlans(params: {
-  bridge?: ClawWRTBridge;
-  config?: ResolvedClawWRTConfig;
-  deviceIds: string[];
-  serverTunnelIp: string;
-  timeoutMs?: number;
-}): Promise<WireguardProtectedRoutePlanFile> {
-  const deviceIds = [...new Set(params.deviceIds.map((id) => id.trim()).filter(Boolean))];
-  if (deviceIds.length === 0) {
-    throw new Error("At least one deviceId is required.");
-  }
-
-  const serverTunnel = parseIPv4Cidr(params.serverTunnelIp.trim());
-  if (!serverTunnel) {
-    throw new Error(`Invalid serverTunnelIp CIDR: ${params.serverTunnelIp}`);
-  }
-
-  const onlineDevices = new Map(
-    (await getDevicesListViaChawrtd(params.config)).map((entry) => [entry.deviceId.trim(), entry] as const),
-  );
-
-  const devices: Array<{
-    deviceId: string;
-    deviceName?: string;
-    lanCidr?: string;
-    error?: string;
-  }> = [];
-
-  for (const deviceId of deviceIds) {
-    try {
-      const result = await callDeviceOp({
-        bridge: params.bridge,
-        config: params.config,
-        deviceId,
-        op: "get_br_lan",
-        timeoutMs: params.timeoutMs,
-      });
-      const cidr = (result as JsonRecord)?.cidr;
-      const parsed = typeof cidr === "string" ? parseIPv4Cidr(cidr) : null;
-      devices.push({
-        deviceId,
-        deviceName: getSnapshotDisplayName(onlineDevices.get(deviceId)),
-        lanCidr: parsed?.normalized,
-        error: parsed ? undefined : `missing_or_invalid_cidr: ${typeof cidr === "string" ? cidr : "(none)"}`,
-      });
-    } catch (error) {
-      devices.push({
-        deviceId,
-        deviceName: getSnapshotDisplayName(onlineDevices.get(deviceId)),
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  const validDevices = devices.filter(
-    (entry): entry is typeof entry & { lanCidr: string } => typeof entry.lanCidr === "string" && !entry.error,
-  );
-
-  const conflicts: Array<{
-    leftDeviceId: string;
-    leftLanCidr: string;
-    rightDeviceId: string;
-    rightLanCidr: string;
-  }> = [];
-  const blockedDeviceIds = new Set<string>();
-
-  for (let i = 0; i < validDevices.length; i += 1) {
-    for (let j = i + 1; j < validDevices.length; j += 1) {
-      const left = validDevices[i]!;
-      const right = validDevices[j]!;
-      const parsedLeft = parseIPv4Cidr(left.lanCidr);
-      const parsedRight = parseIPv4Cidr(right.lanCidr);
-      if (!parsedLeft || !parsedRight || !cidrOverlaps(parsedLeft, parsedRight)) {
-        continue;
-      }
-
-      conflicts.push({
-        leftDeviceId: left.deviceId,
-        leftLanCidr: left.lanCidr,
-        rightDeviceId: right.deviceId,
-        rightLanCidr: right.lanCidr,
-      });
-      blockedDeviceIds.add(left.deviceId);
-      blockedDeviceIds.add(right.deviceId);
-    }
-  }
-
-  const routePlans: WireguardProtectedRoutePlan[] =
-    conflicts.length > 0
-      ? []
-      : validDevices.map((entry) => {
-        const routes: string[] = [];
-        const seenRoutes = new Set<string>();
-        const pushRoute = (route: string) => {
-          const normalized = route.trim();
-          if (!normalized || seenRoutes.has(normalized)) {
-            return;
-          }
-          seenRoutes.add(normalized);
-          routes.push(normalized);
-        };
-
-        pushRoute(serverTunnel.normalized);
-        for (const candidate of validDevices) {
-          if (candidate.deviceId === entry.deviceId) {
-            continue;
-          }
-          pushRoute(candidate.lanCidr);
-        }
-
-        return {
-          deviceId: entry.deviceId,
-          deviceName: entry.deviceName,
-          lanCidr: entry.lanCidr,
-          routes,
-        };
-      });
-
-  const failedDevices = devices.filter((entry) => entry.error);
-
-  return {
-    version: 1,
-    generatedAt: new Date().toISOString(),
-    serverTunnelIp: params.serverTunnelIp.trim(),
-    serverTunnelCidr: serverTunnel.normalized,
-    deviceIds,
-    devices,
-    failedDevices,
-    conflicts,
-    blockedDeviceIds: [...blockedDeviceIds],
-    hasConflict: conflicts.length > 0,
-    routePlans,
-  };
 }
 
 function createSimpleOperationTool(params: {
@@ -1474,7 +767,7 @@ function createGetDeviceTool(params: { bridge: ClawWRTBridge; logger?: Logger })
     label: "OpenClaw WRT Device",
     description:
       "Get the current connection snapshot for one online router or wireless router. This is a quick connectivity view, not the full runtime detail report.",
-    parameters: Type.Object({ deviceId: DeviceIdField }, { additionalProperties: false }),
+    parameters: Type.Object({ deviceId: SharedSchemas.DeviceIdField }, { additionalProperties: false }),
     execute: async (_toolCallId, rawParams) => {
       logToolInvocation(params.logger, "clawwrt_get_device", rawParams);
       const args = rawParams as { deviceId: string };
@@ -1575,7 +868,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
       execute: async (_toolCallId, rawParams) => {
         logToolInvocation(undefined, "clawwrt_get_client_info", rawParams);
         const args = rawParams as ClientInfoParams;
-        const normalizedMac = normalizeMac(args.clientMac);
+        const normalizedMac = parserNormalizeMac(args.clientMac);
         const response = await callDeviceOp({
           bridge,
           deviceId: args.deviceId.trim(),
@@ -1597,7 +890,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
       execute: async (_toolCallId, rawParams) => {
         logToolInvocation(undefined, "clawwrt_auth_client", rawParams);
         const args = rawParams as AuthClientParams;
-        const clientMac = normalizeMac(args.clientMac);
+        const clientMac = parserNormalizeMac(args.clientMac);
         const clientIp = args.clientIp.trim();
         const response = await callDeviceOp({
           bridge,
@@ -1626,7 +919,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
         const args = rawParams as KickoffClientParams;
         const deviceId = args.deviceId.trim();
         const device = await ensureDevice(deviceId);
-        const clientMac = normalizeMac(args.clientMac);
+        const clientMac = parserNormalizeMac(args.clientMac);
         const explicitClientIp = args.clientIp?.trim();
         const client = explicitClientIp
           ? null
@@ -1672,7 +965,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
       buildPayload: (rawParams) => {
         const args = rawParams as TmpPassParams;
         const payload: JsonRecord = {
-          client_mac: normalizeMac(args.clientMac).toLowerCase(),
+          client_mac: parserNormalizeMac(args.clientMac).toLowerCase(),
         };
         if (typeof args.timeout === "number") {
           payload.timeout = args.timeout;
@@ -1686,7 +979,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
       },
       summarize: (_response, rawParams) => {
         const args = rawParams as TmpPassParams;
-        return `Temporary pass requested for ${normalizeMac(args.clientMac)} on ${args.deviceId}.`;
+        return `Temporary pass requested for ${parserNormalizeMac(args.clientMac)} on ${args.deviceId}.`;
       },
     }),
     createSimpleOperationTool({
@@ -1791,7 +1084,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
           deviceId: args.deviceId.trim(),
           payload: {
             table,
-            address: normalizeBpfAddress(table, args.address),
+            address: parserNormalizeBpfAddress(table, args.address),
           },
           timeoutMs: args.timeoutMs,
         };
@@ -1884,7 +1177,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
           deviceId: args.deviceId.trim(),
           payload: {
             table,
-            address: normalizeBpfAddress(table, args.address),
+            address: parserNormalizeBpfAddress(table, args.address),
           },
           timeoutMs: args.timeoutMs,
         };
@@ -1932,7 +1225,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
           deviceId: args.deviceId.trim(),
           payload: {
             table,
-            target: normalizeBpfAddress(table, args.target),
+            target: parserNormalizeBpfAddress(table, args.target),
             downrate: args.downrate,
             uprate: args.uprate,
           },
@@ -2052,7 +1345,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
       parameters: TrustedMacSyncSchema,
       buildPayload: (rawParams) => {
         const args = rawParams as TrustedMacSyncParams;
-        const macs = args.macs.map((value) => normalizeMac(value).toLowerCase());
+        const macs = args.macs.map((value) => parserNormalizeMac(value).toLowerCase());
         return {
           deviceId: args.deviceId.trim(),
           payload: {
@@ -2568,7 +1861,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
                   reason: "router private key unavailable in get_wireguard_vpn response",
                 };
               } else {
-                const derivedClientPublicKey = deriveWireGuardPublicKeyFromPrivateKey(
+                const derivedClientPublicKey = validatorDeriveWireGuardPublicKeyFromPrivateKey(
                   snapshot.privateKey,
                   execFileSync,
                 );
@@ -3725,8 +3018,8 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
           for (const d of deviceDetails) {
             const connectedAtMs = typeof d.connectedAtMs === "number" ? d.connectedAtMs : now;
             const lastSeenAtMs = typeof d.lastSeenAtMs === "number" ? d.lastSeenAtMs : connectedAtMs;
-            const uptimeStr = formatDuration(Math.max(0, now - connectedAtMs));
-            const lastSeenStr = formatDuration(Math.max(0, now - lastSeenAtMs));
+            const uptimeStr = parserFormatDuration(Math.max(0, now - connectedAtMs));
+            const lastSeenStr = parserFormatDuration(Math.max(0, now - lastSeenAtMs));
             const mode =
               d.authMode === 0
                 ? "云端 ☁️"
@@ -3748,7 +3041,7 @@ export function createClawWRTTools(params: { bridge?: ClawWRTBridge; config?: Re
         content += `您可以直接点击或输入以下 Prompt 示例来体验龙虾WiFi 的核心功能：\n`;
 
         for (const [key, item] of Object.entries(PROMPT_EXAMPLES)) {
-          const emoji = getCategoryEmoji(key);
+          const emoji = parserGetCategoryEmoji(key);
           content += `\n### ${emoji} ${item.label}\n`;
           item.prompts.forEach((p) => {
             content += `- ${p}\n`;
