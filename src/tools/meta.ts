@@ -8,7 +8,7 @@
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import type { ToolFactoryDeps } from "./_factory.js";
 import { logToolInvocation, buildToolResult } from "./_helpers.js";
-import { getDevicesListViaChawrtd, callDeviceOp } from "../tool-chawrtd.js";
+import { getDevicesListViaChawrtd, getDeviceViaChawrtd, callDeviceOp } from "../chawrtd-client.js";
 
 export function createMetaTools(deps: ToolFactoryDeps): AnyAgentTool[] {
   return [

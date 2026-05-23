@@ -430,3 +430,171 @@ export function getSingleGatewayId(device: DeviceSnapshot): string | undefined {
   const gwId = (gateway as JsonRecord).gw_id;
   return typeof gwId === "string" && gwId.trim() ? gwId.trim() : undefined;
 }
+
+// ============================================================================
+// Module-level singleton (backward compatibility)
+// ============================================================================
+
+let _defaultClient: ChawrtdClient | undefined;
+
+export function getDefaultChawrtdClient(): ChawrtdClient {
+  if (!_defaultClient) {
+    _defaultClient = new ChawrtdClient({});
+  }
+  return _defaultClient;
+}
+
+export function setDefaultChawrtdClient(client: ChawrtdClient): void {
+  _defaultClient = client;
+}
+
+// Backward-compatible wrapper functions (delegate to default client)
+// These allow domain files to import functions instead of using the class directly.
+
+export function setActiveBridgeFallback(bridge: ClawWRTBridge | undefined): void {
+  // Recreate the default client with the new bridge
+  const existing = _defaultClient;
+  _defaultClient = new ChawrtdClient({
+    bridge,
+    config: existing?.['config'] as ResolvedClawWRTConfig | undefined,
+    logger: existing?.['logger'] as Logger | undefined,
+  });
+}
+
+export function setActiveClawWRTConfig(config: ResolvedClawWRTConfig | undefined): void {
+  const existing = _defaultClient;
+  _defaultClient = new ChawrtdClient({
+    config,
+    bridge: existing?.['bridge'] as ClawWRTBridge | undefined,
+    logger: existing?.['logger'] as Logger | undefined,
+  });
+}
+
+export function setActiveToolLogger(logger: Logger | undefined): void {
+  const existing = _defaultClient;
+  _defaultClient = new ChawrtdClient({
+    logger,
+    config: existing?.['config'] as ResolvedClawWRTConfig | undefined,
+    bridge: existing?.['bridge'] as ClawWRTBridge | undefined,
+  });
+}
+
+export async function callChawrtd(params: {
+  path: string;
+  method?: "GET" | "POST";
+  body?: unknown;
+  timeoutMs?: number;
+}): Promise<ChawrtdToolResult> {
+  return getDefaultChawrtdClient().call(params);
+}
+
+export async function getDevicesListViaChawrtd(config?: ResolvedClawWRTConfig): Promise<DeviceSnapshot[]> {
+  return getDefaultChawrtdClient().listDevices();
+}
+
+export async function getDeviceViaChawrtd(
+  deviceId: string,
+  config?: ResolvedClawWRTConfig,
+): Promise<DeviceSnapshot | null> {
+  return getDefaultChawrtdClient().getDevice(deviceId);
+}
+
+export async function ensureDevice(
+  deviceId: string,
+  config?: ResolvedClawWRTConfig,
+): Promise<DeviceSnapshot> {
+  return getDefaultChawrtdClient().ensureDevice(deviceId);
+}
+
+export async function callDeviceOp(params: {
+  bridge?: ClawWRTBridge;
+  config?: ResolvedClawWRTConfig;
+  deviceId: string;
+  op: string;
+  payload?: JsonRecord;
+  timeoutMs?: number;
+  expectResponse?: boolean;
+}): Promise<JsonRecord> {
+  // bridge and config are accepted for backward compatibility but the default client
+  // already holds the correct bridge/config from setActiveBridgeFallback/setActiveClawWRTConfig.
+  return getDefaultChawrtdClient().callDeviceOp({
+    deviceId: params.deviceId,
+    op: params.op,
+    payload: params.payload,
+    timeoutMs: params.timeoutMs,
+    expectResponse: params.expectResponse,
+  });
+}
+
+export async function callDeviceOpViaChawrtd(params: {
+  deviceId: string;
+  op: string;
+  payload?: JsonRecord;
+  timeoutMs?: number;
+}): Promise<JsonRecord> {
+  return getDefaultChawrtdClient().callDeviceOpViaChawrtd(params);
+}
+
+export async function restartXfrpcService(params: {
+  deviceId: string;
+  timeoutMs?: number;
+  bridge?: ClawWRTBridge;
+  config?: ResolvedClawWRTConfig;
+}): Promise<JsonRecord> {
+  return getDefaultChawrtdClient().restartXfrpcService(params.deviceId, params.timeoutMs);
+}
+
+export async function publishPortalPage(params: {
+  bridge?: ClawWRTBridge;
+  config?: ResolvedClawWRTConfig;
+  deviceId: string;
+  html: string;
+  pageName?: string;
+  webRoot?: string;
+  timeoutMs?: number;
+}): Promise<{ pageName: string; root: string; filePath: string; response: JsonRecord }> {
+  return getDefaultChawrtdClient().publishPortalPage({
+    deviceId: params.deviceId,
+    html: params.html,
+    pageName: params.pageName,
+    webRoot: params.webRoot,
+    timeoutMs: params.timeoutMs,
+  });
+}
+
+export async function lookupClientByMac(params: {
+  bridge?: ClawWRTBridge;
+  config?: ResolvedClawWRTConfig;
+  deviceId: string;
+  clientMac: string;
+  timeoutMs?: number;
+}): Promise<JsonRecord | null> {
+  return getDefaultChawrtdClient().lookupClientByMac({
+    deviceId: params.deviceId,
+    clientMac: params.clientMac,
+    timeoutMs: params.timeoutMs,
+  });
+}
+
+export async function readWireguardProtectedRoutePlanFile(routePlanFile?: string): Promise<JsonRecord | null> {
+  return getDefaultChawrtdClient().readProtectedRoutePlanFile(routePlanFile);
+}
+
+export async function collectWireguardProtectedRoutePlans(params: {
+  deviceIds: string[];
+  serverTunnelIp: string;
+  timeoutMs?: number;
+  bridge?: ClawWRTBridge;
+  config?: ResolvedClawWRTConfig;
+}): Promise<JsonRecord> {
+  return getDefaultChawrtdClient().collectProtectedRoutePlans(params);
+}
+
+export function getWireguardProtectedRoutesPlanFile(): string {
+  return ChawrtdClient.getProtectedRoutePlanFile();
+}
+
+export function getChawrtdBaseUrl(config?: ResolvedClawWRTConfig): string {
+  const base = config?.chawrtdEventStream?.baseUrl ?? "http://127.0.0.1:8001";
+  return base.replace(/\/+$/, "");
+}

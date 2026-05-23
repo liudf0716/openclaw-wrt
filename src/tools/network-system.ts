@@ -11,7 +11,7 @@ import type {
   RunSpeedtestParams,
   ShellCommandParams,
 } from "../tool-types.js";
-import { callDeviceOp, getDeviceViaChawrtd } from "../tool-chawrtd.js";
+import { callDeviceOp, getDeviceViaChawrtd } from "../chawrtd-client.js";
 import { createSimpleOperationTool, buildToolResult, logToolInvocation, type ToolFactoryDeps } from "./_factory.js";
 
 export function createNetworkSystemTools(deps: ToolFactoryDeps): AnyAgentTool[] {

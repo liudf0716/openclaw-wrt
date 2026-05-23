@@ -5,7 +5,7 @@ import {
   sanitizePortalHtmlRoot,
   sanitizePortalPageName,
 } from "./tool-parsers.js";
-import { publishPortalPage } from "./tool-chawrtd.js";
+import { publishPortalPage } from "./chawrtd-client.js";
 
 export {
   buildPortalPageName,

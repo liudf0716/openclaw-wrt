@@ -17,7 +17,7 @@ import {
   callChawrtd,
   callDeviceOp,
   getDevicesListViaChawrtd,
-} from "../tool-chawrtd.js";
+} from "../chawrtd-client.js";
 import { buildToolResult, logToolInvocation, type ToolFactoryDeps } from "./_factory.js";
 import {
   asObject,

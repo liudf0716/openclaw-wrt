@@ -11,11 +11,7 @@
     "name": "clawwrt",
     "description": "Low-level fallback tool for openclaw-wrt. Prefer the more specific clawwrt_* tools when they match the user intent.",
     "parameters": {
-      "additionalProperties": false,
       "type": "object",
-      "required": [
-        "action"
-      ],
       "properties": {
         "action": {
           "type": "string",
@@ -27,33 +23,24 @@
           "description": "Action to perform: list_devices, get_device, or call."
         },
         "deviceId": {
+          "type": "string",
           "minLength": 1,
-          "description": "Target openclaw-wrt device_id.",
-          "type": "string"
+          "description": "Target openclaw-wrt device_id."
         },
         "op": {
+          "type": "string",
           "minLength": 1,
-          "description": "Exact openclaw-wrt operation name.",
-          "type": "string"
+          "description": "Exact openclaw-wrt operation name."
         },
         "payload": {
-          "description": "Additional JSON fields to include with the device request.",
           "type": "object",
-          "patternProperties": {
-            "^(.*)$": {}
-          }
-        },
-        "timeoutMs": {
-          "minimum": 1000,
-          "maximum": 120000,
-          "description": "Request timeout in milliseconds.",
-          "type": "integer"
-        },
-        "expectResponse": {
-          "description": "Override whether the request waits for a response.",
-          "type": "boolean"
+          "description": "Additional JSON fields to include with the device request."
         }
-      }
+      },
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false
     }
   },
   {

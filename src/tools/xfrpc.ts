@@ -15,7 +15,7 @@ import {
   callChawrtd,
   callDeviceOp,
   restartXfrpcService,
-} from "../tool-chawrtd.js";
+} from "../chawrtd-client.js";
 import { createSimpleOperationTool, buildToolResult, logToolInvocation, type ToolFactoryDeps } from "./_factory.js";
 import {
   asObject,

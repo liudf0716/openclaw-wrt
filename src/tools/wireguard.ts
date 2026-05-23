@@ -25,7 +25,7 @@ import {
   callChawrtd,
   getDevicesListViaChawrtd,
   collectWireguardProtectedRoutePlans,
-} from "../tool-chawrtd.js";
+} from "../chawrtd-client.js";
 import { loadWireguardRoutePlanOrThrow } from "../tool-wireguard-routes.js";
 import { createSimpleOperationTool, buildToolResult, logToolInvocation, type ToolFactoryDeps } from "./_factory.js";
 import {
@@ -384,7 +384,7 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           deviceIds: args.deviceIds,
           serverTunnelIp: args.serverTunnelIp,
           timeoutMs: args.timeoutMs,
-        });
+        }) as { hasConflict: boolean; routePlans: Array<{ deviceId: string }>; [key: string]: unknown };
 
         await fs.writeFile(routePlanFile, JSON.stringify(routePlanFileData, null, 2), "utf8");
 

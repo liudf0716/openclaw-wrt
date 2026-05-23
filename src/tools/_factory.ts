@@ -6,7 +6,7 @@
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import * as SharedSchemas from "../tool-schemas.js";
 import type { ClawWRTBridge, Logger, JsonRecord, DeviceOnlyParams } from "../tool-types.js";
-import { callDeviceOp } from "../tool-chawrtd.js";
+import { callDeviceOp } from "../chawrtd-client.js";
 
 // ============================================================================
 // Helpers (to be replaced by ToolContext in later stages)

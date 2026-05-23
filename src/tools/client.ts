@@ -16,7 +16,7 @@ import {
   callDeviceOp,
   ensureDevice,
   lookupClientByMac,
-} from "../tool-chawrtd.js";
+} from "../chawrtd-client.js";
 import { normalizeMac } from "../tool-parsers.js";
 import { createSimpleOperationTool, type ToolFactoryDeps } from "./_factory.js";
 import {
