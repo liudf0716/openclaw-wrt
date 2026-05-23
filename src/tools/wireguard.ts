@@ -1,0 +1,828 @@
+/**
+ * WireGuard client-side tools: VPN config, status, routes, keys, connectivity.
+ */
+
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { isIPv4 } from "node:net";
+import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
+import * as SharedSchemas from "../tool-schemas.js";
+import type {
+  JsonRecord,
+  DeviceOnlyParams,
+  SetWireguardVpnParams,
+  ResetWireguardVpnParams,
+  SetVpnRoutesParams,
+  WireguardProtectedRoutePlanFile,
+} from "../tool-types.js";
+import {
+  parseIPv4Cidr,
+  deriveWireGuardPublicKeyFromPrivateKey,
+} from "../tool-validators.js";
+import {
+  callDeviceOp,
+  callChawrtd,
+  getDevicesListViaChawrtd,
+  collectWireguardProtectedRoutePlans,
+} from "../tool-chawrtd.js";
+import { loadWireguardRoutePlanOrThrow } from "../tool-wireguard-routes.js";
+import { createSimpleOperationTool, buildToolResult, logToolInvocation, type ToolFactoryDeps } from "./_factory.js";
+import {
+  asObject,
+  extractWireguardConfigSnapshot,
+  findServerPeerPublicKeyForTunnelIp,
+  mapWireguardInterfacePayload,
+  mapWireguardPeerPayload,
+} from "./_helpers.js";
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const WIREGUARD_PROTECTED_ROUTE_PLAN_FILE = path.join(
+  os.tmpdir(),
+  "openclaw-wrt-wireguard-protected-routes.json",
+);
+
+// ============================================================================
+// Exported factory
+// ============================================================================
+
+export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
+  return [
+    // ---------------------------------------------------------------------------
+    // clawwrt_get_wireguard_vpn — simple op
+    // ---------------------------------------------------------------------------
+    createSimpleOperationTool({
+      ...deps,
+      name: "clawwrt_get_wireguard_vpn",
+      label: "OpenClaw WRT Get WireGuard VPN",
+      description: "Get WireGuard VPN configuration (single tunnel mode: wg0).",
+      op: "get_wireguard_vpn",
+      summarize: (_response, rawParams) => {
+        const args = rawParams as DeviceOnlyParams;
+        return `Fetched WireGuard VPN config for ${args.deviceId}.`;
+      },
+    }),
+
+    // ---------------------------------------------------------------------------
+    // clawwrt_set_wireguard_vpn — simple op with payload builder
+    // ---------------------------------------------------------------------------
+    createSimpleOperationTool({
+      ...deps,
+      name: "clawwrt_set_wireguard_vpn",
+      label: "OpenClaw WRT Set WireGuard VPN",
+      description:
+        "Set WireGuard VPN configuration for a single tunnel (wg0), including interface and peers.",
+      op: "set_wireguard_vpn",
+      parameters: SharedSchemas.SetWireguardVpnSchema,
+      buildPayload: (rawParams) => {
+        const args = rawParams as SetWireguardVpnParams;
+        const interfacePayload = mapWireguardInterfacePayload(asObject(args.interface) ?? {});
+        const peersPayload = (args.peers ?? []).map((entry) =>
+          mapWireguardPeerPayload(asObject(entry) ?? {}),
+        );
+
+        return {
+          deviceId: args.deviceId.trim(),
+          payload: {
+            interface: interfacePayload,
+            peers: peersPayload,
+          },
+          timeoutMs: args.timeoutMs,
+        };
+      },
+      summarize: (_response, rawParams) => {
+        const args = rawParams as SetWireguardVpnParams;
+        return `Updated WireGuard VPN config for ${args.deviceId}.`;
+      },
+    }),
+
+    // ---------------------------------------------------------------------------
+    // clawwrt_reset_wireguard_vpn — simple op with payload builder
+    // ---------------------------------------------------------------------------
+    createSimpleOperationTool({
+      ...deps,
+      name: "clawwrt_reset_wireguard_vpn",
+      label: "OpenClaw WRT Reset WireGuard VPN",
+      description:
+        "Reset router-side WireGuard VPN configuration (default interface wg0), including peer definitions and tunnel routes.",
+      op: "reset_wireguard_vpn",
+      parameters: SharedSchemas.ResetWireguardVpnSchema,
+      buildPayload: (rawParams) => {
+        const args = rawParams as ResetWireguardVpnParams;
+        const payload: JsonRecord = {};
+        if (typeof args.interface === "string") {
+          payload.interface = args.interface;
+        }
+        if (typeof args.flushRoutes === "boolean") {
+          payload.flush_routes = args.flushRoutes;
+        }
+        return {
+          deviceId: args.deviceId.trim(),
+          payload,
+          timeoutMs: args.timeoutMs,
+        };
+      },
+      summarize: (_response, rawParams) => {
+        const args = rawParams as ResetWireguardVpnParams;
+        return `Reset WireGuard VPN config on ${args.deviceId}.`;
+      },
+    }),
+
+    // ---------------------------------------------------------------------------
+    // clawwrt_get_wireguard_vpn_status — custom (router + server status)
+    // ---------------------------------------------------------------------------
+    {
+      name: "clawwrt_get_wireguard_vpn_status",
+      label: "OpenClaw WRT Get WireGuard VPN Status",
+      description:
+        "Get runtime WireGuard status from both the router (peer handshake/traffic) and the local OpenClaw server (tunnel presence).",
+      parameters: SharedSchemas.DeviceOnlySchema,
+      execute: async (_toolCallId: string, rawParams: unknown) => {
+        logToolInvocation(deps.logger, "clawwrt_get_wireguard_vpn_status", rawParams);
+        const args = rawParams as DeviceOnlyParams;
+        const deviceId = args.deviceId.trim();
+
+        // 1. Fetch status from router
+        let routerStatus: JsonRecord | null = null;
+        let routerError: string | null = null;
+        try {
+          routerStatus = await callDeviceOp({
+            bridge: deps.bridge,
+            deviceId,
+            op: "get_wireguard_vpn_status",
+            timeoutMs: args.timeoutMs,
+          });
+        } catch (error) {
+          routerError = error instanceof Error ? error.message : String(error);
+        }
+
+        // 2. Fetch status from local server (if available/applicable)
+        let serverStatus: string = "unavailable";
+        let snatMissing = true;
+        let ipForwardEnabled = false;
+        let probesSuccessful = false;
+
+        try {
+          const response = await callChawrtd({ path: "/v1/wg/status", method: "GET" });
+          const serverData = asObject(asObject(response.data)?.server);
+          if (serverData) {
+            const reportLines = Array.isArray(serverData.reportLines)
+              ? serverData.reportLines.filter((line): line is string => typeof line === "string")
+              : [];
+            serverStatus =
+              reportLines.length > 0
+                ? reportLines.join("\n")
+                : typeof response.output === "string"
+                  ? response.output.trim() || "unavailable"
+                  : "unavailable";
+            if (typeof serverData.snatOk === "boolean") {
+              snatMissing = !serverData.snatOk;
+            }
+            if (typeof serverData.ipForwardOk === "boolean") {
+              ipForwardEnabled = serverData.ipForwardOk;
+            }
+          } else {
+            serverStatus =
+              typeof response.output === "string" ? response.output.trim() || "unavailable" : "unavailable";
+          }
+          probesSuccessful = true;
+        } catch (error) {
+          serverStatus = `Error fetching server status from chawrtd: ${error instanceof Error ? error.message : String(error)}`;
+        }
+
+        const summary = `Fetched WireGuard VPN status for ${deviceId}.`;
+        let text =
+          `${summary}\n\n` +
+          `--- ROUTER SIDE (${deviceId}) ---\n` +
+          (routerError ? `Error: ${routerError}` : JSON.stringify(routerStatus, null, 2)) +
+          `\n\n--- SERVER SIDE (OpenClaw Server) ---\n` +
+          serverStatus;
+
+        if (probesSuccessful) {
+          if (snatMissing) {
+            text +=
+              "\n\nWARNING: SNAT (MASQUERADE) rule might be missing on the server side. Full tunnel traffic may not reach the internet.";
+          }
+          if (!ipForwardEnabled) {
+            text += "\nWARNING: IP forwarding is disabled on the server side.";
+          }
+        }
+
+        return buildToolResult(text, {
+          router: routerStatus ?? { error: routerError },
+          server: serverStatus,
+          serverChecks: { snatMissing, ipForwardEnabled },
+        });
+      },
+    },
+
+    // ---------------------------------------------------------------------------
+    // clawwrt_generate_wireguard_keys — simple op
+    // ---------------------------------------------------------------------------
+    createSimpleOperationTool({
+      ...deps,
+      name: "clawwrt_generate_wireguard_keys",
+      label: "OpenClaw WRT Generate WireGuard Keys",
+      description:
+        "Generate a WireGuard key pair on the router. The private key is written directly to UCI (network.wg0.private_key) and never leaves the device. Only the public key is returned. Use this BEFORE set_wireguard_vpn to avoid sending private keys over the network.",
+      op: "generate_wireguard_keys",
+      summarize: (_response, rawParams) => {
+        const args = rawParams as DeviceOnlyParams;
+        return `Generated WireGuard keys on ${args.deviceId}. Public key returned; private key stored locally.`;
+      },
+    }),
+
+    // ---------------------------------------------------------------------------
+    // clawwrt_get_vpn_routes — simple op
+    // ---------------------------------------------------------------------------
+    createSimpleOperationTool({
+      ...deps,
+      name: "clawwrt_get_vpn_routes",
+      label: "OpenClaw WRT Get VPN Routes",
+      description:
+        "Get current VPN routing table entries (ip route show dev wg0 proto static). Shows which traffic is being steered through the WireGuard tunnel.",
+      op: "get_vpn_routes",
+      summarize: (_response, rawParams) => {
+        const args = rawParams as DeviceOnlyParams;
+        return `Fetched VPN routes for ${args.deviceId}.`;
+      },
+    }),
+
+    // ---------------------------------------------------------------------------
+    // clawwrt_set_vpn_routes — custom (selective mode with route plan file support)
+    // ---------------------------------------------------------------------------
+    {
+      name: "clawwrt_set_vpn_routes",
+      label: "OpenClaw WRT Set VPN Routes",
+      description:
+        "Set VPN routing rules to steer traffic through the WireGuard tunnel. Selective mode preserves any existing wg0 static routes and merges them with the requested CIDRs.",
+      parameters: SharedSchemas.SetVpnRoutesSchema,
+      execute: async (_toolCallId: string, rawParams: unknown) => {
+        logToolInvocation(deps.logger, "clawwrt_set_vpn_routes", rawParams);
+        const args = rawParams as SetVpnRoutesParams;
+        const deviceId = args.deviceId.trim();
+
+        if (args.mode === "selective") {
+          let requestedRoutes: string[] | null = null;
+          const routePlanFile = typeof args.routePlanFile === "string" ? args.routePlanFile.trim() : "";
+          if (routePlanFile) {
+            const routePlanFileData = await loadWireguardRoutePlanOrThrow(routePlanFile);
+            const routePlan = routePlanFileData.routePlans.find((entry: { deviceId: string }) => entry.deviceId === deviceId);
+            if (!routePlan) {
+              throw new Error(`routePlanFile does not contain routes for device ${deviceId}: ${routePlanFile}`);
+            }
+            requestedRoutes = routePlan.routes;
+            logToolInvocation(deps.logger, "clawwrt_set_vpn_routes", {
+              deviceId,
+              routePlanFile,
+              requestedRoutes,
+            });
+          } else if (Array.isArray(args.routes)) {
+            requestedRoutes = args.routes;
+          }
+
+          if (!Array.isArray(requestedRoutes) || requestedRoutes.length === 0) {
+            throw new Error(`missing routes for selective mode on ${deviceId}`);
+          }
+
+          const currentRoutesResponse = await callDeviceOp({
+            bridge: deps.bridge,
+            deviceId,
+            op: "get_vpn_routes",
+            timeoutMs: args.timeoutMs,
+          });
+          const currentRoutesRaw = asObject(currentRoutesResponse)?.routes;
+          if (!Array.isArray(currentRoutesRaw)) {
+            throw new Error(`get_vpn_routes returned no routes array for ${deviceId}; refusing to overwrite selective routes`);
+          }
+
+          const normalizeRouteTarget = (route: unknown): string => {
+            if (typeof route === "string") {
+              return route.trim();
+            }
+            const routeObject = asObject(route);
+            const dest =
+              typeof routeObject?.dest === "string"
+                ? routeObject.dest
+                : typeof routeObject?.destination === "string"
+                  ? routeObject.destination
+                  : "";
+            return dest.trim();
+          };
+
+          const mergedRoutes: string[] = [];
+          const seenRoutes = new Set<string>();
+          const pushRoute = (route: string) => {
+            const normalized = route.trim();
+            if (!normalized || seenRoutes.has(normalized)) {
+              return;
+            }
+            seenRoutes.add(normalized);
+            mergedRoutes.push(normalized);
+          };
+
+          for (const route of currentRoutesRaw) {
+            pushRoute(normalizeRouteTarget(route));
+          }
+          for (const route of requestedRoutes) {
+            pushRoute(route);
+          }
+
+          if (mergedRoutes.length === 0) {
+            throw new Error(`No VPN routes available for ${deviceId}`);
+          }
+
+          logToolInvocation(deps.logger, "clawwrt_set_vpn_routes", {
+            deviceId,
+            currentRoutes: currentRoutesRaw,
+            mergedRoutes,
+          });
+
+          const response = await callDeviceOp({
+            bridge: deps.bridge,
+            deviceId,
+            op: "set_vpn_routes",
+            payload: {
+              mode: args.mode,
+              routes: mergedRoutes,
+            },
+            timeoutMs: args.timeoutMs,
+          });
+          return buildToolResult(`Set VPN routes (${args.mode} mode) on ${deviceId}.`, {
+            response,
+            routes: mergedRoutes,
+          });
+        }
+
+        throw new Error(`unsupported route mode for ${deviceId}: ${String(args.mode)}`);
+      },
+    },
+
+    // ---------------------------------------------------------------------------
+    // clawwrt_collect_wireguard_protected_routes — custom
+    // ---------------------------------------------------------------------------
+    {
+      name: "clawwrt_collect_wireguard_protected_routes",
+      label: "OpenClaw WRT Collect WireGuard Protected Routes",
+      description:
+        "Collect each router's br-lan CIDR, combine all peer LAN CIDRs with the shared wg0 tunnel subnet, and save the resulting per-device route plan to a JSON file for clawwrt_set_vpn_routes.",
+      parameters: SharedSchemas.CollectWireguardProtectedRoutesSchema,
+      execute: async (_toolCallId: string, rawParams: unknown) => {
+        logToolInvocation(deps.logger, "clawwrt_collect_wireguard_protected_routes", rawParams);
+        const args = rawParams as {
+          deviceIds: string[];
+          serverTunnelIp: string;
+          timeoutMs?: number;
+        };
+
+        const routePlanFile = WIREGUARD_PROTECTED_ROUTE_PLAN_FILE;
+        const routePlanFileData = await collectWireguardProtectedRoutePlans({
+          bridge: deps.bridge,
+          deviceIds: args.deviceIds,
+          serverTunnelIp: args.serverTunnelIp,
+          timeoutMs: args.timeoutMs,
+        });
+
+        await fs.writeFile(routePlanFile, JSON.stringify(routePlanFileData, null, 2), "utf8");
+
+        const summary = routePlanFileData.hasConflict
+          ? `WireGuard protected route plan saved to ${routePlanFile}, but LAN conflicts were detected. Resolve conflicts before using it.`
+          : `WireGuard protected route plan saved to ${routePlanFile} for ${routePlanFileData.routePlans.length} device(s).`;
+
+        return buildToolResult(summary, {
+          routePlanFile,
+          ...routePlanFileData,
+        });
+      },
+    },
+
+    // ---------------------------------------------------------------------------
+    // clawwrt_verify_wireguard_connectivity — custom (very complex)
+    // ---------------------------------------------------------------------------
+    {
+      name: "clawwrt_verify_wireguard_connectivity",
+      label: "OpenClaw WRT Verify WireGuard Connectivity",
+      description:
+        "Batch-verify WireGuard connectivity across all (or specified) online routers. For each device, fetches router-side handshake/traffic status, validates key consistency against the VPS-side peer config when possible, and checks server-side wg/NAT/forwarding state. Optionally pings tunnel IPs from the VPS to confirm end-to-end reachability. Returns a consolidated report.",
+      parameters: SharedSchemas.VerifyWireguardConnectivitySchema,
+      execute: async (_toolCallId: string, rawParams: unknown) => {
+        logToolInvocation(deps.logger, "clawwrt_verify_wireguard_connectivity", rawParams);
+        const args = rawParams as {
+          deviceIds?: string[];
+          pingTargets?: string[];
+          timeoutMs?: number;
+        };
+        const { execFileSync } = await import("node:child_process");
+
+        // Resolve device list
+        const deviceIds =
+          Array.isArray(args.deviceIds) && args.deviceIds.length > 0
+            ? args.deviceIds.map((d) => d.trim())
+            : (await getDevicesListViaChawrtd()).map((d) => d.deviceId.trim());
+
+        if (deviceIds.length === 0) {
+          throw new Error("No online devices found. Ensure routers are connected to OpenClaw.");
+        }
+
+        // Server-side checks (once)
+        let serverSummary = "unavailable";
+        let snatOk = false;
+        let ipForwardOk = false;
+        let serverConfiguredPublicKey: string | undefined;
+        let serverKeyCheck:
+          | {
+            status: "ok" | "mismatch" | "error" | "skipped";
+            configuredPublicKey?: string;
+            derivedPublicKey?: string;
+            error?: string;
+          }
+          | undefined;
+        let serverPeerConfig: Array<{ publicKey: string | undefined; allowedIps: string[] }> = [];
+        let serverReportLines: string[] = [];
+        let pingResults: Array<{
+          target: string;
+          reachable: boolean;
+          output: string;
+          confidence?: "confirmed" | "inconclusive" | "failed";
+          message?: string;
+        }> = [];
+        try {
+          const verifyResponse = await callChawrtd({
+            path: "/v1/wg/verify",
+            method: "POST",
+            body: {
+              pingTargets: args.pingTargets ?? [],
+            },
+            timeoutMs: args.timeoutMs,
+          });
+          serverSummary = verifyResponse.output?.trim() || verifyResponse.summary || "unavailable";
+
+          const verifyData = asObject(verifyResponse.data);
+          const serverData = asObject(verifyData?.server);
+          if (serverData) {
+            if (typeof serverData.wgShow === "string" && serverData.wgShow.trim()) {
+              serverSummary = serverData.wgShow.trim();
+            }
+            if (typeof serverData.snatOk === "boolean") {
+              snatOk = serverData.snatOk;
+            }
+            if (typeof serverData.ipForwardOk === "boolean") {
+              ipForwardOk = serverData.ipForwardOk;
+            }
+            if (typeof serverData.serverPublicKey === "string" && serverData.serverPublicKey.trim()) {
+              serverConfiguredPublicKey = serverData.serverPublicKey.trim();
+            }
+            const keyCheckRaw = asObject(serverData.keyCheck);
+            if (keyCheckRaw) {
+              const status =
+                typeof keyCheckRaw.status === "string" ? keyCheckRaw.status.trim() : "";
+              if (
+                status === "ok" ||
+                status === "mismatch" ||
+                status === "error" ||
+                status === "skipped"
+              ) {
+                serverKeyCheck = {
+                  status,
+                  configuredPublicKey:
+                    typeof keyCheckRaw.configuredPublicKey === "string"
+                      ? keyCheckRaw.configuredPublicKey
+                      : undefined,
+                  derivedPublicKey:
+                    typeof keyCheckRaw.derivedPublicKey === "string"
+                      ? keyCheckRaw.derivedPublicKey
+                      : undefined,
+                  error: typeof keyCheckRaw.error === "string" ? keyCheckRaw.error : undefined,
+                };
+              }
+            }
+            if (Array.isArray(serverData.reportLines)) {
+              serverReportLines = serverData.reportLines.filter(
+                (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
+              );
+            }
+            const peerConfigRaw = serverData.peerConfig;
+            if (Array.isArray(peerConfigRaw)) {
+              serverPeerConfig = peerConfigRaw
+                .map((entry) => {
+                  const peer = asObject(entry);
+                  if (!peer) {
+                    return null;
+                  }
+                  const publicKey =
+                    typeof peer.publicKey === "string" && peer.publicKey.trim()
+                      ? peer.publicKey.trim()
+                      : undefined;
+                  const allowedIps = Array.isArray(peer.allowedIps)
+                    ? peer.allowedIps
+                      .filter((candidate): candidate is string => typeof candidate === "string")
+                      .map((candidate) => candidate.trim())
+                      .filter(Boolean)
+                    : [];
+                  return { publicKey, allowedIps };
+                })
+                .filter(
+                  (
+                    entry,
+                  ): entry is {
+                    publicKey: string | undefined;
+                    allowedIps: string[];
+                  } => entry !== null && entry.allowedIps.length > 0,
+                );
+            }
+          }
+
+          pingResults = Array.isArray(verifyData?.pingResults)
+            ? verifyData.pingResults
+              .map((entry) => {
+                const row = asObject(entry);
+                if (!row) {
+                  return null;
+                }
+                const target = typeof row.target === "string" ? row.target : "";
+                const reachable = typeof row.reachable === "boolean" ? row.reachable : false;
+                const output = typeof row.output === "string" ? row.output : "";
+                const confidenceRaw = typeof row.confidence === "string" ? row.confidence : "";
+                const confidence: "confirmed" | "inconclusive" | "failed" | undefined =
+                  confidenceRaw === "confirmed" ||
+                  confidenceRaw === "inconclusive" ||
+                  confidenceRaw === "failed"
+                    ? confidenceRaw
+                    : undefined;
+                const message = typeof row.message === "string" ? row.message : undefined;
+                if (!target) {
+                  return null;
+                }
+
+                const parsed: {
+                  target: string;
+                  reachable: boolean;
+                  output: string;
+                  confidence?: "confirmed" | "inconclusive" | "failed";
+                  message?: string;
+                } = { target, reachable, output };
+                if (confidence) {
+                  parsed.confidence = confidence;
+                }
+                if (message) {
+                  parsed.message = message;
+                }
+                return parsed;
+              })
+              .filter(
+                (
+                  entry,
+                ): entry is {
+                  target: string;
+                  reachable: boolean;
+                  output: string;
+                  confidence?: "confirmed" | "inconclusive" | "failed";
+                  message?: string;
+                } =>
+                Boolean(entry),
+              )
+            : [];
+        } catch (error) {
+          serverSummary =
+            `Server probe error via chawrtd: ${error instanceof Error ? error.message : String(error)}`;
+          serverKeyCheck = {
+            status: "error",
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+
+        // Per-device router-side checks
+        const deviceResults: Array<{
+          deviceId: string;
+          handshakeAge?: string;
+          rxBytes?: number;
+          txBytes?: number;
+          tunnelIp?: string;
+          keyCheck?: {
+            status: "ok" | "mismatch" | "error" | "skipped";
+            reason?: string;
+            derivedClientPublicKey?: string;
+            configuredServerPeerPublicKey?: string;
+            configuredRouterPeerPublicKey?: string;
+            actualServerPublicKey?: string;
+          };
+          error?: string;
+        }> = [];
+        for (const deviceId of deviceIds) {
+          try {
+            const status = await callDeviceOp({
+              bridge: deps.bridge,
+              deviceId,
+              op: "get_wireguard_vpn_status",
+              timeoutMs: args.timeoutMs,
+            });
+            const peer = (status as JsonRecord)?.peers as JsonRecord[] | undefined;
+            const first = Array.isArray(peer) ? peer[0] : undefined;
+            const runtimeResult: {
+              deviceId: string;
+              handshakeAge?: string;
+              rxBytes?: number;
+              txBytes?: number;
+              tunnelIp?: string;
+              keyCheck?: {
+                status: "ok" | "mismatch" | "error" | "skipped";
+                reason?: string;
+                derivedClientPublicKey?: string;
+                configuredServerPeerPublicKey?: string;
+                configuredRouterPeerPublicKey?: string;
+                actualServerPublicKey?: string;
+              };
+              error?: string;
+            } = {
+              deviceId,
+              handshakeAge: (first as JsonRecord | undefined)?.last_handshake_time as
+                | string
+                | undefined,
+              rxBytes: (first as JsonRecord | undefined)?.receive_bytes as number | undefined,
+              txBytes: (first as JsonRecord | undefined)?.transmit_bytes as number | undefined,
+            };
+
+            try {
+              const configResponse = await callDeviceOp({
+                bridge: deps.bridge,
+                deviceId,
+                op: "get_wireguard_vpn",
+                timeoutMs: args.timeoutMs,
+              });
+              const snapshot = extractWireguardConfigSnapshot(asObject(configResponse) ?? {});
+              const tunnelIp = snapshot.addresses
+                .map((entry) => entry.split("/")[0]?.trim())
+                .find((entry): entry is string => Boolean(entry && isIPv4(entry)));
+              runtimeResult.tunnelIp = tunnelIp;
+
+              if (!snapshot.privateKey) {
+                runtimeResult.keyCheck = {
+                  status: "skipped",
+                  reason: "router private key unavailable in get_wireguard_vpn response",
+                };
+              } else {
+                const derivedClientPublicKey = deriveWireGuardPublicKeyFromPrivateKey(
+                  snapshot.privateKey,
+                  execFileSync,
+                );
+                const configuredServerPeerPublicKey = tunnelIp
+                  ? findServerPeerPublicKeyForTunnelIp(serverPeerConfig, tunnelIp)
+                  : undefined;
+                const configuredRouterPeerPublicKey = snapshot.peerPublicKey;
+                const mismatchReasons: string[] = [];
+
+                if (configuredServerPeerPublicKey && configuredServerPeerPublicKey !== derivedClientPublicKey) {
+                  mismatchReasons.push(
+                    "server peer public key does not match the router private key derived public key",
+                  );
+                }
+                if (
+                  serverConfiguredPublicKey &&
+                  configuredRouterPeerPublicKey &&
+                  configuredRouterPeerPublicKey !== serverConfiguredPublicKey
+                ) {
+                  mismatchReasons.push(
+                    "router configured server public key does not match the VPS actual server public key",
+                  );
+                }
+
+                runtimeResult.keyCheck =
+                  mismatchReasons.length === 0
+                    ? {
+                      status: "ok",
+                      derivedClientPublicKey,
+                      configuredServerPeerPublicKey,
+                      configuredRouterPeerPublicKey,
+                      actualServerPublicKey: serverConfiguredPublicKey,
+                    }
+                    : {
+                      status: "mismatch",
+                      reason: mismatchReasons.join("; "),
+                      derivedClientPublicKey,
+                      configuredServerPeerPublicKey,
+                      configuredRouterPeerPublicKey,
+                      actualServerPublicKey: serverConfiguredPublicKey,
+                    };
+              }
+            } catch (error) {
+              runtimeResult.keyCheck = {
+                status: "error",
+                reason: error instanceof Error ? error.message : String(error),
+              };
+            }
+
+            deviceResults.push(runtimeResult);
+          } catch (error) {
+            deviceResults.push({
+              deviceId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+
+        // Build report
+        let report = `## WireGuard Connectivity Report\n\n`;
+        report += `### Server Side\n`;
+        const renderedServerLines =
+          serverReportLines.length > 0
+            ? serverReportLines
+            : [
+              `- IP Forwarding: ${ipForwardOk ? "✅ enabled" : "❌ disabled"}`,
+              `- SNAT/MASQUERADE: ${snatOk ? "✅ present" : "❌ missing"}`,
+              ...(serverKeyCheck
+                ? serverKeyCheck.status === "ok"
+                  ? ["- Server key pair: ✅ private/public key match"]
+                  : serverKeyCheck.status === "mismatch"
+                    ? [
+                      "- Server key pair: ❌ configured public key does not match the derived public key from server_private.key",
+                    ]
+                    : serverKeyCheck.status === "error"
+                      ? [
+                        `- Server key pair: ❌ check failed (${serverKeyCheck.error})`,
+                      ]
+                      : []
+                : []),
+            ];
+        if (renderedServerLines.length > 0) {
+          report += `${renderedServerLines.join("\n")}\n`;
+        } else {
+          report += `- Server-side details unavailable\n`;
+        }
+        report += `\`\`\`\n${serverSummary}\n\`\`\`\n\n`;
+
+        report += `### Router Status (${deviceIds.length} device(s))\n`;
+        for (const r of deviceResults) {
+          if (r.error) {
+            report += `- ${r.deviceId}: ❌ ${r.error}\n`;
+          } else {
+            const handshake = r.handshakeAge ?? "unknown";
+            const traffic = `rx=${r.rxBytes ?? 0} tx=${r.txBytes ?? 0}`;
+            const tunnel = r.tunnelIp ? ` tunnel=${r.tunnelIp}` : "";
+            const keyStatus =
+              r.keyCheck?.status === "ok"
+                ? " key=✅"
+                : r.keyCheck?.status === "mismatch"
+                  ? ` key=❌ ${r.keyCheck.reason ?? "mismatch"}`
+                  : r.keyCheck?.status === "error"
+                    ? ` key=❌ ${r.keyCheck.reason ?? "check failed"}`
+                    : r.keyCheck?.status === "skipped"
+                      ? ` key=⚠️ ${r.keyCheck.reason ?? "skipped"}`
+                      : "";
+            report += `- ${r.deviceId}:${tunnel} handshake=${handshake} ${traffic}${keyStatus}\n`;
+          }
+        }
+
+        if (pingResults.length > 0) {
+          report += `\n### Ping Tests\n`;
+          for (const p of pingResults) {
+            const pingState =
+              p.reachable || p.confidence === "confirmed"
+                ? "✅ reachable"
+                : p.confidence === "inconclusive"
+                  ? "⚠️ inconclusive"
+                  : "❌ unreachable";
+            const pingDetail = p.message ?? p.output.split("\n").at(-2) ?? p.output;
+            report += `- ${p.target}: ${pingState} — ${pingDetail}\n`;
+          }
+        }
+
+        const warnings: string[] = [];
+        if (!ipForwardOk) warnings.push("IP forwarding disabled on server");
+        if (!snatOk) warnings.push("SNAT/MASQUERADE rule missing on server");
+        if (serverKeyCheck?.status === "mismatch") {
+          warnings.push("server private/public key pair mismatch");
+        } else if (serverKeyCheck?.status === "error") {
+          warnings.push(`server key pair check failed: ${serverKeyCheck.error}`);
+        }
+        for (const r of deviceResults) {
+          if (r.error) warnings.push(`${r.deviceId}: ${r.error}`);
+          if (r.keyCheck?.status === "mismatch") {
+            warnings.push(`${r.deviceId}: ${r.keyCheck.reason ?? "WireGuard key mismatch detected"}`);
+          } else if (r.keyCheck?.status === "error") {
+            warnings.push(`${r.deviceId}: key check failed: ${r.keyCheck.reason}`);
+          }
+        }
+        for (const p of pingResults) {
+          if (!p.reachable && p.confidence !== "inconclusive") {
+            warnings.push(`ping ${p.target}: unreachable`);
+          }
+        }
+
+        return buildToolResult(report, {
+          server: {
+            snatOk,
+            ipForwardOk,
+            wgShow: serverSummary,
+            keyCheck: serverKeyCheck,
+          },
+          devices: deviceResults,
+          pingResults,
+          warnings,
+        });
+      },
+    },
+  ];
+}

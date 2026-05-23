@@ -10,11 +10,8 @@
  */
 
 import type { ResolvedClawWRTConfig } from "./config.js";
-import type { ClawWRTBridge, Logger, JsonRecord, DeviceSnapshot, ChawrtdToolResult } from "./tool-types.js";
-
-// ============================================================================
-// ToolContext Interface
-// ============================================================================
+import type { ClawWRTBridge, Logger, JsonRecord } from "./tool-types.js";
+import { ChawrtdClient } from "./chawrtd-client.js";
 
 export interface ToolContext {
   /** Optional bridge for SDK-level device communication (when running inside OpenClaw host). */
@@ -23,11 +20,29 @@ export interface ToolContext {
   config?: ResolvedClawWRTConfig;
   /** Logger instance for tool invocation logging. */
   logger?: Logger;
+  /** ChawrtdClient instance for HTTP communication with chawrtd gateway. */
+  chawrtd: ChawrtdClient;
 }
 
-// ============================================================================
-// Shared helpers that operate on ToolContext
-// ============================================================================
+/**
+ * Create a ToolContext from the legacy params shape.
+ */
+export function createToolContext(params: {
+  bridge?: ClawWRTBridge;
+  config?: ResolvedClawWRTConfig;
+  logger?: Logger;
+}): ToolContext {
+  return {
+    bridge: params.bridge,
+    config: params.config,
+    logger: params.logger,
+    chawrtd: new ChawrtdClient({
+      config: params.config,
+      bridge: params.bridge,
+      logger: params.logger,
+    }),
+  };
+}
 
 /**
  * Log a tool invocation event.
