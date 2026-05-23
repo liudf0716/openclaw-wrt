@@ -23,7 +23,7 @@ user-invocable: true
 
 1. 状态盘点优先使用 `openclaw_frps_full_status`；需要拆分排查时再回退到 `openclaw_get_frps_status`、`openclaw_get_vps_public_ip` 和路由器侧查询工具。
 2. `openclaw_deploy_frps` 可自动生成 token；只有用户明确提供 token 时才使用用户值。
-3. `clawwrt_set_xfrpc_common` 负责校验 `server_addr`、`server_port` 和 `token`；当前会拒绝 `localhost`、`127.0.0.1`、`0.0.0.0` 这类显然不可用的服务端地址。
+3. `clawwrt_set_xfrpc_common` 会直接从 chawrtd 读取服务端地址、端口和认证密钥；不要再向用户追问这三个值，工具层仍会拒绝显然不可用的服务端地址。
 4. `clawwrt_add_xfrpc_tcp_service` 负责 `remote_port` 的范围检查，以及同设备远端端口冲突检查。
 5. `openclaw_verify_frps` 只做监听检查；监听出现后仍要引导用户做实际访问测试。
 6. 对用户输出时，优先使用“内网穿透服务端”“内网穿透客户端”“认证密钥”等表述。

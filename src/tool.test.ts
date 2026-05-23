@@ -2139,9 +2139,6 @@ describe("openclaw-wrt intent tools", () => {
           deviceId: "dev-1",
           enabled: "1",
           loglevel: "info",
-          server_addr: "frps.example.com",
-          server_port: "7000",
-          token: "token-1",
         },
         expectedOp: "set_xfrpc_common",
       },
@@ -2184,6 +2181,21 @@ describe("openclaw-wrt intent tools", () => {
 
     for (const testCase of cases) {
       const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+      if (testCase.toolName === "clawwrt_set_xfrpc_common") {
+        fetchMock
+          .mockResolvedValueOnce(
+            new Response(
+              JSON.stringify({
+                data: {
+                  token: "token-1",
+                  port: 7000,
+                  publicIp: "203.0.113.42",
+                },
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          )
+      }
       const bridge = {
         listDevices() {
           return [];
@@ -2219,6 +2231,24 @@ describe("openclaw-wrt intent tools", () => {
           op: testCase.expectedOp,
         });
         expect(calls[2]).toMatchObject({
+          deviceId: "dev-1",
+          op: "restart_xfrpc",
+        });
+      } else if (testCase.toolName === "clawwrt_set_xfrpc_common") {
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(calls).toHaveLength(2);
+        expect(calls[0]).toMatchObject({
+          deviceId: "dev-1",
+          op: testCase.expectedOp,
+          payload: {
+            enabled: "1",
+            loglevel: "info",
+            server_addr: "203.0.113.42",
+            server_port: "7000",
+            token: "token-1",
+          },
+        });
+        expect(calls[1]).toMatchObject({
           deviceId: "dev-1",
           op: "restart_xfrpc",
         });

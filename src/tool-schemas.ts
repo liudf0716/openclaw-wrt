@@ -501,15 +501,6 @@ export const SetXfrpcCommonSchema = Type.Object(
     deviceId: DeviceIdField,
     enabled: Type.Optional(Type.String({ description: "'0' or '1'." })),
     loglevel: Type.Optional(Type.String({ description: "Log level, e.g., '7'." })),
-    server_addr: Type.String({
-      description:
-        "FRPS server public IP or domain. MUST be explicitly provided by the user. Do not guess or use local IP.",
-    }),
-    server_port: Type.String({ description: "FRPS server port." }),
-    token: Type.String({
-      description:
-        "Authentication token. Obtain it from the FRPS server's real status or use the user-provided value. This field is required and must not be empty.",
-    }),
     timeoutMs: TimeoutField,
   },
   { additionalProperties: false },
