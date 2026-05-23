@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDeviceEventMessage } from "../index.js";
+import { formatDeviceEventMessage } from "../src/event-notifier.js";
 
 describe("formatDeviceEventMessage", () => {
   it("formats a client connected event in Chinese", () => {

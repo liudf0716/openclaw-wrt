@@ -103,8 +103,17 @@ export function getFrpsStatusToken(response: JsonRecord): string | undefined {
 
 export function getFrpsStatusPort(response: JsonRecord): string | undefined {
   const data = asObject(response.data);
-  const port = data?.port ?? response.port;
-  return getTrimmedString(port);
+  const portValue = response.port ?? data?.port ?? data?.bindPort ?? data?.listen_port;
+  if (typeof portValue === "number" && Number.isInteger(portValue) && portValue >= 1 && portValue <= 65535) {
+    return String(portValue);
+  }
+  if (typeof portValue === "string") {
+    const trimmed = portValue.trim();
+    if (!trimmed) return undefined;
+    const parsed = Number.parseInt(trimmed, 10);
+    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 65535) return trimmed;
+  }
+  return undefined;
 }
 
 export function getFrpsStatusPublicIp(response: JsonRecord): string | undefined {
@@ -207,26 +216,62 @@ export function findServerPeerPublicKeyForTunnelIp(
 }
 
 export function mapWireguardInterfacePayload(input: JsonRecord): JsonRecord {
-  const output: JsonRecord = {};
-  if (typeof input.privateKey === "string") output.private_key = input.privateKey;
-  if (typeof input.listenPort === "number") output.listen_port = input.listenPort;
-  if (Array.isArray(input.addresses)) output.addresses = input.addresses;
-  if (typeof input.mtu === "number") output.mtu = input.mtu;
-  if (typeof input.fwmark === "string") output.fwmark = input.fwmark;
+  const output: JsonRecord = { ...input };
+
+  const privateKeyCandidate =
+    output.private_key === undefined && typeof input.privateKey === "string"
+      ? input.privateKey.trim()
+      : typeof output.private_key === "string"
+        ? output.private_key.trim()
+        : undefined;
+  if (
+    privateKeyCandidate &&
+    privateKeyCandidate !== "GENERATED_ON_DEVICE" &&
+    privateKeyCandidate !== "[GENERATED_ON_DEVICE]"
+  ) {
+    output.private_key = privateKeyCandidate;
+  } else {
+    delete output.private_key;
+  }
+  if (output.listen_port === undefined && typeof input.listenPort === "number") {
+    output.listen_port = input.listenPort;
+  }
+
+  delete output.privateKey;
+  delete output.listenPort;
+
   return output;
 }
 
 export function mapWireguardPeerPayload(input: JsonRecord): JsonRecord {
-  const output: JsonRecord = {};
-  if (typeof input.publicKey === "string") output.public_key = input.publicKey;
-  if (typeof input.presharedKey === "string") output.preshared_key = input.presharedKey;
-  if (Array.isArray(input.allowedIps)) output.allowed_ips = input.allowedIps;
-  if (typeof input.endpointHost === "string") {
-    const port = input.endpointPort;
-    output.endpoint = typeof port === "number" ? `${input.endpointHost}:${port}` : input.endpointHost;
+  const output: JsonRecord = { ...input };
+
+  if (output.public_key === undefined && typeof input.publicKey === "string") {
+    output.public_key = input.publicKey;
   }
-  if (typeof input.persistentKeepalive === "number") output.persistent_keepalive = input.persistentKeepalive;
-  if (typeof input.routeAllowedIps === "boolean") output.route_allowed_ips = input.routeAllowedIps;
+  if (output.preshared_key === undefined && typeof input.presharedKey === "string") {
+    output.preshared_key = input.presharedKey;
+  }
+  output.allowed_ips = ["0.0.0.0/0"];
+  if (output.endpoint_host === undefined && typeof input.endpointHost === "string") {
+    output.endpoint_host = input.endpointHost;
+  }
+  if (output.endpoint_port === undefined && typeof input.endpointPort === "number") {
+    output.endpoint_port = input.endpointPort;
+  }
+  if (output.persistent_keepalive === undefined && typeof input.persistentKeepalive === "number") {
+    output.persistent_keepalive = input.persistentKeepalive;
+  }
+  output.route_allowed_ips = "0";
+
+  delete output.publicKey;
+  delete output.presharedKey;
+  delete output.allowedIps;
+  delete output.endpointHost;
+  delete output.endpointPort;
+  delete output.persistentKeepalive;
+  delete output.routeAllowedIps;
+
   return output;
 }
 
