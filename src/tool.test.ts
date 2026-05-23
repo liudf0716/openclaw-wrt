@@ -24,7 +24,7 @@ function defaultExecSyncMockImpl(command: string) {
   return "";
 }
 
-const { execSyncMock, execFileSyncMock, fetchMock } = vi.hoisted(() => ({
+const { execSyncMock, execFileSyncMock, fetchMock, nginxState } = vi.hoisted(() => ({
   execSyncMock: vi.fn(defaultExecSyncMockImpl),
   execFileSyncMock: vi.fn((file: string, args: string[] = [], options?: { input?: string }) => {
     if (file === "wg" && args[0] === "pubkey") {
@@ -43,9 +43,63 @@ const { execSyncMock, execFileSyncMock, fetchMock } = vi.hoisted(() => ({
     return "";
   }),
   fetchMock: vi.fn(),
+  nginxState: { failConfigRead: false },
 }));
 
 vi.stubGlobal("fetch", fetchMock);
+
+// `nginxState.failConfigRead` is toggled by individual portal tests to
+// suppress reads of the host nginx config (`/etc/nginx/sites-enabled/default`).
+// When the host actually has nginx installed, `extractNginxRootFromConfig`
+// otherwise wins over a caller-provided webRoot and breaks the assertion.
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  const wrappedReadFile: typeof actual.promises.readFile = ((
+    filePath: unknown,
+    ...rest: unknown[]
+  ) => {
+    if (
+      nginxState.failConfigRead &&
+      typeof filePath === "string" &&
+      filePath === "/etc/nginx/sites-enabled/default"
+    ) {
+      return Promise.reject(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    }
+    return (actual.promises.readFile as unknown as (...args: unknown[]) => Promise<unknown>)(
+      filePath as never,
+      ...(rest as never[]),
+    );
+  }) as unknown as typeof actual.promises.readFile;
+  return {
+    ...actual,
+    promises: {
+      ...actual.promises,
+      readFile: wrappedReadFile,
+    },
+  };
+});
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  const wrappedReadFile: typeof actual.readFile = ((filePath: unknown, ...rest: unknown[]) => {
+    if (
+      nginxState.failConfigRead &&
+      typeof filePath === "string" &&
+      filePath === "/etc/nginx/sites-enabled/default"
+    ) {
+      return Promise.reject(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    }
+    return (actual.readFile as unknown as (...args: unknown[]) => Promise<unknown>)(
+      filePath as never,
+      ...(rest as never[]),
+    );
+  }) as unknown as typeof actual.readFile;
+  return {
+    ...actual,
+    readFile: wrappedReadFile,
+  };
+});
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
@@ -300,7 +354,7 @@ describe("openclaw-wrt intent tools", () => {
     fetchMock.mockResolvedValue(
       new Response(
         JSON.stringify({
-          summary: "FRPS listener is active",
+          summary: "Intranet-penetration service listener is active",
           output: "STATUS=LISTENING\nPROTOCOL=tcp\nPORT=7070",
           data: { protocol: "tcp", port: 7070, listening: true },
         }),
@@ -878,6 +932,10 @@ describe("openclaw-wrt intent tools", () => {
     };
 
     const webRoot = await mkdtemp(path.join(os.tmpdir(), "openclaw-wrt-portal-"));
+    const previousWebRootEnv = process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT;
+    process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT = webRoot;
+    // Suppress nginx-config auto-detection so explicit webRoot wins.
+    nginxState.failConfigRead = true;
     try {
       const tool = createClawWRTTools({ bridge: bridge as never }).find(
         (entry) => entry.name === "clawwrt_publish_portal_page",
@@ -907,6 +965,12 @@ describe("openclaw-wrt intent tools", () => {
         filePath: path.join(webRoot, "portal-dev-portal.html"),
       });
     } finally {
+      nginxState.failConfigRead = false;
+      if (previousWebRootEnv === undefined) {
+        delete process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT;
+      } else {
+        process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT = previousWebRootEnv;
+      }
       await rm(webRoot, { recursive: true, force: true });
     }
   });
@@ -1298,24 +1362,22 @@ describe("openclaw-wrt intent tools", () => {
       deviceId: "dev-wg",
       op: "set_wireguard_vpn",
       payload: {
-        data: {
-          interface: {
-            private_key: "PRIVATE_KEY_BASE64",
-            listen_port: 51820,
-            addresses: ["10.0.0.1/24"],
-          },
-          peers: [
-            {
-              public_key: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
-              preshared_key: "PRESHARED_BASE64",
-              allowed_ips: ["0.0.0.0/0"],
-              endpoint_host: "vpn.example.com",
-              endpoint_port: 51820,
-              persistent_keepalive: 25,
-              route_allowed_ips: "0",
-            },
-          ],
+        interface: {
+          private_key: "PRIVATE_KEY_BASE64",
+          listen_port: 51820,
+          addresses: ["10.0.0.1/24"],
         },
+        peers: [
+          {
+            public_key: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
+            preshared_key: "PRESHARED_BASE64",
+            allowed_ips: ["0.0.0.0/0"],
+            endpoint_host: "vpn.example.com",
+            endpoint_port: 51820,
+            persistent_keepalive: 25,
+            route_allowed_ips: "0",
+          },
+        ],
       },
     });
   });
@@ -1368,22 +1430,20 @@ describe("openclaw-wrt intent tools", () => {
       op: "set_wireguard_vpn",
     });
     expect(calls[0]?.payload).toEqual({
-      data: {
-        interface: {
-          listen_port: 51820,
-          addresses: ["10.0.0.2/24"],
-        },
-        peers: [
-          {
-            public_key: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
-            allowed_ips: ["0.0.0.0/0"],
-            endpoint_host: "vpn.example.com",
-            endpoint_port: 51820,
-            persistent_keepalive: 25,
-            route_allowed_ips: "0",
-          },
-        ],
+      interface: {
+        listen_port: 51820,
+        addresses: ["10.0.0.2/24"],
       },
+      peers: [
+        {
+          public_key: "b5R43PCum1w8OIIH3Yyok8zYCbkCWkZc0qopQCPE9Rk=",
+          allowed_ips: ["0.0.0.0/0"],
+          endpoint_host: "vpn.example.com",
+          endpoint_port: 51820,
+          persistent_keepalive: 25,
+          route_allowed_ips: "0",
+        },
+      ],
     });
   });
 
@@ -1809,8 +1869,9 @@ describe("openclaw-wrt intent tools", () => {
     });
 
     expect(calls).toHaveLength(1);
-    const data = (calls[0]?.payload as Record<string, unknown>)?.data as Record<string, unknown>;
-    const peers = data?.peers as Array<Record<string, unknown>>;
+    const peers = (calls[0]?.payload as Record<string, unknown>)?.peers as Array<
+      Record<string, unknown>
+    >;
     expect(peers?.[0]).toMatchObject({
       public_key: "peer-pub",
       allowed_ips: ["0.0.0.0/0"],
@@ -1908,10 +1969,8 @@ describe("openclaw-wrt intent tools", () => {
       deviceId: "dev-vpn",
       op: "set_vpn_routes",
       payload: {
-        data: {
-          mode: "selective",
-          routes: ["10.0.0.0/24", "192.168.8.0/24", "1.2.3.0/24", "4.5.6.0/24"],
-        },
+        mode: "selective",
+        routes: ["10.0.0.0/24", "192.168.8.0/24", "1.2.3.0/24", "4.5.6.0/24"],
       },
     });
   });
@@ -2083,10 +2142,8 @@ describe("openclaw-wrt intent tools", () => {
         deviceId: "dev-vpn",
         op: "set_vpn_routes",
         payload: {
-          data: {
-            mode: "selective",
-            routes: ["10.0.0.0/24", "192.168.9.0/24", "192.168.10.0/24"],
-          },
+          mode: "selective",
+          routes: ["10.0.0.0/24", "192.168.9.0/24", "192.168.10.0/24"],
         },
       });
     } finally {
