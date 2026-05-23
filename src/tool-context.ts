@@ -43,7 +43,7 @@ export function logToolInvocation(ctx: ToolContext, name: string, rawParams?: un
  */
 export function buildToolResult(text: string, details: JsonRecord) {
   return {
-    text,
+    content: [{ type: "text" as const, text }],
     details: details as Record<string, unknown>,
   };
 }

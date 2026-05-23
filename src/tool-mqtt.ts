@@ -1,8 +1,11 @@
+/**
+ * MQTT tools - delegates to the real implementation in src/tools/mqtt.ts.
+ * This file exists for backward compatibility during the migration period.
+ */
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
-import { pickLegacyTools, type ToolFactoryParams } from "./tool-factories.js";
-
-const MQTT_TOOL_NAMES = ["clawwrt_get_mqtt_serv", "clawwrt_set_mqtt_serv"] as const;
+import type { ToolFactoryParams } from "./tool-factories.js";
+import { createMqttTools as createMqttToolsImpl } from "./tools/mqtt.js";
 
 export function createMqttTools(params: ToolFactoryParams): AnyAgentTool[] {
-  return pickLegacyTools(params, MQTT_TOOL_NAMES);
+  return createMqttToolsImpl({ bridge: params.bridge, logger: params.logger });
 }
