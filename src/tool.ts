@@ -1,8 +1,12 @@
+/**
+ * Tool entry point. Delegates to new domain files in src/tools/.
+ */
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import type { ResolvedClawWRTConfig } from "./config.js";
 import type { ClawWRTBridge, Logger } from "./tool-types.js";
 import * as ToolSchemas from "./tool-schemas.js";
 import * as ToolTypes from "./tool-types.js";
+import { setActiveBridgeFallback } from "./tool-chawrtd.js";
 import { createDeviceTools } from "./tools/device.js";
 import { createClientTools } from "./tools/client.js";
 import { createWifiTools } from "./tools/wifi.js";
@@ -25,6 +29,9 @@ export type CreateClawWRTToolsParams = {
 };
 
 export function createClawWRTTools(params: CreateClawWRTToolsParams): AnyAgentTool[] {
+  // Set module-level bridge fallback so tool-chawrtd.js callDeviceOp works
+  setActiveBridgeFallback(params.bridge);
+
   const deps = { bridge: params.bridge, logger: params.logger };
   return [
     ...createDeviceTools(deps),
