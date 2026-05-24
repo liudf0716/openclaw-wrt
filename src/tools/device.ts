@@ -22,7 +22,6 @@ import {
   buildToolResult,
   logToolInvocation,
   getSnapshotDisplayName,
-  getClientsFromResponse,
 } from "./_helpers.js";
 
 // ============================================================================

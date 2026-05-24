@@ -25,8 +25,8 @@ import {
   callChawrtd,
   getDevicesListViaChawrtd,
   collectWireguardProtectedRoutePlans,
+  readWireguardProtectedRoutePlanFile,
 } from "../chawrtd-client.js";
-import { loadWireguardRoutePlanOrThrow } from "../tool-wireguard-routes.js";
 import { createSimpleOperationTool, buildToolResult, logToolInvocation, type ToolFactoryDeps } from "./_factory.js";
 import {
   asObject,
@@ -44,6 +44,20 @@ const WIREGUARD_PROTECTED_ROUTE_PLAN_FILE = path.join(
   os.tmpdir(),
   "openclaw-wrt-wireguard-protected-routes.json",
 );
+
+// ============================================================================
+// Internal helpers
+// ============================================================================
+
+async function loadWireguardRoutePlanOrThrow(
+  routePlanFile: string,
+): Promise<WireguardProtectedRoutePlanFile> {
+  const routePlan = await readWireguardProtectedRoutePlanFile(routePlanFile) as WireguardProtectedRoutePlanFile | null;
+  if (!routePlan) {
+    throw new Error(`routePlanFile is invalid or unreadable: ${routePlanFile}`);
+  }
+  return routePlan;
+}
 
 // ============================================================================
 // Exported factory

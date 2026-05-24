@@ -10,7 +10,7 @@ import type {
   PublishPortalPageParams,
   GeneratePortalPageParams,
 } from "../tool-types.js";
-import { renderAndPublishPortalPage } from "../tool-portal-utils.js";
+import { publishPortalPage } from "../chawrtd-client.js";
 import {
   buildPortalPageName,
   resolvePortalWebRoot,
@@ -76,7 +76,7 @@ export function createPortalTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           );
         }
         const html = await fs.readFile(filePath, "utf8");
-        const result = await renderAndPublishPortalPage({
+        const result = await publishPortalPage({
           deviceId,
           html,
           pageName: args.pageName,

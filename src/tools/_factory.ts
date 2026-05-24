@@ -7,9 +7,10 @@ import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import * as SharedSchemas from "../tool-schemas.js";
 import type { ClawWRTBridge, Logger, JsonRecord, DeviceOnlyParams } from "../tool-types.js";
 import { callDeviceOp } from "../chawrtd-client.js";
+import { buildToolResult as _buildToolResult } from "../tool-parsers.js";
 
 // ============================================================================
-// Helpers (to be replaced by ToolContext in later stages)
+// Helpers — re-exported from canonical sources
 // ============================================================================
 
 function logToolInvocation(logger: Logger | undefined, name: string, rawParams?: unknown): void {
@@ -18,12 +19,7 @@ function logToolInvocation(logger: Logger | undefined, name: string, rawParams?:
   );
 }
 
-function buildToolResult(text: string, details: JsonRecord) {
-  return {
-    content: [{ type: "text" as const, text }],
-    details: details as Record<string, unknown>,
-  };
-}
+const buildToolResult = _buildToolResult;
 
 // ============================================================================
 // Factory Parameters Type
