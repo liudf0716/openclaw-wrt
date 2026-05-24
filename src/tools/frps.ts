@@ -134,13 +134,11 @@ export function createFrpsTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           devices.map(async (device) => {
             const [commonResponse, servicesResponse] = await Promise.all([
               callDeviceOp({
-                bridge: deps.bridge,
                 deviceId: device.deviceId,
                 op: "get_xfrpc_common",
                 payload: {},
               }),
               callDeviceOp({
-                bridge: deps.bridge,
                 deviceId: device.deviceId,
                 op: "get_xfrpc_tcp_service",
                 payload: {},

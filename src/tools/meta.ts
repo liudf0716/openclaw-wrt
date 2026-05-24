@@ -133,7 +133,6 @@ export function createMetaTools(deps: ToolFactoryDeps): AnyAgentTool[] {
             if (!args.deviceId) throw new Error("deviceId is required for call");
             if (!args.op) throw new Error("op is required for call");
             const response = await callDeviceOp({
-              bridge: deps.bridge,
               deviceId: args.deviceId,
               op: args.op,
               payload: args.payload,

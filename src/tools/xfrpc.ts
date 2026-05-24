@@ -135,14 +135,12 @@ export function createXfrpcTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         logToolInvocation(deps.logger, "clawwrt_del_xfrpc_tcp_service", rawParams);
         const args = rawParams as DelXfrpcTcpServiceParams;
         const mutationResponse = await callDeviceOp({
-          bridge: deps.bridge,
           deviceId: args.deviceId.trim(),
           op: "del_xfrpc_tcp_service",
           payload: { name: args.name || "" },
           timeoutMs: args.timeoutMs,
         });
         const restartResponse = await restartXfrpcService({
-          bridge: deps.bridge,
           deviceId: args.deviceId.trim(),
           timeoutMs: args.timeoutMs,
         });
@@ -170,14 +168,12 @@ export function createXfrpcTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         logToolInvocation(deps.logger, "clawwrt_disable_xfrpc_tcp_service", rawParams);
         const args = rawParams as DisableXfrpcTcpServiceParams;
         const mutationResponse = await callDeviceOp({
-          bridge: deps.bridge,
           deviceId: args.deviceId.trim(),
           op: "disable_xfrpc_tcp_service",
           payload: { name: args.name },
           timeoutMs: args.timeoutMs,
         });
         const restartResponse = await restartXfrpcService({
-          bridge: deps.bridge,
           deviceId: args.deviceId.trim(),
           timeoutMs: args.timeoutMs,
         });
@@ -200,13 +196,11 @@ export function createXfrpcTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         logToolInvocation(deps.logger, "clawwrt_disable_xfrpc_service", rawParams);
         const args = rawParams as DeviceOnlyParams;
         const mutationResponse = await callDeviceOp({
-          bridge: deps.bridge,
           deviceId: args.deviceId.trim(),
           op: "disable_xfrpc_service",
           timeoutMs: args.timeoutMs,
         });
         const restartResponse = await restartXfrpcService({
-          bridge: deps.bridge,
           deviceId: args.deviceId.trim(),
           timeoutMs: args.timeoutMs,
         });
@@ -243,14 +237,12 @@ export function createXfrpcTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         payload.server_port = serverPort;
         payload.token = token;
         const mutationResponse = await callDeviceOp({
-          bridge: deps.bridge,
           deviceId: args.deviceId.trim(),
           op: "set_xfrpc_common",
           payload,
           timeoutMs: args.timeoutMs,
         });
         const restartResponse = await restartXfrpcService({
-          bridge: deps.bridge,
           deviceId: args.deviceId.trim(),
           timeoutMs: args.timeoutMs,
         });
@@ -297,7 +289,6 @@ export function createXfrpcTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           const remotePort = parsePortString(remotePortText, "remote_port");
           const existingResponse = asObject(
             await callDeviceOp({
-              bridge: deps.bridge,
               deviceId: args.deviceId.trim(),
               op: "get_xfrpc_tcp_service",
               payload: {},
@@ -318,14 +309,12 @@ export function createXfrpcTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           payload.end_time = args.end_time;
         }
         const mutationResponse = await callDeviceOp({
-          bridge: deps.bridge,
           deviceId: args.deviceId.trim(),
           op: "add_xfrpc_tcp_service",
           payload,
           timeoutMs: args.timeoutMs,
         });
         const restartResponse = await restartXfrpcService({
-          bridge: deps.bridge,
           deviceId: args.deviceId.trim(),
           timeoutMs: args.timeoutMs,
         });

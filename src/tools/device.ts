@@ -21,7 +21,6 @@ import { createSimpleOperationTool, type ToolFactoryDeps } from "./_factory.js";
 import {
   buildToolResult,
   logToolInvocation,
-  getSnapshotDisplayName,
 } from "./_helpers.js";
 
 // ============================================================================

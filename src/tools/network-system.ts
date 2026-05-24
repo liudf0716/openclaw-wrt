@@ -50,7 +50,6 @@ export function createNetworkSystemTools(deps: ToolFactoryDeps): AnyAgentTool[] 
         if (typeof args.prefixLen === "number") payload.prefix_len = args.prefixLen;
 
         const result = await callDeviceOp({
-          bridge: deps.bridge,
           deviceId,
           op: "set_br_lan",
           payload,
@@ -133,7 +132,6 @@ export function createNetworkSystemTools(deps: ToolFactoryDeps): AnyAgentTool[] 
           payload.timeout = args.timeoutSeconds;
         }
         const response = await callDeviceOp({
-          bridge: deps.bridge,
           deviceId: args.deviceId.trim(),
           op: "shell",
           payload,

@@ -1,12 +1,10 @@
 /**
  * ChawrtdClient: Encapsulates HTTP communication with the chawrtd gateway
- * and device operations. Replaces the module-level global state pattern
- * in tool-chawrtd.ts with an explicit dependency container.
+ * and device operations.
  *
- * During migration, tool-chawrtd.ts retains backward-compatible wrapper
- * functions that delegate to a default ChawrtdClient instance. Once all
- * tool domains use ChawrtdClient directly, the wrappers and module-level
- * state can be removed.
+ * The class holds all stateful HTTP/device logic. Module-level wrapper
+ * functions at the bottom delegate to a default singleton for backward
+ * compatibility with tool files that import named functions directly.
  */
 
 import { promises as fs } from "node:fs";
@@ -422,7 +420,7 @@ export class ChawrtdClient {
   }
 }
 
-export function getSingleGatewayId(device: DeviceSnapshot): string | undefined {
+function getSingleGatewayId(device: DeviceSnapshot): string | undefined {
   const gateways = Array.isArray(device.gateway) ? device.gateway : [];
   if (gateways.length !== 1) return undefined;
   const gateway = gateways[0];
@@ -444,7 +442,7 @@ export function getDefaultChawrtdClient(): ChawrtdClient {
   return _defaultClient;
 }
 
-export function setDefaultChawrtdClient(client: ChawrtdClient): void {
+function setDefaultChawrtdClient(client: ChawrtdClient): void {
   _defaultClient = client;
 }
 
@@ -470,7 +468,7 @@ export function setActiveClawWRTConfig(config: ResolvedClawWRTConfig | undefined
   });
 }
 
-export function setActiveToolLogger(logger: Logger | undefined): void {
+function setActiveToolLogger(logger: Logger | undefined): void {
   const existing = _defaultClient;
   _defaultClient = new ChawrtdClient({
     logger,
@@ -507,16 +505,12 @@ export async function ensureDevice(
 }
 
 export async function callDeviceOp(params: {
-  bridge?: ClawWRTBridge;
-  config?: ResolvedClawWRTConfig;
   deviceId: string;
   op: string;
   payload?: JsonRecord;
   timeoutMs?: number;
   expectResponse?: boolean;
 }): Promise<JsonRecord> {
-  // bridge and config are accepted for backward compatibility but the default client
-  // already holds the correct bridge/config from setActiveBridgeFallback/setActiveClawWRTConfig.
   return getDefaultChawrtdClient().callDeviceOp({
     deviceId: params.deviceId,
     op: params.op,
@@ -526,7 +520,7 @@ export async function callDeviceOp(params: {
   });
 }
 
-export async function callDeviceOpViaChawrtd(params: {
+async function callDeviceOpViaChawrtd(params: {
   deviceId: string;
   op: string;
   payload?: JsonRecord;
@@ -538,15 +532,11 @@ export async function callDeviceOpViaChawrtd(params: {
 export async function restartXfrpcService(params: {
   deviceId: string;
   timeoutMs?: number;
-  bridge?: ClawWRTBridge;
-  config?: ResolvedClawWRTConfig;
 }): Promise<JsonRecord> {
   return getDefaultChawrtdClient().restartXfrpcService(params.deviceId, params.timeoutMs);
 }
 
 export async function publishPortalPage(params: {
-  bridge?: ClawWRTBridge;
-  config?: ResolvedClawWRTConfig;
   deviceId: string;
   html: string;
   pageName?: string;
@@ -563,8 +553,6 @@ export async function publishPortalPage(params: {
 }
 
 export async function lookupClientByMac(params: {
-  bridge?: ClawWRTBridge;
-  config?: ResolvedClawWRTConfig;
   deviceId: string;
   clientMac: string;
   timeoutMs?: number;
@@ -584,17 +572,15 @@ export async function collectWireguardProtectedRoutePlans(params: {
   deviceIds: string[];
   serverTunnelIp: string;
   timeoutMs?: number;
-  bridge?: ClawWRTBridge;
-  config?: ResolvedClawWRTConfig;
 }): Promise<JsonRecord> {
   return getDefaultChawrtdClient().collectProtectedRoutePlans(params);
 }
 
-export function getWireguardProtectedRoutesPlanFile(): string {
+function getWireguardProtectedRoutesPlanFile(): string {
   return ChawrtdClient.getProtectedRoutePlanFile();
 }
 
-export function getChawrtdBaseUrl(config?: ResolvedClawWRTConfig): string {
+function getChawrtdBaseUrl(config?: ResolvedClawWRTConfig): string {
   const base = config?.chawrtdEventStream?.baseUrl ?? "http://127.0.0.1:8001";
   return base.replace(/\/+$/, "");
 }

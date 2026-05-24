@@ -49,7 +49,6 @@ export function createClientTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         const args = rawParams as ClientInfoParams;
         const normalizedMac = normalizeMac(args.clientMac);
         const response = await callDeviceOp({
-          bridge: deps.bridge,
           deviceId: args.deviceId.trim(),
           op: "get_client_info",
           payload: { mac: normalizedMac },
@@ -72,7 +71,6 @@ export function createClientTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         const clientMac = normalizeMac(args.clientMac);
         const clientIp = args.clientIp.trim();
         const response = await callDeviceOp({
-          bridge: deps.bridge,
           deviceId: args.deviceId.trim(),
           op: "auth_client",
           payload: {
@@ -103,7 +101,6 @@ export function createClientTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         const client = explicitClientIp
           ? null
           : await lookupClientByMac({
-            bridge: deps.bridge,
             deviceId,
             clientMac,
             timeoutMs: args.timeoutMs,
@@ -118,7 +115,6 @@ export function createClientTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         }
         const gwId = args.gwId.trim();
         const response = await callDeviceOp({
-          bridge: deps.bridge,
           deviceId,
           op: "kickoff",
           payload: {

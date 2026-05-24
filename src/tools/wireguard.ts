@@ -164,7 +164,6 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         let routerError: string | null = null;
         try {
           routerStatus = await callDeviceOp({
-            bridge: deps.bridge,
             deviceId,
             op: "get_wireguard_vpn_status",
             timeoutMs: args.timeoutMs,
@@ -303,7 +302,6 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           }
 
           const currentRoutesResponse = await callDeviceOp({
-            bridge: deps.bridge,
             deviceId,
             op: "get_vpn_routes",
             timeoutMs: args.timeoutMs,
@@ -356,7 +354,6 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           });
 
           const response = await callDeviceOp({
-            bridge: deps.bridge,
             deviceId,
             op: "set_vpn_routes",
             payload: {
@@ -394,7 +391,6 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
 
         const routePlanFile = WIREGUARD_PROTECTED_ROUTE_PLAN_FILE;
         const routePlanFileData = await collectWireguardProtectedRoutePlans({
-          bridge: deps.bridge,
           deviceIds: args.deviceIds,
           serverTunnelIp: args.serverTunnelIp,
           timeoutMs: args.timeoutMs,
@@ -628,7 +624,6 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         for (const deviceId of deviceIds) {
           try {
             const status = await callDeviceOp({
-              bridge: deps.bridge,
               deviceId,
               op: "get_wireguard_vpn_status",
               timeoutMs: args.timeoutMs,
@@ -661,7 +656,6 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
 
             try {
               const configResponse = await callDeviceOp({
-                bridge: deps.bridge,
                 deviceId,
                 op: "get_wireguard_vpn",
                 timeoutMs: args.timeoutMs,

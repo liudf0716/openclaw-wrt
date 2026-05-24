@@ -8,16 +8,11 @@ import * as SharedSchemas from "../tool-schemas.js";
 import type { ClawWRTBridge, Logger, JsonRecord, DeviceOnlyParams } from "../tool-types.js";
 import { callDeviceOp } from "../chawrtd-client.js";
 import { buildToolResult as _buildToolResult } from "../tool-parsers.js";
+import { logToolInvocation } from "./_helpers.js";
 
 // ============================================================================
 // Helpers — re-exported from canonical sources
 // ============================================================================
-
-function logToolInvocation(logger: Logger | undefined, name: string, rawParams?: unknown): void {
-  logger?.info?.(
-    `openclaw-wrt: tool invoked name=${name} rawParams=${JSON.stringify(rawParams ?? {})}`,
-  );
-}
 
 const buildToolResult = _buildToolResult;
 
@@ -68,7 +63,6 @@ export function createSimpleOperationTool(params: {
         timeoutMs: fallbackArgs.timeoutMs,
       };
       const response = await callDeviceOp({
-        bridge: params.bridge,
         deviceId: built.deviceId,
         op: params.op,
         payload: built.payload,
