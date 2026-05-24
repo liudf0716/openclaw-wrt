@@ -1,44 +1,41 @@
 /**
  * Shared helper functions extracted from tool-monolith.ts.
  * Used by domain tool files in src/tools/ during the migration.
- * These will eventually move into their respective domain modules
- * or into tool-parsers.ts/tool-validators.ts.
+ *
+ * Functions that were previously duplicated here AND in tool-parsers.ts
+ * have been consolidated into tool-parsers.ts. This file re-exports them
+ * for backward compatibility and contains only the unique helpers.
  */
 
-import { isIPv4 } from "node:net";
-import type { JsonRecord, DeviceSnapshot, BpfJsonTable } from "../tool-types.js";
-import { normalizeBpfAddress as parserNormalizeBpfAddress } from "../tool-parsers.js";
+import { randomBytes } from "node:crypto";
+import type { JsonRecord } from "../tool-types.js";
+import {
+  asObject,
+} from "../tool-parsers.js";
 
-// Re-export parsers that tools frequently need
+// ============================================================================
+// Re-exports from tool-parsers.ts (consolidated canonical source)
+// ============================================================================
+
+export {
+  asObject,
+  getSnapshotDisplayName,
+  getClientsFromResponse,
+  buildToolResult,
+  collectNestedJsonObjects,
+  extractWireguardConfigSnapshot,
+  findServerPeerPublicKeyForTunnelIp,
+  mapWireguardInterfacePayload,
+  mapWireguardPeerPayload,
+  summarizeBpfJsonResponse,
+} from "../tool-parsers.js";
+
 export { normalizeMac as parserNormalizeMac } from "../tool-parsers.js";
 export { normalizeBpfAddress as parserNormalizeBpfAddress } from "../tool-parsers.js";
 
 // ============================================================================
-// Generic helpers
+// Logging
 // ============================================================================
-
-export function asObject(value: unknown): JsonRecord | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
-}
-
-export function getSnapshotDisplayName(snapshot: DeviceSnapshot | undefined): string | undefined {
-  if (!snapshot) return undefined;
-  const legacyDeviceName = asObject(snapshot)?.deviceName;
-  return snapshot.alias ?? (typeof legacyDeviceName === "string" ? legacyDeviceName : undefined);
-}
-
-export function getClientsFromResponse(response: JsonRecord): unknown[] {
-  if (Array.isArray(response.clients)) return response.clients;
-  const data = asObject(response.data);
-  return Array.isArray(data?.clients) ? data.clients : [];
-}
-
-export function buildToolResult(text: string, details: JsonRecord) {
-  return {
-    content: [{ type: "text" as const, text }],
-    details: details as Record<string, unknown>,
-  };
-}
 
 export function logToolInvocation(logger: { info?: (msg: string) => void } | undefined, name: string, rawParams?: unknown): void {
   logger?.info?.(`openclaw-wrt: tool invoked name=${name} rawParams=${JSON.stringify(rawParams ?? {})}`);
@@ -49,7 +46,6 @@ export function logToolInvocation(logger: { info?: (msg: string) => void } | und
 // ============================================================================
 
 export function generateSecureToken(): string {
-  const { randomBytes } = require("node:crypto");
   return randomBytes(24).toString("hex");
 }
 
@@ -73,7 +69,7 @@ export function assertValidServerAddr(serverAddr: string): void {
 }
 
 // ============================================================================
-// XFRPC helpers
+// XFRPC / FRPS helpers
 // ============================================================================
 
 export function getXfrpcTcpServicesFromResponse(response: unknown): JsonRecord[] {
@@ -128,151 +124,3 @@ export function getXfrpcCommonConfigFromResponse(response: unknown): JsonRecord 
   const data = asObject(obj.data);
   return data ?? obj;
 }
-
-// ============================================================================
-// BPF helpers
-// ============================================================================
-
-export function summarizeBpfJsonResponse(
-  response: JsonRecord,
-  table: BpfJsonTable,
-  deviceId: string,
-): string {
-  const data = asObject(response.data);
-  const entries = Array.isArray(data?.entries) ? data.entries : Array.isArray(data?.items) ? data.items : [];
-  const count = entries.length;
-  return `Fetched ${table} BPF stats for ${deviceId}${count > 0 ? ` (${count} entries)` : ""}.`;
-}
-
-// ============================================================================
-// WireGuard helpers
-// ============================================================================
-
-export function collectNestedJsonObjects(value: unknown, depth = 0): JsonRecord[] {
-  if (depth > 6) return [];
-  if (!value || typeof value !== "object") return [];
-  const obj = value as JsonRecord;
-  const results: JsonRecord[] = [obj];
-  for (const v of Object.values(obj)) {
-    if (v && typeof v === "object" && !Array.isArray(v)) {
-      results.push(...collectNestedJsonObjects(v, depth + 1));
-    } else if (Array.isArray(v)) {
-      for (const item of v) {
-        if (item && typeof item === "object" && !Array.isArray(item)) {
-          results.push(...collectNestedJsonObjects(item, depth + 1));
-        }
-      }
-    }
-  }
-  return results;
-}
-
-export function extractWireguardConfigSnapshot(response: JsonRecord): {
-  privateKey: string;
-  addresses: string[];
-  peerPublicKey: string;
-  peerAllowedIps: string[];
-  peerEndpoint: string;
-  peerPresharedKey: string;
-} {
-  const objects = collectNestedJsonObjects(response);
-  let privateKey = "";
-  let addresses: string[] = [];
-  let peerPublicKey = "";
-  let peerAllowedIps: string[] = [];
-  let peerEndpoint = "";
-  let peerPresharedKey = "";
-
-  for (const obj of objects) {
-    if (typeof obj.private_key === "string" && obj.private_key) privateKey = obj.private_key;
-    if (typeof obj.privateKey === "string" && obj.privateKey && !privateKey) privateKey = obj.privateKey;
-    if (Array.isArray(obj.addresses)) addresses = obj.addresses.filter((a): a is string => typeof a === "string");
-    if (Array.isArray(obj.addresses) && obj.addresses.length === 0 && typeof obj.address === "string") addresses = [obj.address];
-    if (typeof obj.public_key === "string" && obj.public_key) peerPublicKey = obj.public_key;
-    if (typeof obj.publicKey === "string" && obj.publicKey && !peerPublicKey) peerPublicKey = obj.publicKey;
-    if (Array.isArray(obj.allowed_ips)) peerAllowedIps = obj.allowed_ips.filter((a): a is string => typeof a === "string");
-    if (Array.isArray(obj.allowedIps) && obj.allowedIps.length > 0 && peerAllowedIps.length === 0) peerAllowedIps = obj.allowedIps.filter((a): a is string => typeof a === "string");
-    if (typeof obj.endpoint === "string" && obj.endpoint) peerEndpoint = obj.endpoint;
-    if (typeof obj.preshared_key === "string" && obj.preshared_key) peerPresharedKey = obj.preshared_key;
-    if (typeof obj.presharedKey === "string" && obj.presharedKey && !peerPresharedKey) peerPresharedKey = obj.presharedKey;
-  }
-
-  return { privateKey, addresses, peerPublicKey, peerAllowedIps, peerEndpoint, peerPresharedKey };
-}
-
-export function findServerPeerPublicKeyForTunnelIp(
-  serverPeerConfig: Array<{ publicKey: string | undefined; allowedIps: string[] }>,
-  tunnelIp: string,
-): string | undefined {
-  const targetIp = tunnelIp.split("/")[0]?.trim();
-  if (!targetIp) return undefined;
-  for (const peer of serverPeerConfig) {
-    for (const allowedIp of peer.allowedIps) {
-      const networkIp = allowedIp.split("/")[0]?.trim();
-      if (networkIp === targetIp && peer.publicKey) return peer.publicKey;
-    }
-  }
-  return undefined;
-}
-
-export function mapWireguardInterfacePayload(input: JsonRecord): JsonRecord {
-  const output: JsonRecord = { ...input };
-
-  const privateKeyCandidate =
-    output.private_key === undefined && typeof input.privateKey === "string"
-      ? input.privateKey.trim()
-      : typeof output.private_key === "string"
-        ? output.private_key.trim()
-        : undefined;
-  if (
-    privateKeyCandidate &&
-    privateKeyCandidate !== "GENERATED_ON_DEVICE" &&
-    privateKeyCandidate !== "[GENERATED_ON_DEVICE]"
-  ) {
-    output.private_key = privateKeyCandidate;
-  } else {
-    delete output.private_key;
-  }
-  if (output.listen_port === undefined && typeof input.listenPort === "number") {
-    output.listen_port = input.listenPort;
-  }
-
-  delete output.privateKey;
-  delete output.listenPort;
-
-  return output;
-}
-
-export function mapWireguardPeerPayload(input: JsonRecord): JsonRecord {
-  const output: JsonRecord = { ...input };
-
-  if (output.public_key === undefined && typeof input.publicKey === "string") {
-    output.public_key = input.publicKey;
-  }
-  if (output.preshared_key === undefined && typeof input.presharedKey === "string") {
-    output.preshared_key = input.presharedKey;
-  }
-  output.allowed_ips = ["0.0.0.0/0"];
-  if (output.endpoint_host === undefined && typeof input.endpointHost === "string") {
-    output.endpoint_host = input.endpointHost;
-  }
-  if (output.endpoint_port === undefined && typeof input.endpointPort === "number") {
-    output.endpoint_port = input.endpointPort;
-  }
-  if (output.persistent_keepalive === undefined && typeof input.persistentKeepalive === "number") {
-    output.persistent_keepalive = input.persistentKeepalive;
-  }
-  output.route_allowed_ips = "0";
-
-  delete output.publicKey;
-  delete output.presharedKey;
-  delete output.allowedIps;
-  delete output.endpointHost;
-  delete output.endpointPort;
-  delete output.persistentKeepalive;
-  delete output.routeAllowedIps;
-
-  return output;
-}
-
-export { isIPv4 };

@@ -12,7 +12,7 @@ import type {
   PortalTemplate,
   PortalContent,
 } from "./tool-types.js";
-import { parseIPv4Cidr } from "./tool-validators.js";
+
 import {
   renderPortalPageHtml,
   type PortalContent as PortalContentType,
@@ -148,7 +148,7 @@ export function parseChawrtdDeviceSnapshot(value: unknown): DeviceSnapshot | nul
  * Recursively collect all nested JSON objects up to a maximum depth.
  */
 export function collectNestedJsonObjects(value: unknown, depth = 0): JsonRecord[] {
-  if (!value || typeof value !== "object" || depth > 5) {
+  if (!value || typeof value !== "object" || depth > 6) {
     return [];
   }
   if (Array.isArray(value)) {
@@ -164,18 +164,24 @@ export function collectNestedJsonObjects(value: unknown, depth = 0): JsonRecord[
 
 /**
  * Extract WireGuard configuration snapshot from nested response data.
- * Returns private key, addresses, and peer public key if found.
+ * Returns private key, addresses, peer public key, allowed IPs, endpoint, and preshared key.
  */
 export function extractWireguardConfigSnapshot(response: JsonRecord): {
   privateKey?: string;
   addresses: string[];
   peerPublicKey?: string;
+  peerAllowedIps: string[];
+  peerEndpoint?: string;
+  peerPresharedKey?: string;
 } {
   const objects = collectNestedJsonObjects(response);
 
   let privateKey: string | undefined;
   let addresses: string[] = [];
   let peerPublicKey: string | undefined;
+  let peerAllowedIps: string[] = [];
+  let peerEndpoint: string | undefined;
+  let peerPresharedKey: string | undefined;
 
   for (const entry of objects) {
     if (!privateKey) {
@@ -222,6 +228,23 @@ export function extractWireguardConfigSnapshot(response: JsonRecord): {
               : undefined;
         if (candidate?.trim()) {
           peerPublicKey = candidate.trim();
+          // Extract allowed IPs from this peer
+          const rawAllowedIps = Array.isArray(peerObject.allowed_ips)
+            ? peerObject.allowed_ips
+            : Array.isArray(peerObject.allowedIps)
+              ? peerObject.allowedIps
+              : [];
+          peerAllowedIps = rawAllowedIps.filter((a): a is string => typeof a === "string");
+          // Extract endpoint
+          if (typeof peerObject.endpoint === "string" && peerObject.endpoint) {
+            peerEndpoint = peerObject.endpoint;
+          }
+          // Extract preshared key
+          if (typeof peerObject.preshared_key === "string" && peerObject.preshared_key) {
+            peerPresharedKey = peerObject.preshared_key;
+          } else if (typeof peerObject.presharedKey === "string" && peerObject.presharedKey) {
+            peerPresharedKey = peerObject.presharedKey;
+          }
           break;
         }
       }
@@ -232,32 +255,24 @@ export function extractWireguardConfigSnapshot(response: JsonRecord): {
     }
   }
 
-  return { privateKey, addresses, peerPublicKey };
+  return { privateKey, addresses, peerPublicKey, peerAllowedIps, peerEndpoint, peerPresharedKey };
 }
 
 /**
  * Find the public key for a server peer given a specific tunnel IP.
+ * Accepts both plain IP (e.g. "10.0.0.2") and CIDR notation (e.g. "10.0.0.2/32").
  */
 export function findServerPeerPublicKeyForTunnelIp(
   peers: Array<{ publicKey?: string; allowedIps: string[] }>,
   tunnelIp: string,
 ): string | undefined {
-  const targetIp = tunnelIp.trim();
-  // Note: using dynamic import would require refactoring, so we check the format manually
-  if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(targetIp)) {
-    return undefined;
-  }
+  const targetIp = tunnelIp.split("/")[0]?.trim();
+  if (!targetIp) return undefined;
 
   for (const peer of peers) {
     for (const allowedIp of peer.allowedIps) {
-      const parsed = parseIPv4Cidr(allowedIp);
-      if (!parsed || parsed.prefix !== 32) {
-        continue;
-      }
-      const peerIp = allowedIp.split("/")[0]?.trim();
-      if (peerIp === targetIp) {
-        return peer.publicKey?.trim();
-      }
+      const networkIp = allowedIp.split("/")[0]?.trim();
+      if (networkIp === targetIp && peer.publicKey) return peer.publicKey;
     }
   }
 
@@ -415,10 +430,10 @@ export function buildPortalPageName(deviceId: string, explicitPageName?: string)
  */
 export async function resolvePortalWebRoot(explicitRoot?: string): Promise<string> {
   const candidates: Array<string | null | undefined> = [
-    await extractNginxRootFromConfig(), // Check nginx config first
     explicitRoot?.trim(),
     process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT?.trim(),
     process.env.OPENCLAW_WRT_WEB_ROOT?.trim(),
+    await extractNginxRootFromConfig(),
     ...PORTAL_WEB_ROOT_CANDIDATES,
   ];
 
@@ -457,12 +472,13 @@ export function summarizeBpfJsonResponse(
   table: string,
   deviceId: string,
 ): string {
-  const data = response.data;
-  const count = Array.isArray(data)
-    ? data.length
-    : data && typeof data === "object"
-      ? Object.keys(data as JsonRecord).length
-      : 0;
+  const data = asObject(response.data);
+  const entries = Array.isArray(data?.entries)
+    ? data.entries
+    : Array.isArray(data?.items)
+      ? data.items
+      : [];
+  const count = entries.length;
   return `Fetched ${table} BPF stats for ${deviceId}${count > 0 ? ` (${count} entries)` : ""}.`;
 }
 

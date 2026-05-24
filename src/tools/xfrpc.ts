@@ -41,7 +41,6 @@ async function resolveXfrpcCommonSettings(params: { timeoutMs?: number }): Promi
   token: string;
 }> {
   const statusResponse = await callChawrtd({ path: "/v1/frps/status", method: "GET", timeoutMs: params.timeoutMs });
-  console.error("[DEBUG] callChawrtd response:", JSON.stringify(statusResponse));
 
   const serverAddr = getFrpsStatusPublicIp(statusResponse);
   const serverPort = getFrpsStatusPort(statusResponse);
