@@ -69,6 +69,7 @@ export function createMetaTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           "- 客户端管理 → `clawwrt_get_clients`, `clawwrt_auth_client`",
           "- 防火墙规则 → `clawwrt_bpf_add`, `clawwrt_bpf_update`",
           "- 网络设置 → `clawwrt_set_br_lan`, `clawwrt_speedtest`",
+          "- 性能测试 → `clawwrt_dhcp_diagnose`, `clawwrt_dns_diagnose`, `clawwrt_http_service_diagnose`, `clawwrt_https_service_diagnose`（HTTP/HTTPS 为 apfree-wifidog portal 认证服务）",
           "- 内网穿透 → `clawwrt_add_xfrpc_tcp_service`, `openclaw_deploy_frps`",
           "",
           "示例 Prompts：",
@@ -77,6 +78,7 @@ export function createMetaTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           "- '查看当前连接的客户端'",
           "- '配置 WireGuard VPN'",
           "- '运行网络速度测试'",
+          "- '测试 DHCP、DNS 或 apfree-wifidog portal 的 HTTP/HTTPS 服务性能'",
           "- '添加内网穿透服务'",
         ]
           .filter(Boolean)

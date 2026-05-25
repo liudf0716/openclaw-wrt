@@ -197,6 +197,43 @@ export class ChawrtdClient {
     return this.callDeviceOpViaChawrtd(params);
   }
 
+  async callDeviceDiagnose(params: {
+    deviceId: string;
+    kind: "dhcp" | "dns" | "http" | "https";
+    payload?: JsonRecord;
+    timeoutMs?: number;
+  }): Promise<JsonRecord> {
+    const bridge = this.bridge as
+      | {
+          callDeviceDiagnose?: (input: {
+            deviceId: string;
+            kind: "dhcp" | "dns" | "http" | "https";
+            payload?: JsonRecord;
+            timeoutMs?: number;
+          }) => Promise<JsonRecord>;
+        }
+      | undefined;
+
+    if (!this.config && typeof bridge?.callDeviceDiagnose === "function") {
+      return await bridge.callDeviceDiagnose({
+        deviceId: params.deviceId,
+        kind: params.kind,
+        payload: params.payload,
+        timeoutMs: params.timeoutMs,
+      });
+    }
+
+    const response = await this.call({
+      path: `/v1/device/${params.deviceId}/diagnose/${params.kind}`,
+      method: "POST",
+      body: params.payload ?? {},
+      timeoutMs: params.timeoutMs,
+    });
+
+    if (response.error) throw new Error(response.error);
+    return response.data ?? response;
+  }
+
   async callDeviceOpViaChawrtd(params: {
     deviceId: string;
     op: string;
@@ -517,6 +554,20 @@ export async function callDeviceOp(params: {
     payload: params.payload,
     timeoutMs: params.timeoutMs,
     expectResponse: params.expectResponse,
+  });
+}
+
+export async function callDeviceDiagnose(params: {
+  deviceId: string;
+  kind: "dhcp" | "dns" | "http" | "https";
+  payload?: JsonRecord;
+  timeoutMs?: number;
+}): Promise<JsonRecord> {
+  return getDefaultChawrtdClient().callDeviceDiagnose({
+    deviceId: params.deviceId,
+    kind: params.kind,
+    payload: params.payload,
+    timeoutMs: params.timeoutMs,
   });
 }
 

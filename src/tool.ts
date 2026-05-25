@@ -14,6 +14,7 @@ import { createBpfTools } from "./tools/bpf.js";
 import { createAuthTrustedTools } from "./tools/auth-trusted.js";
 import { createMqttTools } from "./tools/mqtt.js";
 import { createPortalTools } from "./tools/portal.js";
+import { createDiagnosticsTools } from "./tools/diagnostics.js";
 import { createWireguardTools } from "./tools/wireguard.js";
 import { createXfrpcTools } from "./tools/xfrpc.js";
 import { createNetworkSystemTools } from "./tools/network-system.js";
@@ -42,6 +43,7 @@ export function createClawWRTTools(params: CreateClawWRTToolsParams): AnyAgentTo
     ...createAuthTrustedTools(deps),
     ...createMqttTools(deps),
     ...createPortalTools(deps),
+    ...createDiagnosticsTools(deps),
     ...createWireguardTools(deps),
     ...createNetworkSystemTools(deps),
     ...createXfrpcTools(deps),

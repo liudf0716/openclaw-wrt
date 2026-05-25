@@ -33,6 +33,9 @@ import type {
   SetVpnRoutesSchema,
   ResetWireguardVpnSchema,
   SetBrLanSchema,
+  DhcpDiagnoseSchema,
+  DnsDiagnoseSchema,
+  WebServiceDiagnoseSchema,
   ResetWgServerSchema,
   VerifyFrpsSchema,
   GetXfrpcTcpServiceSchema,
@@ -229,3 +232,6 @@ export type VerifyWireguardConnectivityParams = Static<
   typeof VerifyWireguardConnectivitySchema
 >;
 export type RunSpeedtestParams = Static<typeof RunSpeedtestSchema>;
+export type DhcpDiagnoseParams = Static<typeof DhcpDiagnoseSchema>;
+export type DnsDiagnoseParams = Static<typeof DnsDiagnoseSchema>;
+export type WebServiceDiagnoseParams = Static<typeof WebServiceDiagnoseSchema>;

@@ -11,6 +11,7 @@ export { createBpfTools } from "./bpf.js";
 export { createAuthTrustedTools } from "./auth-trusted.js";
 export { createMqttTools } from "./mqtt.js";
 export { createPortalTools } from "./portal.js";
+export { createDiagnosticsTools } from "./diagnostics.js";
 export { createWireguardTools } from "./wireguard.js";
 export { createXfrpcTools } from "./xfrpc.js";
 export { createNetworkSystemTools } from "./network-system.js";
