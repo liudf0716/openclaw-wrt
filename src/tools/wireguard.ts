@@ -60,6 +60,251 @@ async function loadWireguardRoutePlanOrThrow(
 }
 
 // ============================================================================
+// WireGuard Verify Helpers
+// ============================================================================
+type ServerVerifyResult = {
+  serverSummary: string;
+  snatOk: boolean;
+  ipForwardOk: boolean;
+  serverConfiguredPublicKey?: string;
+  serverKeyCheck?: {
+    status: "ok" | "mismatch" | "error" | "skipped";
+    configuredPublicKey?: string;
+    derivedPublicKey?: string;
+    error?: string;
+  };
+  serverPeerConfig: Array<{ publicKey: string | undefined; allowedIps: string[] }>;
+  serverReportLines: string[];
+  pingResults: Array<{
+    target: string;
+    reachable: boolean;
+    output: string;
+    confidence?: "confirmed" | "inconclusive" | "failed";
+    message?: string;
+  }>;
+};
+
+async function verifyServerSide(pingTargets: string[], timeoutMs?: number): Promise<ServerVerifyResult> {
+  const result: ServerVerifyResult = {
+    serverSummary: "unavailable",
+    snatOk: false,
+    ipForwardOk: false,
+    serverPeerConfig: [],
+    serverReportLines: [],
+    pingResults: [],
+  };
+
+  try {
+    const verifyResponse = await callChawrtd({
+      path: "/v1/wg/verify",
+      method: "POST",
+      body: { pingTargets },
+      timeoutMs,
+    });
+    result.serverSummary = verifyResponse.output?.trim() || verifyResponse.summary || "unavailable";
+
+    const verifyData = asObject(verifyResponse.data);
+    const serverData = asObject(verifyData?.server);
+    if (serverData) {
+      if (typeof serverData.wgShow === "string" && serverData.wgShow.trim()) {
+        result.serverSummary = serverData.wgShow.trim();
+      }
+      if (typeof serverData.snatOk === "boolean") result.snatOk = serverData.snatOk;
+      if (typeof serverData.ipForwardOk === "boolean") result.ipForwardOk = serverData.ipForwardOk;
+      if (typeof serverData.serverPublicKey === "string" && serverData.serverPublicKey.trim()) {
+        result.serverConfiguredPublicKey = serverData.serverPublicKey.trim();
+      }
+
+      const keyCheckRaw = asObject(serverData.keyCheck);
+      if (keyCheckRaw) {
+        const status = typeof keyCheckRaw.status === "string" ? keyCheckRaw.status.trim() : "";
+        if (["ok", "mismatch", "error", "skipped"].includes(status)) {
+          result.serverKeyCheck = {
+            status: status as "ok" | "mismatch" | "error" | "skipped",
+            configuredPublicKey: typeof keyCheckRaw.configuredPublicKey === "string" ? keyCheckRaw.configuredPublicKey : undefined,
+            derivedPublicKey: typeof keyCheckRaw.derivedPublicKey === "string" ? keyCheckRaw.derivedPublicKey : undefined,
+            error: typeof keyCheckRaw.error === "string" ? keyCheckRaw.error : undefined,
+          };
+        }
+      }
+
+      if (Array.isArray(serverData.reportLines)) {
+        result.serverReportLines = serverData.reportLines.filter(
+          (entry: unknown): entry is string => typeof entry === "string" && (entry as string).trim().length > 0,
+        );
+      }
+
+      const peerConfigRaw = serverData.peerConfig;
+      if (Array.isArray(peerConfigRaw)) {
+        result.serverPeerConfig = peerConfigRaw
+          .map((entry: unknown) => {
+            const peer = asObject(entry);
+            if (!peer) return null;
+            const publicKey = typeof peer.publicKey === "string" && peer.publicKey.trim() ? peer.publicKey.trim() : undefined;
+            const allowedIps = Array.isArray(peer.allowedIps)
+              ? peer.allowedIps.filter((c: unknown): c is string => typeof c === "string").map((c: string) => c.trim()).filter(Boolean)
+              : [];
+            return { publicKey, allowedIps };
+          })
+          .filter((e): e is { publicKey: string | undefined; allowedIps: string[] } => e !== null && e.allowedIps.length > 0);
+      }
+    }
+
+    result.pingResults = Array.isArray(verifyData?.pingResults)
+      ? verifyData.pingResults
+          .map((entry: unknown) => {
+            const row = asObject(entry);
+            if (!row) return null;
+            const target = typeof row.target === "string" ? row.target : "";
+            if (!target) return null;
+            const reachable = typeof row.reachable === "boolean" ? row.reachable : false;
+            const output = typeof row.output === "string" ? row.output : "";
+            const confidenceRaw = typeof row.confidence === "string" ? row.confidence : "";
+            const confidence = ["confirmed", "inconclusive", "failed"].includes(confidenceRaw)
+              ? (confidenceRaw as "confirmed" | "inconclusive" | "failed")
+              : undefined;
+            const message = typeof row.message === "string" ? row.message : undefined;
+            const parsed: { target: string; reachable: boolean; output: string; confidence?: "confirmed" | "inconclusive" | "failed"; message?: string } = { target, reachable, output };
+            if (confidence) parsed.confidence = confidence;
+            if (message) parsed.message = message;
+            return parsed;
+          })
+          .filter((e): e is NonNullable<typeof e> => Boolean(e))
+      : [];
+  } catch (error) {
+    result.serverSummary = `Server probe error via chawrtd: ${error instanceof Error ? error.message : String(error)}`;
+    result.serverKeyCheck = { status: "error", error: error instanceof Error ? error.message : String(error) };
+  }
+
+  return result;
+}
+
+type DeviceVerifyResult = {
+  deviceId: string;
+  handshakeAge?: string;
+  rxBytes?: number;
+  txBytes?: number;
+  tunnelIp?: string;
+  keyCheck?: {
+    status: "ok" | "mismatch" | "error" | "skipped";
+    reason?: string;
+    derivedClientPublicKey?: string;
+    configuredServerPeerPublicKey?: string;
+    configuredRouterPeerPublicKey?: string;
+    actualServerPublicKey?: string;
+  };
+  error?: string;
+};
+
+async function verifyDeviceRouterSide(
+  deviceId: string,
+  serverPeerConfig: Array<{ publicKey: string | undefined; allowedIps: string[] }>,
+  serverConfiguredPublicKey: string | undefined,
+  timeoutMs?: number,
+): Promise<DeviceVerifyResult> {
+  const { execFileSync } = await import("node:child_process");
+
+  const status = await callDeviceOp({ deviceId, op: "get_wireguard_vpn_status", timeoutMs });
+  const peer = (status as JsonRecord)?.peers as JsonRecord[] | undefined;
+  const first = Array.isArray(peer) ? peer[0] : undefined;
+  const result: DeviceVerifyResult = {
+    deviceId,
+    handshakeAge: (first as JsonRecord | undefined)?.last_handshake_time as string | undefined,
+    rxBytes: (first as JsonRecord | undefined)?.receive_bytes as number | undefined,
+    txBytes: (first as JsonRecord | undefined)?.transmit_bytes as number | undefined,
+  };
+
+  try {
+    const configResponse = await callDeviceOp({ deviceId, op: "get_wireguard_vpn", timeoutMs });
+    const snapshot = extractWireguardConfigSnapshot(asObject(configResponse) ?? {});
+    const tunnelIp = snapshot.addresses
+      .map((entry) => entry.split("/")[0]?.trim())
+      .find((entry): entry is string => Boolean(entry && isIPv4(entry)));
+    result.tunnelIp = tunnelIp;
+
+    if (!snapshot.privateKey) {
+      result.keyCheck = { status: "skipped", reason: "router private key unavailable in get_wireguard_vpn response" };
+    } else {
+      const derivedClientPublicKey = deriveWireGuardPublicKeyFromPrivateKey(snapshot.privateKey, execFileSync);
+      const configuredServerPeerPublicKey = tunnelIp ? findServerPeerPublicKeyForTunnelIp(serverPeerConfig, tunnelIp) : undefined;
+      const configuredRouterPeerPublicKey = snapshot.peerPublicKey;
+      const mismatchReasons: string[] = [];
+
+      if (configuredServerPeerPublicKey && configuredServerPeerPublicKey !== derivedClientPublicKey) {
+        mismatchReasons.push("server peer public key does not match the router private key derived public key");
+      }
+      if (serverConfiguredPublicKey && configuredRouterPeerPublicKey && configuredRouterPeerPublicKey !== serverConfiguredPublicKey) {
+        mismatchReasons.push("router configured server public key does not match the VPS actual server public key");
+      }
+
+      result.keyCheck = mismatchReasons.length === 0
+        ? { status: "ok", derivedClientPublicKey, configuredServerPeerPublicKey, configuredRouterPeerPublicKey, actualServerPublicKey: serverConfiguredPublicKey }
+        : { status: "mismatch", reason: mismatchReasons.join("; "), derivedClientPublicKey, configuredServerPeerPublicKey, configuredRouterPeerPublicKey, actualServerPublicKey: serverConfiguredPublicKey };
+    }
+  } catch (error) {
+    result.keyCheck = { status: "error", reason: error instanceof Error ? error.message : String(error) };
+  }
+
+  return result;
+}
+
+function buildWireguardReport(
+  server: ServerVerifyResult,
+  deviceResults: DeviceVerifyResult[],
+  deviceIds: string[],
+): { report: string; warnings: string[] } {
+  let report = `## WireGuard Connectivity Report\n\n`;
+  report += `### Server Side\n`;
+  const renderedServerLines = server.serverReportLines.length > 0
+    ? server.serverReportLines
+    : [
+        `- IP Forwarding: ${server.ipForwardOk ? "✅ enabled" : "❌ disabled"}`,
+        `- SNAT/MASQUERADE: ${server.snatOk ? "✅ present" : "❌ missing"}`,
+        ...(server.serverKeyCheck
+          ? server.serverKeyCheck.status === "ok"
+            ? ["- Server key pair: ✅ private/public key match"]
+            : server.serverKeyCheck.status === "mismatch"
+              ? ["- Server key pair: ❌ configured public key does not match the derived public key from server_private.key"]
+              : server.serverKeyCheck.status === "error"
+                ? [`- Server key pair: ❌ check failed (${server.serverKeyCheck.error})`]
+                : []
+          : []),
+      ];
+  report += renderedServerLines.length > 0 ? `${renderedServerLines.join("\n")}\n` : `- Server-side details unavailable\n`;
+  report += `\`\`\`\n${server.serverSummary}\n\`\`\`\n\n`;
+
+  report += `### Router Status (${deviceIds.length} device(s))\n`;
+  for (const r of deviceResults) {
+    if (r.error) {
+      report += `- ${r.deviceId}: ❌ ${r.error}\n`;
+    } else {
+      const handshake = r.handshakeAge ?? "unknown";
+      const traffic = `rx=${r.rxBytes ?? 0} tx=${r.txBytes ?? 0}`;
+      const tunnel = r.tunnelIp ? ` tunnel=${r.tunnelIp}` : "";
+      const keyStatus = r.keyCheck?.status === "ok" ? " key=✅"
+        : r.keyCheck?.status === "mismatch" ? ` key=❌ ${r.keyCheck.reason ?? "mismatch"}`
+        : r.keyCheck?.status === "error" ? ` key=❌ ${r.keyCheck.reason ?? "check failed"}`
+        : r.keyCheck?.status === "skipped" ? ` key=⚠️ ${r.keyCheck.reason ?? "skipped"}`
+        : "";
+      report += `- ${r.deviceId}:${tunnel} handshake=${handshake} ${traffic}${keyStatus}\n`;
+    }
+  }
+
+  const warnings: string[] = [];
+  if (!server.ipForwardOk) warnings.push("IP forwarding disabled on server");
+  if (!server.snatOk) warnings.push("SNAT/MASQUERADE rule missing on server");
+  if (server.serverKeyCheck?.status === "mismatch") warnings.push("server private/public key pair mismatch");
+  else if (server.serverKeyCheck?.status === "error") warnings.push(`server key pair check failed: ${server.serverKeyCheck.error}`);
+  for (const r of deviceResults) {
+    if (r.error) warnings.push(`${r.deviceId}: ${r.error}`);
+    if (r.keyCheck?.status === "mismatch") warnings.push(`${r.deviceId}: ${r.keyCheck.reason ?? "WireGuard key mismatch detected"}`);
+    else if (r.keyCheck?.status === "error") warnings.push(`${r.deviceId}: key check failed: ${r.keyCheck.reason}`);
+  }
+
+  return { report, warnings };
+}
+
+// ============================================================================
 // Exported factory
 // ============================================================================
 
@@ -425,7 +670,6 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           pingTargets?: string[];
           timeoutMs?: number;
         };
-        const { execFileSync } = await import("node:child_process");
 
         // Resolve device list
         const deviceIds =
@@ -437,292 +681,20 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           throw new Error("No online devices found. Ensure routers are connected to OpenClaw.");
         }
 
-        // Server-side checks (once)
-        let serverSummary = "unavailable";
-        let snatOk = false;
-        let ipForwardOk = false;
-        let serverConfiguredPublicKey: string | undefined;
-        let serverKeyCheck:
-          | {
-            status: "ok" | "mismatch" | "error" | "skipped";
-            configuredPublicKey?: string;
-            derivedPublicKey?: string;
-            error?: string;
-          }
-          | undefined;
-        let serverPeerConfig: Array<{ publicKey: string | undefined; allowedIps: string[] }> = [];
-        let serverReportLines: string[] = [];
-        let pingResults: Array<{
-          target: string;
-          reachable: boolean;
-          output: string;
-          confidence?: "confirmed" | "inconclusive" | "failed";
-          message?: string;
-        }> = [];
-        try {
-          const verifyResponse = await callChawrtd({
-            path: "/v1/wg/verify",
-            method: "POST",
-            body: {
-              pingTargets: args.pingTargets ?? [],
-            },
-            timeoutMs: args.timeoutMs,
-          });
-          serverSummary = verifyResponse.output?.trim() || verifyResponse.summary || "unavailable";
+        // Server-side verification (single call)
+        const server = await verifyServerSide(args.pingTargets ?? [], args.timeoutMs);
 
-          const verifyData = asObject(verifyResponse.data);
-          const serverData = asObject(verifyData?.server);
-          if (serverData) {
-            if (typeof serverData.wgShow === "string" && serverData.wgShow.trim()) {
-              serverSummary = serverData.wgShow.trim();
-            }
-            if (typeof serverData.snatOk === "boolean") {
-              snatOk = serverData.snatOk;
-            }
-            if (typeof serverData.ipForwardOk === "boolean") {
-              ipForwardOk = serverData.ipForwardOk;
-            }
-            if (typeof serverData.serverPublicKey === "string" && serverData.serverPublicKey.trim()) {
-              serverConfiguredPublicKey = serverData.serverPublicKey.trim();
-            }
-            const keyCheckRaw = asObject(serverData.keyCheck);
-            if (keyCheckRaw) {
-              const status =
-                typeof keyCheckRaw.status === "string" ? keyCheckRaw.status.trim() : "";
-              if (
-                status === "ok" ||
-                status === "mismatch" ||
-                status === "error" ||
-                status === "skipped"
-              ) {
-                serverKeyCheck = {
-                  status,
-                  configuredPublicKey:
-                    typeof keyCheckRaw.configuredPublicKey === "string"
-                      ? keyCheckRaw.configuredPublicKey
-                      : undefined,
-                  derivedPublicKey:
-                    typeof keyCheckRaw.derivedPublicKey === "string"
-                      ? keyCheckRaw.derivedPublicKey
-                      : undefined,
-                  error: typeof keyCheckRaw.error === "string" ? keyCheckRaw.error : undefined,
-                };
-              }
-            }
-            if (Array.isArray(serverData.reportLines)) {
-              serverReportLines = serverData.reportLines.filter(
-                (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
-              );
-            }
-            const peerConfigRaw = serverData.peerConfig;
-            if (Array.isArray(peerConfigRaw)) {
-              serverPeerConfig = peerConfigRaw
-                .map((entry) => {
-                  const peer = asObject(entry);
-                  if (!peer) {
-                    return null;
-                  }
-                  const publicKey =
-                    typeof peer.publicKey === "string" && peer.publicKey.trim()
-                      ? peer.publicKey.trim()
-                      : undefined;
-                  const allowedIps = Array.isArray(peer.allowedIps)
-                    ? peer.allowedIps
-                      .filter((candidate): candidate is string => typeof candidate === "string")
-                      .map((candidate) => candidate.trim())
-                      .filter(Boolean)
-                    : [];
-                  return { publicKey, allowedIps };
-                })
-                .filter(
-                  (
-                    entry,
-                  ): entry is {
-                    publicKey: string | undefined;
-                    allowedIps: string[];
-                  } => entry !== null && entry.allowedIps.length > 0,
-                );
-            }
-          }
-
-          pingResults = Array.isArray(verifyData?.pingResults)
-            ? verifyData.pingResults
-              .map((entry) => {
-                const row = asObject(entry);
-                if (!row) {
-                  return null;
-                }
-                const target = typeof row.target === "string" ? row.target : "";
-                const reachable = typeof row.reachable === "boolean" ? row.reachable : false;
-                const output = typeof row.output === "string" ? row.output : "";
-                const confidenceRaw = typeof row.confidence === "string" ? row.confidence : "";
-                const confidence: "confirmed" | "inconclusive" | "failed" | undefined =
-                  confidenceRaw === "confirmed" ||
-                  confidenceRaw === "inconclusive" ||
-                  confidenceRaw === "failed"
-                    ? confidenceRaw
-                    : undefined;
-                const message = typeof row.message === "string" ? row.message : undefined;
-                if (!target) {
-                  return null;
-                }
-
-                const parsed: {
-                  target: string;
-                  reachable: boolean;
-                  output: string;
-                  confidence?: "confirmed" | "inconclusive" | "failed";
-                  message?: string;
-                } = { target, reachable, output };
-                if (confidence) {
-                  parsed.confidence = confidence;
-                }
-                if (message) {
-                  parsed.message = message;
-                }
-                return parsed;
-              })
-              .filter(
-                (
-                  entry,
-                ): entry is {
-                  target: string;
-                  reachable: boolean;
-                  output: string;
-                  confidence?: "confirmed" | "inconclusive" | "failed";
-                  message?: string;
-                } =>
-                Boolean(entry),
-              )
-            : [];
-        } catch (error) {
-          serverSummary =
-            `Server probe error via chawrtd: ${error instanceof Error ? error.message : String(error)}`;
-          serverKeyCheck = {
-            status: "error",
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
-
-        // Per-device router-side checks
-        const deviceResults: Array<{
-          deviceId: string;
-          handshakeAge?: string;
-          rxBytes?: number;
-          txBytes?: number;
-          tunnelIp?: string;
-          keyCheck?: {
-            status: "ok" | "mismatch" | "error" | "skipped";
-            reason?: string;
-            derivedClientPublicKey?: string;
-            configuredServerPeerPublicKey?: string;
-            configuredRouterPeerPublicKey?: string;
-            actualServerPublicKey?: string;
-          };
-          error?: string;
-        }> = [];
+        // Per-device router-side verification (sequential to avoid overloading devices)
+        const deviceResults: DeviceVerifyResult[] = [];
         for (const deviceId of deviceIds) {
           try {
-            const status = await callDeviceOp({
+            const result = await verifyDeviceRouterSide(
               deviceId,
-              op: "get_wireguard_vpn_status",
-              timeoutMs: args.timeoutMs,
-            });
-            const peer = (status as JsonRecord)?.peers as JsonRecord[] | undefined;
-            const first = Array.isArray(peer) ? peer[0] : undefined;
-            const runtimeResult: {
-              deviceId: string;
-              handshakeAge?: string;
-              rxBytes?: number;
-              txBytes?: number;
-              tunnelIp?: string;
-              keyCheck?: {
-                status: "ok" | "mismatch" | "error" | "skipped";
-                reason?: string;
-                derivedClientPublicKey?: string;
-                configuredServerPeerPublicKey?: string;
-                configuredRouterPeerPublicKey?: string;
-                actualServerPublicKey?: string;
-              };
-              error?: string;
-            } = {
-              deviceId,
-              handshakeAge: (first as JsonRecord | undefined)?.last_handshake_time as
-                | string
-                | undefined,
-              rxBytes: (first as JsonRecord | undefined)?.receive_bytes as number | undefined,
-              txBytes: (first as JsonRecord | undefined)?.transmit_bytes as number | undefined,
-            };
-
-            try {
-              const configResponse = await callDeviceOp({
-                deviceId,
-                op: "get_wireguard_vpn",
-                timeoutMs: args.timeoutMs,
-              });
-              const snapshot = extractWireguardConfigSnapshot(asObject(configResponse) ?? {});
-              const tunnelIp = snapshot.addresses
-                .map((entry) => entry.split("/")[0]?.trim())
-                .find((entry): entry is string => Boolean(entry && isIPv4(entry)));
-              runtimeResult.tunnelIp = tunnelIp;
-
-              if (!snapshot.privateKey) {
-                runtimeResult.keyCheck = {
-                  status: "skipped",
-                  reason: "router private key unavailable in get_wireguard_vpn response",
-                };
-              } else {
-                const derivedClientPublicKey = deriveWireGuardPublicKeyFromPrivateKey(
-                  snapshot.privateKey,
-                  execFileSync,
-                );
-                const configuredServerPeerPublicKey = tunnelIp
-                  ? findServerPeerPublicKeyForTunnelIp(serverPeerConfig, tunnelIp)
-                  : undefined;
-                const configuredRouterPeerPublicKey = snapshot.peerPublicKey;
-                const mismatchReasons: string[] = [];
-
-                if (configuredServerPeerPublicKey && configuredServerPeerPublicKey !== derivedClientPublicKey) {
-                  mismatchReasons.push(
-                    "server peer public key does not match the router private key derived public key",
-                  );
-                }
-                if (
-                  serverConfiguredPublicKey &&
-                  configuredRouterPeerPublicKey &&
-                  configuredRouterPeerPublicKey !== serverConfiguredPublicKey
-                ) {
-                  mismatchReasons.push(
-                    "router configured server public key does not match the VPS actual server public key",
-                  );
-                }
-
-                runtimeResult.keyCheck =
-                  mismatchReasons.length === 0
-                    ? {
-                      status: "ok",
-                      derivedClientPublicKey,
-                      configuredServerPeerPublicKey,
-                      configuredRouterPeerPublicKey,
-                      actualServerPublicKey: serverConfiguredPublicKey,
-                    }
-                    : {
-                      status: "mismatch",
-                      reason: mismatchReasons.join("; "),
-                      derivedClientPublicKey,
-                      configuredServerPeerPublicKey,
-                      configuredRouterPeerPublicKey,
-                      actualServerPublicKey: serverConfiguredPublicKey,
-                    };
-              }
-            } catch (error) {
-              runtimeResult.keyCheck = {
-                status: "error",
-                reason: error instanceof Error ? error.message : String(error),
-              };
-            }
-
-            deviceResults.push(runtimeResult);
+              server.serverPeerConfig,
+              server.serverConfiguredPublicKey,
+              args.timeoutMs,
+            );
+            deviceResults.push(result);
           } catch (error) {
             deviceResults.push({
               deviceId,
@@ -731,61 +703,14 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           }
         }
 
-        // Build report
-        let report = `## WireGuard Connectivity Report\n\n`;
-        report += `### Server Side\n`;
-        const renderedServerLines =
-          serverReportLines.length > 0
-            ? serverReportLines
-            : [
-              `- IP Forwarding: ${ipForwardOk ? "✅ enabled" : "❌ disabled"}`,
-              `- SNAT/MASQUERADE: ${snatOk ? "✅ present" : "❌ missing"}`,
-              ...(serverKeyCheck
-                ? serverKeyCheck.status === "ok"
-                  ? ["- Server key pair: ✅ private/public key match"]
-                  : serverKeyCheck.status === "mismatch"
-                    ? [
-                      "- Server key pair: ❌ configured public key does not match the derived public key from server_private.key",
-                    ]
-                    : serverKeyCheck.status === "error"
-                      ? [
-                        `- Server key pair: ❌ check failed (${serverKeyCheck.error})`,
-                      ]
-                      : []
-                : []),
-            ];
-        if (renderedServerLines.length > 0) {
-          report += `${renderedServerLines.join("\n")}\n`;
-        } else {
-          report += `- Server-side details unavailable\n`;
-        }
-        report += `\`\`\`\n${serverSummary}\n\`\`\`\n\n`;
+        // Build consolidated report
+        const { report, warnings } = buildWireguardReport(server, deviceResults, deviceIds);
 
-        report += `### Router Status (${deviceIds.length} device(s))\n`;
-        for (const r of deviceResults) {
-          if (r.error) {
-            report += `- ${r.deviceId}: ❌ ${r.error}\n`;
-          } else {
-            const handshake = r.handshakeAge ?? "unknown";
-            const traffic = `rx=${r.rxBytes ?? 0} tx=${r.txBytes ?? 0}`;
-            const tunnel = r.tunnelIp ? ` tunnel=${r.tunnelIp}` : "";
-            const keyStatus =
-              r.keyCheck?.status === "ok"
-                ? " key=✅"
-                : r.keyCheck?.status === "mismatch"
-                  ? ` key=❌ ${r.keyCheck.reason ?? "mismatch"}`
-                  : r.keyCheck?.status === "error"
-                    ? ` key=❌ ${r.keyCheck.reason ?? "check failed"}`
-                    : r.keyCheck?.status === "skipped"
-                      ? ` key=⚠️ ${r.keyCheck.reason ?? "skipped"}`
-                      : "";
-            report += `- ${r.deviceId}:${tunnel} handshake=${handshake} ${traffic}${keyStatus}\n`;
-          }
-        }
-
-        if (pingResults.length > 0) {
-          report += `\n### Ping Tests\n`;
-          for (const p of pingResults) {
+        // Append ping test section
+        let fullReport = report;
+        if (server.pingResults.length > 0) {
+          fullReport += `\n### Ping Tests\n`;
+          for (const p of server.pingResults) {
             const pingState =
               p.reachable || p.confidence === "confirmed"
                 ? "✅ reachable"
@@ -793,41 +718,24 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
                   ? "⚠️ inconclusive"
                   : "❌ unreachable";
             const pingDetail = p.message ?? p.output.split("\n").at(-2) ?? p.output;
-            report += `- ${p.target}: ${pingState} — ${pingDetail}\n`;
+            fullReport += `- ${p.target}: ${pingState} — ${pingDetail}\n`;
           }
         }
-
-        const warnings: string[] = [];
-        if (!ipForwardOk) warnings.push("IP forwarding disabled on server");
-        if (!snatOk) warnings.push("SNAT/MASQUERADE rule missing on server");
-        if (serverKeyCheck?.status === "mismatch") {
-          warnings.push("server private/public key pair mismatch");
-        } else if (serverKeyCheck?.status === "error") {
-          warnings.push(`server key pair check failed: ${serverKeyCheck.error}`);
-        }
-        for (const r of deviceResults) {
-          if (r.error) warnings.push(`${r.deviceId}: ${r.error}`);
-          if (r.keyCheck?.status === "mismatch") {
-            warnings.push(`${r.deviceId}: ${r.keyCheck.reason ?? "WireGuard key mismatch detected"}`);
-          } else if (r.keyCheck?.status === "error") {
-            warnings.push(`${r.deviceId}: key check failed: ${r.keyCheck.reason}`);
-          }
-        }
-        for (const p of pingResults) {
+        for (const p of server.pingResults) {
           if (!p.reachable && p.confidence !== "inconclusive") {
             warnings.push(`ping ${p.target}: unreachable`);
           }
         }
 
-        return buildToolResult(report, {
+        return buildToolResult(fullReport, {
           server: {
-            snatOk,
-            ipForwardOk,
-            wgShow: serverSummary,
-            keyCheck: serverKeyCheck,
+            snatOk: server.snatOk,
+            ipForwardOk: server.ipForwardOk,
+            wgShow: server.serverSummary,
+            keyCheck: server.serverKeyCheck,
           },
           devices: deviceResults,
-          pingResults,
+          pingResults: server.pingResults,
           warnings,
         });
       },

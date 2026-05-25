@@ -13,6 +13,7 @@ import type {
   DeployWgServerPeerParams,
   ResetWgServerParams,
 } from "../tool-types.js";
+import { parseIPv4Cidr } from "../tool-validators.js";
 import {
   callChawrtd,
   callDeviceOp,
@@ -308,9 +309,10 @@ export function createFrpsTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         };
         const port = args.port || 51820;
         const tunnelIp = args.tunnelIp || "10.0.0.1/24";
-        if (!/^[\w.:/,\- ]+$/.test(tunnelIp)) {
+        const parsedTunnel = parseIPv4Cidr(tunnelIp);
+        if (!parsedTunnel) {
           return buildToolResult(
-            "Invalid tunnelIp format. Only alphanumeric and basic network punctuation allowed.",
+            `Invalid tunnelIp CIDR format: ${tunnelIp}. Expected format like 10.0.0.1/24.`,
             { status: "error" },
           );
         }

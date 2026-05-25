@@ -29,6 +29,24 @@ import {
 
 const DEFAULT_CHAWRTD_BASE_URL = "http://127.0.0.1:8001";
 
+/**
+ * Redact sensitive fields (keys, tokens, passwords) from a payload object for safe logging.
+ * Returns a shallow copy with sensitive values replaced by "[REDACTED]".
+ */
+function redactSensitiveFields(payload?: JsonRecord): JsonRecord | undefined {
+  if (!payload) return undefined;
+  const SENSITIVE_KEYS = /key|token|password|secret|private/i;
+  const redacted: JsonRecord = {};
+  for (const [k, v] of Object.entries(payload)) {
+    if (typeof v === "string" && SENSITIVE_KEYS.test(k)) {
+      redacted[k] = "[REDACTED]";
+    } else {
+      redacted[k] = v;
+    }
+  }
+  return redacted;
+}
+
 export class ChawrtdClient {
   private readonly baseUrl: string;
   private readonly logger?: Logger;
@@ -130,7 +148,7 @@ export class ChawrtdClient {
         .map((entry) => parseChawrtdDeviceSnapshot(entry))
         .filter((entry): entry is DeviceSnapshot => entry !== null);
     } catch (error) {
-      console.error("Failed to get devices list from chawrtd:", error);
+      this.logger?.warn?.(`Failed to get devices list from chawrtd: ${String(error)}`);
       return [];
     }
   }
@@ -146,7 +164,7 @@ export class ChawrtdClient {
       const response = await this.call({ path: `/v1/device/${deviceId}`, method: "GET" });
       return parseChawrtdDeviceSnapshot(response.data ?? response);
     } catch (error) {
-      console.error(`Failed to get device ${deviceId} from chawrtd:`, error);
+      this.logger?.warn?.(`Failed to get device ${deviceId} from chawrtd: ${String(error)}`);
       return null;
     }
   }
@@ -169,7 +187,7 @@ export class ChawrtdClient {
     expectResponse?: boolean;
   }): Promise<JsonRecord> {
     this.logger?.info?.(
-      `openclaw-wrt: tool invoked name=callDeviceOp rawParams=${JSON.stringify({ deviceId: params.deviceId, op: params.op, payload: params.payload })}`,
+      `openclaw-wrt: tool invoked name=callDeviceOp rawParams=${JSON.stringify({ deviceId: params.deviceId, op: params.op, payload: redactSensitiveFields(params.payload) })}`,
     );
 
     const bridge = this.bridge as
@@ -275,7 +293,7 @@ export class ChawrtdClient {
       if (typeof publicIp === "string" && publicIp.trim()) return publicIp.trim();
       return null;
     } catch (error) {
-      console.warn("Failed to get VPS public IP from chawrtd:", error);
+      this.logger?.warn?.(`Failed to get VPS public IP from chawrtd: ${String(error)}`);
       return null;
     }
   }
@@ -377,25 +395,28 @@ export class ChawrtdClient {
 
     const devices: Array<{ deviceId: string; deviceName?: string; lanCidr?: string; error?: string }> = [];
 
-    for (const deviceId of deviceIds) {
-      try {
-        const result = await this.callDeviceOp({ deviceId, op: "get_br_lan", timeoutMs: params.timeoutMs });
-        const cidr = (result as JsonRecord)?.cidr;
-        const parsed = typeof cidr === "string" ? parseIPv4Cidr(cidr) : null;
-        devices.push({
-          deviceId,
-          deviceName: getSnapshotDisplayName(onlineDevices.get(deviceId)),
-          lanCidr: parsed?.normalized,
-          error: parsed ? undefined : `missing_or_invalid_cidr: ${typeof cidr === "string" ? cidr : "(none)"}`,
-        });
-      } catch (error) {
-        devices.push({
-          deviceId,
-          deviceName: getSnapshotDisplayName(onlineDevices.get(deviceId)),
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
+    const deviceResults = await Promise.all(
+      deviceIds.map(async (deviceId) => {
+        try {
+          const result = await this.callDeviceOp({ deviceId, op: "get_br_lan", timeoutMs: params.timeoutMs });
+          const cidr = (result as JsonRecord)?.cidr;
+          const parsed = typeof cidr === "string" ? parseIPv4Cidr(cidr) : null;
+          return {
+            deviceId,
+            deviceName: getSnapshotDisplayName(onlineDevices.get(deviceId)),
+            lanCidr: parsed?.normalized,
+            error: parsed ? undefined : `missing_or_invalid_cidr: ${typeof cidr === "string" ? cidr : "(none)"}`,
+          };
+        } catch (error) {
+          return {
+            deviceId,
+            deviceName: getSnapshotDisplayName(onlineDevices.get(deviceId)),
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }),
+    );
+    devices.push(...deviceResults);
 
     const validDevices = devices.filter(
       (e): e is typeof e & { lanCidr: string } => typeof e.lanCidr === "string" && !e.error,
