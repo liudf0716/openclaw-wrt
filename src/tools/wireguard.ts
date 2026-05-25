@@ -23,9 +23,8 @@ import {
 import {
   callDeviceOp,
   callChawrtd,
+  getDefaultChawrtdClient,
   getDevicesListViaChawrtd,
-  collectWireguardProtectedRoutePlans,
-  readWireguardProtectedRoutePlanFile,
 } from "../chawrtd-client.js";
 import { createSimpleOperationTool, buildToolResult, logToolInvocation, type ToolFactoryDeps } from "./_factory.js";
 import {
@@ -44,6 +43,129 @@ const WIREGUARD_PROTECTED_ROUTE_PLAN_FILE = path.join(
   os.tmpdir(),
   "openclaw-wrt-wireguard-protected-routes.json",
 );
+
+// ============================================================================
+// Route plan file operations (extracted from ChawrtdClient)
+// ============================================================================
+
+function getProtectedRoutePlanFile(): string {
+  return WIREGUARD_PROTECTED_ROUTE_PLAN_FILE;
+}
+
+async function readWireguardProtectedRoutePlanFile(routePlanFile?: string): Promise<JsonRecord | null> {
+  const file = routePlanFile ?? getProtectedRoutePlanFile();
+  try {
+    const raw = await fs.readFile(file, "utf8");
+    const parsed = JSON.parse(raw) as JsonRecord;
+    if (parsed?.version !== 1 || !Array.isArray(parsed.routePlans)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function collectWireguardProtectedRoutePlans(params: {
+  deviceIds: string[];
+  serverTunnelIp: string;
+  timeoutMs?: number;
+}): Promise<JsonRecord> {
+  const { cidrOverlaps } = await import("../tool-validators.js");
+  const { getSnapshotDisplayName } = await import("../tool-parsers.js");
+  const client = getDefaultChawrtdClient();
+
+  const deviceIds = [...new Set(params.deviceIds.map((id) => id.trim()).filter(Boolean))];
+  if (deviceIds.length === 0) throw new Error("At least one deviceId is required.");
+
+  const serverTunnel = parseIPv4Cidr(params.serverTunnelIp.trim());
+  if (!serverTunnel) throw new Error(`Invalid serverTunnelIp CIDR: ${params.serverTunnelIp}`);
+
+  const onlineDevices = new Map(
+    (await client.listDevices()).map((entry) => [entry.deviceId.trim(), entry] as const),
+  );
+
+  const devices: Array<{ deviceId: string; deviceName?: string; lanCidr?: string; error?: string }> = [];
+
+  const deviceResults = await Promise.all(
+    deviceIds.map(async (deviceId) => {
+      try {
+        const result = await client.callDeviceOp({ deviceId, op: "get_br_lan", timeoutMs: params.timeoutMs });
+        const cidr = (result as JsonRecord)?.cidr;
+        const parsed = typeof cidr === "string" ? parseIPv4Cidr(cidr) : null;
+        return {
+          deviceId,
+          deviceName: getSnapshotDisplayName(onlineDevices.get(deviceId)),
+          lanCidr: parsed?.normalized,
+          error: parsed ? undefined : `missing_or_invalid_cidr: ${typeof cidr === "string" ? cidr : "(none)"}`,
+        };
+      } catch (error) {
+        return {
+          deviceId,
+          deviceName: getSnapshotDisplayName(onlineDevices.get(deviceId)),
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }),
+  );
+  devices.push(...deviceResults);
+
+  const validDevices = devices.filter(
+    (e): e is typeof e & { lanCidr: string } => typeof e.lanCidr === "string" && !e.error,
+  );
+
+  const conflicts: Array<{ leftDeviceId: string; leftLanCidr: string; rightDeviceId: string; rightLanCidr: string }> = [];
+  const blockedDeviceIds = new Set<string>();
+
+  for (let i = 0; i < validDevices.length; i++) {
+    for (let j = i + 1; j < validDevices.length; j++) {
+      const left = validDevices[i]!;
+      const right = validDevices[j]!;
+      const parsedLeft = parseIPv4Cidr(left.lanCidr);
+      const parsedRight = parseIPv4Cidr(right.lanCidr);
+      if (!parsedLeft || !parsedRight || !cidrOverlaps(parsedLeft, parsedRight)) continue;
+      conflicts.push({
+        leftDeviceId: left.deviceId, leftLanCidr: left.lanCidr,
+        rightDeviceId: right.deviceId, rightLanCidr: right.lanCidr,
+      });
+      blockedDeviceIds.add(left.deviceId);
+      blockedDeviceIds.add(right.deviceId);
+    }
+  }
+
+  const routePlans = conflicts.length > 0
+    ? []
+    : validDevices.map((entry) => {
+        const routes: string[] = [];
+        const seenRoutes = new Set<string>();
+        const pushRoute = (route: string) => {
+          const normalized = route.trim();
+          if (!normalized || seenRoutes.has(normalized)) return;
+          seenRoutes.add(normalized);
+          routes.push(normalized);
+        };
+        pushRoute(serverTunnel.normalized);
+        for (const candidate of validDevices) {
+          if (candidate.deviceId === entry.deviceId) continue;
+          pushRoute(candidate.lanCidr);
+        }
+        return { deviceId: entry.deviceId, deviceName: entry.deviceName, lanCidr: entry.lanCidr, routes };
+      });
+
+  const failedDevices = devices.filter((e) => e.error);
+
+  return {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    serverTunnelIp: params.serverTunnelIp.trim(),
+    serverTunnelCidr: serverTunnel.normalized,
+    deviceIds,
+    devices,
+    failedDevices,
+    conflicts,
+    blockedDeviceIds: [...blockedDeviceIds],
+    hasConflict: conflicts.length > 0,
+    routePlans,
+  };
+}
 
 // ============================================================================
 // Internal helpers

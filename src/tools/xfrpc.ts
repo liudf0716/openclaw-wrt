@@ -14,7 +14,6 @@ import type {
 import {
   callChawrtd,
   callDeviceOp,
-  restartXfrpcService,
 } from "../chawrtd-client.js";
 import { createSimpleOperationTool, buildToolResult, logToolInvocation, type ToolFactoryDeps } from "./_factory.js";
 import {
@@ -34,6 +33,10 @@ import {
 // ============================================================================
 // Internal helpers
 // ============================================================================
+
+async function restartXfrpcService(params: { deviceId: string; timeoutMs?: number }): Promise<JsonRecord> {
+  return callDeviceOp({ deviceId: params.deviceId, op: "restart_xfrpc", timeoutMs: params.timeoutMs });
+}
 
 async function resolveXfrpcCommonSettings(params: { timeoutMs?: number }): Promise<{
   serverAddr: string;

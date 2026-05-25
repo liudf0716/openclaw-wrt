@@ -15,7 +15,7 @@ import type {
 import {
   callDeviceOp,
   ensureDevice,
-  lookupClientByMac,
+  getDefaultChawrtdClient,
 } from "../chawrtd-client.js";
 import {
   normalizeMac,
@@ -24,6 +24,31 @@ import {
   getClientsFromResponse,
 } from "../tool-parsers.js";
 import { createSimpleOperationTool, type ToolFactoryDeps } from "./_factory.js";
+
+// ============================================================================
+// Client lookup (extracted from ChawrtdClient)
+// ============================================================================
+
+async function lookupClientByMac(params: {
+  deviceId: string;
+  clientMac: string;
+  timeoutMs?: number;
+}): Promise<JsonRecord | null> {
+  const client = getDefaultChawrtdClient();
+  const response = await client.callDeviceOp({
+    deviceId: params.deviceId,
+    op: "get_clients",
+    timeoutMs: params.timeoutMs,
+  });
+  const clients = getClientsFromResponse(response);
+  const normalized = normalizeMac(params.clientMac);
+  const found = clients.find((entry: unknown) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const mac = (entry as JsonRecord).mac;
+    return typeof mac === "string" && normalizeMac(mac) === normalized;
+  });
+  return found && typeof found === "object" && !Array.isArray(found) ? (found as JsonRecord) : null;
+}
 
 export function createClientTools(deps: ToolFactoryDeps): AnyAgentTool[] {
   return [

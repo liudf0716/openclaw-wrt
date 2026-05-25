@@ -1,15 +1,14 @@
 /**
- * ChawrtdClient: Encapsulates HTTP communication with the chawrtd gateway
- * and device operations.
+ * ChawrtdClient: HTTP communication layer for the chawrtd gateway.
  *
- * The class holds all stateful HTTP/device logic. Module-level wrapper
- * functions at the bottom delegate to a default singleton for backward
- * compatibility with tool files that import named functions directly.
+ * Handles device discovery, device operations, and HTTP transport.
+ * Business logic (portal publishing, client lookup, WireGuard route plans)
+ * lives in domain-specific tool files that use this client.
+ *
+ * A module-level singleton with backward-compatible wrapper functions
+ * is provided for tool files that import named functions directly.
  */
 
-import { promises as fs } from "node:fs";
-import path from "node:path";
-import os from "node:os";
 import type { ResolvedClawWRTConfig } from "./config.js";
 import type {
   JsonRecord,
@@ -20,11 +19,7 @@ import type {
 } from "./tool-types.js";
 import {
   asObject,
-  getSnapshotDisplayName,
   parseChawrtdDeviceSnapshot,
-  buildToolResult,
-  resolvePortalWebRoot,
-  buildPortalPageName,
 } from "./tool-parsers.js";
 
 const DEFAULT_CHAWRTD_BASE_URL = "http://127.0.0.1:8001";
@@ -64,6 +59,14 @@ export class ChawrtdClient {
     this.baseUrl = (
       opts.config?.chawrtdEventStream?.baseUrl ?? DEFAULT_CHAWRTD_BASE_URL
     ).replace(/\/+$/, "");
+  }
+
+  // ==========================================================================
+  // Accessors
+  // ==========================================================================
+
+  hasBridge(): boolean {
+    return Boolean(this.bridge);
   }
 
   // ==========================================================================
@@ -273,209 +276,10 @@ export class ChawrtdClient {
     return response.data ?? response;
   }
 
-  async restartXfrpcService(deviceId: string, timeoutMs?: number): Promise<JsonRecord> {
-    return this.callDeviceOp({ deviceId, op: "restart_xfrpc", timeoutMs });
-  }
-
-  // ==========================================================================
-  // Portal Page Operations
-  // ==========================================================================
-
-  async getVpsPublicIp(timeoutMs?: number): Promise<string | null> {
-    try {
-      const response = await this.call({
-        path: "/v1/vps/public-ip",
-        method: "GET",
-        timeoutMs: timeoutMs ?? 10_000,
-      });
-      const dataObj = asObject(response.data);
-      const publicIp = dataObj?.publicIp;
-      if (typeof publicIp === "string" && publicIp.trim()) return publicIp.trim();
-      return null;
-    } catch (error) {
-      this.logger?.warn?.(`Failed to get VPS public IP from chawrtd: ${String(error)}`);
-      return null;
-    }
-  }
-
-  async publishPortalPage(params: {
-    deviceId: string;
-    html: string;
-    pageName?: string;
-    webRoot?: string;
-    timeoutMs?: number;
-  }): Promise<{ pageName: string; root: string; filePath: string; response: JsonRecord }> {
-    const pageName = buildPortalPageName(params.deviceId, params.pageName);
-    const root = await resolvePortalWebRoot(params.webRoot);
-    const filePath = path.join(root, pageName);
-    const html = params.html.trim();
-    if (!html) throw new Error("publishPortalPage requires non-empty html");
-
-    await fs.writeFile(filePath, html, "utf8");
-
-    const shouldFetchPublicIp = !this.bridge && this.config;
-    let portalUrl = pageName;
-    if (shouldFetchPublicIp) {
-      const publicIp = await this.getVpsPublicIp(params.timeoutMs);
-      if (publicIp) portalUrl = `http://${publicIp}/${pageName}`;
-    }
-
-    const response = await this.callDeviceOp({
-      deviceId: params.deviceId,
-      op: "set_local_portal",
-      payload: { portal: portalUrl },
-      timeoutMs: params.timeoutMs,
-      expectResponse: true,
-    });
-
-    return { pageName, root, filePath, response };
-  }
-
   // ==========================================================================
   // Client Operations
   // ==========================================================================
 
-  async lookupClientByMac(params: {
-    deviceId: string;
-    clientMac: string;
-    timeoutMs?: number;
-  }): Promise<JsonRecord | null> {
-    const { getClientsFromResponse, normalizeMac } = await import("./tool-parsers.js");
-    const response = await this.callDeviceOp({
-      deviceId: params.deviceId,
-      op: "get_clients",
-      timeoutMs: params.timeoutMs,
-    });
-    const clients = getClientsFromResponse(response);
-    const normalized = normalizeMac(params.clientMac);
-    const found = clients.find((entry: unknown) => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
-      const mac = (entry as JsonRecord).mac;
-      return typeof mac === "string" && normalizeMac(mac) === normalized;
-    });
-    return found && typeof found === "object" && !Array.isArray(found) ? (found as JsonRecord) : null;
-  }
-
-  // ==========================================================================
-  // WireGuard Operations
-  // ==========================================================================
-
-  static getProtectedRoutePlanFile(): string {
-    return path.join(os.tmpdir(), "openclaw-wrt-wireguard-protected-routes.json");
-  }
-
-  async readProtectedRoutePlanFile(routePlanFile?: string): Promise<JsonRecord | null> {
-    const file = routePlanFile ?? ChawrtdClient.getProtectedRoutePlanFile();
-    try {
-      const raw = await fs.readFile(file, "utf8");
-      const parsed = JSON.parse(raw) as JsonRecord;
-      if (parsed?.version !== 1 || !Array.isArray(parsed.routePlans)) return null;
-      return parsed;
-    } catch {
-      return null;
-    }
-  }
-
-  async collectProtectedRoutePlans(params: {
-    deviceIds: string[];
-    serverTunnelIp: string;
-    timeoutMs?: number;
-  }): Promise<JsonRecord> {
-    const { parseIPv4Cidr, cidrOverlaps } = await import("./tool-validators.js");
-
-    const deviceIds = [...new Set(params.deviceIds.map((id) => id.trim()).filter(Boolean))];
-    if (deviceIds.length === 0) throw new Error("At least one deviceId is required.");
-
-    const serverTunnel = parseIPv4Cidr(params.serverTunnelIp.trim());
-    if (!serverTunnel) throw new Error(`Invalid serverTunnelIp CIDR: ${params.serverTunnelIp}`);
-
-    const onlineDevices = new Map(
-      (await this.listDevices()).map((entry) => [entry.deviceId.trim(), entry] as const),
-    );
-
-    const devices: Array<{ deviceId: string; deviceName?: string; lanCidr?: string; error?: string }> = [];
-
-    const deviceResults = await Promise.all(
-      deviceIds.map(async (deviceId) => {
-        try {
-          const result = await this.callDeviceOp({ deviceId, op: "get_br_lan", timeoutMs: params.timeoutMs });
-          const cidr = (result as JsonRecord)?.cidr;
-          const parsed = typeof cidr === "string" ? parseIPv4Cidr(cidr) : null;
-          return {
-            deviceId,
-            deviceName: getSnapshotDisplayName(onlineDevices.get(deviceId)),
-            lanCidr: parsed?.normalized,
-            error: parsed ? undefined : `missing_or_invalid_cidr: ${typeof cidr === "string" ? cidr : "(none)"}`,
-          };
-        } catch (error) {
-          return {
-            deviceId,
-            deviceName: getSnapshotDisplayName(onlineDevices.get(deviceId)),
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
-      }),
-    );
-    devices.push(...deviceResults);
-
-    const validDevices = devices.filter(
-      (e): e is typeof e & { lanCidr: string } => typeof e.lanCidr === "string" && !e.error,
-    );
-
-    const conflicts: Array<{ leftDeviceId: string; leftLanCidr: string; rightDeviceId: string; rightLanCidr: string }> = [];
-    const blockedDeviceIds = new Set<string>();
-
-    for (let i = 0; i < validDevices.length; i++) {
-      for (let j = i + 1; j < validDevices.length; j++) {
-        const left = validDevices[i]!;
-        const right = validDevices[j]!;
-        const parsedLeft = parseIPv4Cidr(left.lanCidr);
-        const parsedRight = parseIPv4Cidr(right.lanCidr);
-        if (!parsedLeft || !parsedRight || !cidrOverlaps(parsedLeft, parsedRight)) continue;
-        conflicts.push({
-          leftDeviceId: left.deviceId, leftLanCidr: left.lanCidr,
-          rightDeviceId: right.deviceId, rightLanCidr: right.lanCidr,
-        });
-        blockedDeviceIds.add(left.deviceId);
-        blockedDeviceIds.add(right.deviceId);
-      }
-    }
-
-    const routePlans = conflicts.length > 0
-      ? []
-      : validDevices.map((entry) => {
-          const routes: string[] = [];
-          const seenRoutes = new Set<string>();
-          const pushRoute = (route: string) => {
-            const normalized = route.trim();
-            if (!normalized || seenRoutes.has(normalized)) return;
-            seenRoutes.add(normalized);
-            routes.push(normalized);
-          };
-          pushRoute(serverTunnel.normalized);
-          for (const candidate of validDevices) {
-            if (candidate.deviceId === entry.deviceId) continue;
-            pushRoute(candidate.lanCidr);
-          }
-          return { deviceId: entry.deviceId, deviceName: entry.deviceName, lanCidr: entry.lanCidr, routes };
-        });
-
-    const failedDevices = devices.filter((e) => e.error);
-
-    return {
-      version: 1,
-      generatedAt: new Date().toISOString(),
-      serverTunnelIp: params.serverTunnelIp.trim(),
-      serverTunnelCidr: serverTunnel.normalized,
-      deviceIds,
-      devices,
-      failedDevices,
-      conflicts,
-      blockedDeviceIds: [...blockedDeviceIds],
-      hasConflict: conflicts.length > 0,
-      routePlans,
-    };
-  }
 }
 
 function getSingleGatewayId(device: DeviceSnapshot): string | undefined {
@@ -601,56 +405,13 @@ async function callDeviceOpViaChawrtd(params: {
   return getDefaultChawrtdClient().callDeviceOpViaChawrtd(params);
 }
 
-export async function restartXfrpcService(params: {
-  deviceId: string;
-  timeoutMs?: number;
-}): Promise<JsonRecord> {
-  return getDefaultChawrtdClient().restartXfrpcService(params.deviceId, params.timeoutMs);
-}
 
-export async function publishPortalPage(params: {
-  deviceId: string;
-  html: string;
-  pageName?: string;
-  webRoot?: string;
-  timeoutMs?: number;
-}): Promise<{ pageName: string; root: string; filePath: string; response: JsonRecord }> {
-  return getDefaultChawrtdClient().publishPortalPage({
-    deviceId: params.deviceId,
-    html: params.html,
-    pageName: params.pageName,
-    webRoot: params.webRoot,
-    timeoutMs: params.timeoutMs,
-  });
-}
 
-export async function lookupClientByMac(params: {
-  deviceId: string;
-  clientMac: string;
-  timeoutMs?: number;
-}): Promise<JsonRecord | null> {
-  return getDefaultChawrtdClient().lookupClientByMac({
-    deviceId: params.deviceId,
-    clientMac: params.clientMac,
-    timeoutMs: params.timeoutMs,
-  });
-}
 
-export async function readWireguardProtectedRoutePlanFile(routePlanFile?: string): Promise<JsonRecord | null> {
-  return getDefaultChawrtdClient().readProtectedRoutePlanFile(routePlanFile);
-}
 
-export async function collectWireguardProtectedRoutePlans(params: {
-  deviceIds: string[];
-  serverTunnelIp: string;
-  timeoutMs?: number;
-}): Promise<JsonRecord> {
-  return getDefaultChawrtdClient().collectProtectedRoutePlans(params);
-}
 
-function getWireguardProtectedRoutesPlanFile(): string {
-  return ChawrtdClient.getProtectedRoutePlanFile();
-}
+
+
 
 function getChawrtdBaseUrl(config?: ResolvedClawWRTConfig): string {
   const base = config?.chawrtdEventStream?.baseUrl ?? "http://127.0.0.1:8001";

@@ -7,16 +7,75 @@ import path from "node:path";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import * as SharedSchemas from "../tool-schemas.js";
 import type {
+  JsonRecord,
   PublishPortalPageParams,
   GeneratePortalPageParams,
 } from "../tool-types.js";
-import { publishPortalPage } from "../chawrtd-client.js";
+import { getDefaultChawrtdClient } from "../chawrtd-client.js";
 import {
+  asObject,
   buildPortalPageName,
   resolvePortalWebRoot,
 } from "../tool-parsers.js";
 import { renderPortalPageHtml } from "../portal-page-renderer.js";
 import { buildToolResult, logToolInvocation, type ToolFactoryDeps } from "./_factory.js";
+
+// ============================================================================
+// Portal page publishing (extracted from ChawrtdClient)
+// ============================================================================
+
+async function getVpsPublicIp(timeoutMs?: number): Promise<string | null> {
+  const client = getDefaultChawrtdClient();
+  try {
+    const response = await client.call({
+      path: "/v1/vps/public-ip",
+      method: "GET",
+      timeoutMs: timeoutMs ?? 10_000,
+    });
+    const dataObj = asObject(response.data);
+    const publicIp = dataObj?.publicIp;
+    if (typeof publicIp === "string" && publicIp.trim()) return publicIp.trim();
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function publishPortalPage(params: {
+  deviceId: string;
+  html: string;
+  pageName?: string;
+  webRoot?: string;
+  timeoutMs?: number;
+}): Promise<{ pageName: string; root: string; filePath: string; response: JsonRecord }> {
+  const client = getDefaultChawrtdClient();
+  const pageName = buildPortalPageName(params.deviceId, params.pageName);
+  const root = await resolvePortalWebRoot(params.webRoot);
+  const filePath = path.join(root, pageName);
+  const html = params.html.trim();
+  if (!html) throw new Error("publishPortalPage requires non-empty html");
+
+  await fs.writeFile(filePath, html, "utf8");
+
+  // When bridge is available, portal URL is just the page name (gateway serves it).
+  // When using chawrtd HTTP API, we need the VPS public IP for the full URL.
+  const shouldFetchPublicIp = !client.hasBridge();
+  let portalUrl = pageName;
+  if (shouldFetchPublicIp) {
+    const publicIp = await getVpsPublicIp(params.timeoutMs);
+    if (publicIp) portalUrl = `http://${publicIp}/${pageName}`;
+  }
+
+  const response = await client.callDeviceOp({
+    deviceId: params.deviceId,
+    op: "set_local_portal",
+    payload: { portal: portalUrl },
+    timeoutMs: params.timeoutMs,
+    expectResponse: true,
+  });
+
+  return { pageName, root, filePath, response };
+}
 
 export function createPortalTools(deps: ToolFactoryDeps): AnyAgentTool[] {
   return [
