@@ -49,7 +49,6 @@
       "clawwrt_get_wifi_info",
       "clawwrt_get_wireguard_vpn_status",
       "clawwrt_get_xfrpc_common",
-      "clawwrt_get_xfrpc_common_config",
       "clawwrt_get_xfrpc_tcp_service",
       "clawwrt_del_xfrpc_tcp_service",
       "clawwrt_disable_xfrpc_tcp_service",

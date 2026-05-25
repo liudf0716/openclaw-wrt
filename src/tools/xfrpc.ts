@@ -69,21 +69,6 @@ async function resolveXfrpcCommonSettings(params: { timeoutMs?: number }): Promi
 export function createXfrpcTools(deps: ToolFactoryDeps): AnyAgentTool[] {
   return [
     // ---------------------------------------------------------------------------
-    // clawwrt_get_xfrpc_common_config — simple op (deprecated: use clawwrt_get_xfrpc_common)
-    // ---------------------------------------------------------------------------
-    createSimpleOperationTool({
-      ...deps,
-      name: "clawwrt_get_xfrpc_common_config",
-      label: "OpenClaw WRT XFRPC Common Config",
-      description: "[Deprecated: use clawwrt_get_xfrpc_common] Get XFRPC common (global) configuration from the router.",
-      op: "get_xfrpc_common_config",
-      summarize: (_response, rawParams) => {
-        const args = rawParams as DeviceOnlyParams;
-        return `Fetched XFRPC common config for ${args.deviceId}.`;
-      },
-    }),
-
-    // ---------------------------------------------------------------------------
     // clawwrt_get_xfrpc_common — simple op
     // ---------------------------------------------------------------------------
     createSimpleOperationTool({

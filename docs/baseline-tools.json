@@ -1374,30 +1374,6 @@
     }
   },
   {
-    "name": "clawwrt_get_xfrpc_common_config",
-    "description": "[Deprecated: use clawwrt_get_xfrpc_common] Get XFRPC common (global) configuration from the router.",
-    "parameters": {
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "deviceId"
-      ],
-      "properties": {
-        "deviceId": {
-          "minLength": 1,
-          "description": "Target openclaw-wrt device_id.",
-          "type": "string"
-        },
-        "timeoutMs": {
-          "minimum": 1000,
-          "maximum": 120000,
-          "description": "Request timeout in milliseconds.",
-          "type": "integer"
-        }
-      }
-    }
-  },
-  {
     "name": "clawwrt_get_xfrpc_tcp_service",
     "description": "Get configuration for a specific XFRPC TCP service by name, or all TCP services if no name is provided.",
     "parameters": {

@@ -21,6 +21,19 @@ function toStringArray(values?: string[]): string[] | undefined {
   return filtered.length > 0 ? filtered : undefined;
 }
 
+/** Shared payload builder for HTTP/HTTPS web service diagnose tools. */
+function buildWebServicePayload(rawParams: unknown): JsonRecord {
+  const args = rawParams as WebServiceDiagnoseParams;
+  const payload: JsonRecord = {};
+  if (typeof args.host === "string") payload.host = args.host.trim();
+  if (typeof args.port === "number") payload.port = args.port;
+  if (typeof args.path === "string") payload.path = args.path.trim();
+  if (typeof args.timeoutSec === "number") payload.timeout_sec = args.timeoutSec;
+  if (typeof args.probeCount === "number") payload.probe_count = args.probeCount;
+  if (typeof args.probeIntervalMs === "number") payload.probe_interval_ms = args.probeIntervalMs;
+  return payload;
+}
+
 function buildResultText(action: string, deviceId: string, response: JsonRecord): string {
   const summary = response.summary as JsonRecord | undefined;
   const metrics =
@@ -126,17 +139,7 @@ export function createDiagnosticsTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         "Run HTTP performance diagnose for the router's apfree-wifidog captive portal authentication service. This measures portal auth endpoint latency (default port 2060), not generic LAN web services.",
       kind: "http",
       parameters: SharedSchemas.WebServiceDiagnoseSchema,
-      buildPayload: (rawParams) => {
-        const args = rawParams as WebServiceDiagnoseParams;
-        const payload: JsonRecord = {};
-        if (typeof args.host === "string") payload.host = args.host.trim();
-        if (typeof args.port === "number") payload.port = args.port;
-        if (typeof args.path === "string") payload.path = args.path.trim();
-        if (typeof args.timeoutSec === "number") payload.timeout_sec = args.timeoutSec;
-        if (typeof args.probeCount === "number") payload.probe_count = args.probeCount;
-        if (typeof args.probeIntervalMs === "number") payload.probe_interval_ms = args.probeIntervalMs;
-        return payload;
-      },
+      buildPayload: buildWebServicePayload,
       summarize: (rawParams) => {
         const args = rawParams as WebServiceDiagnoseParams;
         return `apfree-wifidog portal HTTP diagnose finished for ${args.deviceId}`;
@@ -150,17 +153,7 @@ export function createDiagnosticsTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         "Run HTTPS performance diagnose for the router's apfree-wifidog captive portal authentication service. This measures portal auth endpoint latency and TLS overhead (default port 8443), not generic HTTPS services.",
       kind: "https",
       parameters: SharedSchemas.WebServiceDiagnoseSchema,
-      buildPayload: (rawParams) => {
-        const args = rawParams as WebServiceDiagnoseParams;
-        const payload: JsonRecord = {};
-        if (typeof args.host === "string") payload.host = args.host.trim();
-        if (typeof args.port === "number") payload.port = args.port;
-        if (typeof args.path === "string") payload.path = args.path.trim();
-        if (typeof args.timeoutSec === "number") payload.timeout_sec = args.timeoutSec;
-        if (typeof args.probeCount === "number") payload.probe_count = args.probeCount;
-        if (typeof args.probeIntervalMs === "number") payload.probe_interval_ms = args.probeIntervalMs;
-        return payload;
-      },
+      buildPayload: buildWebServicePayload,
       summarize: (rawParams) => {
         const args = rawParams as WebServiceDiagnoseParams;
         return `apfree-wifidog portal HTTPS diagnose finished for ${args.deviceId}`;
