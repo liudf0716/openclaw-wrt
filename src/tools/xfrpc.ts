@@ -29,7 +29,7 @@ import {
   getFrpsStatusPort,
   getFrpsStatusPublicIp,
   getXfrpcCommonConfigFromResponse,
-} from "./_helpers.js";
+} from "../tool-parsers.js";
 
 // ============================================================================
 // Internal helpers

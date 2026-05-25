@@ -14,9 +14,8 @@ import type {
   BpfUpdateAllParams,
   BpfJsonTable,
 } from "../tool-types.js";
-import { normalizeBpfAddress } from "../tool-parsers.js";
+import { normalizeBpfAddress, summarizeBpfJsonResponse } from "../tool-parsers.js";
 import { createSimpleOperationTool, type ToolFactoryDeps } from "./_factory.js";
-import { summarizeBpfJsonResponse } from "./_helpers.js";
 
 export function createBpfTools(deps: ToolFactoryDeps): AnyAgentTool[] {
   return [

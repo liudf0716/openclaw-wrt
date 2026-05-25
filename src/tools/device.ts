@@ -21,7 +21,7 @@ import { createSimpleOperationTool, type ToolFactoryDeps } from "./_factory.js";
 import {
   buildToolResult,
   logToolInvocation,
-} from "./_helpers.js";
+} from "../tool-parsers.js";
 
 // ============================================================================
 // Custom tools (not using createSimpleOperationTool)

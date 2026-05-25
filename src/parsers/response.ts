@@ -2,6 +2,7 @@
  * Response formatting and utility functions.
  */
 
+import { randomBytes } from "node:crypto";
 import type { JsonRecord } from "../tool-types.js";
 
 // ============================================================================
@@ -111,6 +112,28 @@ export function parseChawrtdDeviceSnapshot(value: unknown): {
     authMode: typeof entry.auth_mode === "number" ? entry.auth_mode : undefined,
     alias: typeof entry.alias === "string" ? entry.alias : undefined,
   };
+}
+
+// ============================================================================
+// Crypto / Token
+// ============================================================================
+
+/**
+ * Generate a cryptographically secure hex token (24 bytes = 48 hex chars).
+ */
+export function generateSecureToken(): string {
+  return randomBytes(24).toString("hex");
+}
+
+// ============================================================================
+// Logging
+// ============================================================================
+
+/**
+ * Log a tool invocation with its name and raw parameters.
+ */
+export function logToolInvocation(logger: { info?: (msg: string) => void } | undefined, name: string, rawParams?: unknown): void {
+  logger?.info?.(`openclaw-wrt: tool invoked name=${name} rawParams=${JSON.stringify(rawParams ?? {})}`);
 }
 
 // ============================================================================

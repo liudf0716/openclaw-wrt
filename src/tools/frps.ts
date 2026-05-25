@@ -30,7 +30,7 @@ import {
   getXfrpcCommonConfigFromResponse,
   getXfrpcTcpServicesFromResponse,
   getXfrpcTcpServiceRemotePort,
-} from "./_helpers.js";
+} from "../tool-parsers.js";
 
 export function createFrpsTools(deps: ToolFactoryDeps): AnyAgentTool[] {
   return [

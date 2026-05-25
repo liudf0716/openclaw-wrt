@@ -473,6 +473,58 @@
     }
   },
   {
+    "name": "clawwrt_dhcp_diagnose",
+    "description": "Run a DHCP performance diagnose against the router. Useful for checking lease offer/ack timing and intermittent DHCP loss.",
+    "parameters": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "deviceId"
+      ],
+      "properties": {
+        "deviceId": {
+          "minLength": 1,
+          "description": "Target openclaw-wrt device_id.",
+          "type": "string"
+        },
+        "interface": {
+          "minLength": 1,
+          "description": "Interface to probe. Defaults to br-lan.",
+          "type": "string"
+        },
+        "dhcpServer": {
+          "minLength": 1,
+          "description": "Target DHCP server IP. Defaults to 255.255.255.255.",
+          "type": "string"
+        },
+        "timeoutSec": {
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Per-probe timeout in seconds. Defaults to 3.",
+          "type": "integer"
+        },
+        "probeCount": {
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Number of probes to run. Defaults to 5.",
+          "type": "integer"
+        },
+        "probeIntervalMs": {
+          "minimum": 0,
+          "maximum": 5000,
+          "description": "Delay between probes in milliseconds. Defaults to 0.",
+          "type": "integer"
+        },
+        "timeoutMs": {
+          "minimum": 1000,
+          "maximum": 120000,
+          "description": "Request timeout in milliseconds.",
+          "type": "integer"
+        }
+      }
+    }
+  },
+  {
     "name": "clawwrt_disable_xfrpc_service",
     "description": "Disable the global XFRPC service on the router (sets enabled=0 in common).",
     "parameters": {
@@ -517,6 +569,67 @@
           "pattern": "^[A-Za-z0-9_]+$",
           "description": "Service name. Use letters, numbers, and underscore only.",
           "type": "string"
+        },
+        "timeoutMs": {
+          "minimum": 1000,
+          "maximum": 120000,
+          "description": "Request timeout in milliseconds.",
+          "type": "integer"
+        }
+      }
+    }
+  },
+  {
+    "name": "clawwrt_dns_diagnose",
+    "description": "Run a DNS performance diagnose against the router. Use this to measure DNS response rate, latency, and per-domain behavior.",
+    "parameters": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "deviceId"
+      ],
+      "properties": {
+        "deviceId": {
+          "minLength": 1,
+          "description": "Target openclaw-wrt device_id.",
+          "type": "string"
+        },
+        "dnsServer": {
+          "minLength": 1,
+          "description": "Target DNS server IP. Defaults to 127.0.0.1.",
+          "type": "string"
+        },
+        "domain": {
+          "minLength": 1,
+          "description": "Single DNS name to query.",
+          "type": "string"
+        },
+        "domains": {
+          "description": "Ordered DNS names to probe in a round-robin cycle.",
+          "type": "array",
+          "items": {
+            "minLength": 1,
+            "description": "One DNS name to query.",
+            "type": "string"
+          }
+        },
+        "timeoutSec": {
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Per-query timeout in seconds. Defaults to 3.",
+          "type": "integer"
+        },
+        "probeCount": {
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Number of queries to run. Defaults to 5.",
+          "type": "integer"
+        },
+        "probeIntervalMs": {
+          "minimum": 0,
+          "maximum": 5000,
+          "description": "Delay between queries in milliseconds. Defaults to 0.",
+          "type": "integer"
         },
         "timeoutMs": {
           "minimum": 1000,
@@ -1262,7 +1375,7 @@
   },
   {
     "name": "clawwrt_get_xfrpc_common_config",
-    "description": "Get XFRPC common (global) configuration from the router.",
+    "description": "[Deprecated: use clawwrt_get_xfrpc_common] Get XFRPC common (global) configuration from the router.",
     "parameters": {
       "additionalProperties": false,
       "type": "object",
@@ -1304,6 +1417,122 @@
           "pattern": "^[A-Za-z0-9_]+$",
           "description": "Service name. Use letters, numbers, and underscore only.",
           "type": "string"
+        },
+        "timeoutMs": {
+          "minimum": 1000,
+          "maximum": 120000,
+          "description": "Request timeout in milliseconds.",
+          "type": "integer"
+        }
+      }
+    }
+  },
+  {
+    "name": "clawwrt_http_service_diagnose",
+    "description": "Run HTTP performance diagnose for the router's apfree-wifidog captive portal authentication service. This measures portal auth endpoint latency (default port 2060), not generic LAN web services.",
+    "parameters": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "deviceId"
+      ],
+      "properties": {
+        "deviceId": {
+          "minLength": 1,
+          "description": "Target openclaw-wrt device_id.",
+          "type": "string"
+        },
+        "host": {
+          "minLength": 1,
+          "description": "Target host. Defaults to 127.0.0.1.",
+          "type": "string"
+        },
+        "port": {
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Target port. Defaults to the configured HTTP/HTTPS port.",
+          "type": "integer"
+        },
+        "path": {
+          "minLength": 1,
+          "description": "Request path. Defaults to /.",
+          "type": "string"
+        },
+        "timeoutSec": {
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Per-request timeout in seconds. Defaults to 3.",
+          "type": "integer"
+        },
+        "probeCount": {
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Number of requests to run. Defaults to 5.",
+          "type": "integer"
+        },
+        "probeIntervalMs": {
+          "minimum": 0,
+          "maximum": 5000,
+          "description": "Delay between requests in milliseconds. Defaults to 0.",
+          "type": "integer"
+        },
+        "timeoutMs": {
+          "minimum": 1000,
+          "maximum": 120000,
+          "description": "Request timeout in milliseconds.",
+          "type": "integer"
+        }
+      }
+    }
+  },
+  {
+    "name": "clawwrt_https_service_diagnose",
+    "description": "Run HTTPS performance diagnose for the router's apfree-wifidog captive portal authentication service. This measures portal auth endpoint latency and TLS overhead (default port 8443), not generic HTTPS services.",
+    "parameters": {
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "deviceId"
+      ],
+      "properties": {
+        "deviceId": {
+          "minLength": 1,
+          "description": "Target openclaw-wrt device_id.",
+          "type": "string"
+        },
+        "host": {
+          "minLength": 1,
+          "description": "Target host. Defaults to 127.0.0.1.",
+          "type": "string"
+        },
+        "port": {
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Target port. Defaults to the configured HTTP/HTTPS port.",
+          "type": "integer"
+        },
+        "path": {
+          "minLength": 1,
+          "description": "Request path. Defaults to /.",
+          "type": "string"
+        },
+        "timeoutSec": {
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Per-request timeout in seconds. Defaults to 3.",
+          "type": "integer"
+        },
+        "probeCount": {
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Number of requests to run. Defaults to 5.",
+          "type": "integer"
+        },
+        "probeIntervalMs": {
+          "minimum": 0,
+          "maximum": 5000,
+          "description": "Delay between requests in milliseconds. Defaults to 0.",
+          "type": "integer"
         },
         "timeoutMs": {
           "minimum": 1000,

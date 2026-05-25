@@ -17,13 +17,13 @@ import {
   ensureDevice,
   lookupClientByMac,
 } from "../chawrtd-client.js";
-import { normalizeMac } from "../tool-parsers.js";
-import { createSimpleOperationTool, type ToolFactoryDeps } from "./_factory.js";
 import {
+  normalizeMac,
   buildToolResult,
   logToolInvocation,
   getClientsFromResponse,
-} from "./_helpers.js";
+} from "../tool-parsers.js";
+import { createSimpleOperationTool, type ToolFactoryDeps } from "./_factory.js";
 
 export function createClientTools(deps: ToolFactoryDeps): AnyAgentTool[] {
   return [

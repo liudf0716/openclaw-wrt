@@ -34,7 +34,7 @@ import {
   findServerPeerPublicKeyForTunnelIp,
   mapWireguardInterfacePayload,
   mapWireguardPeerPayload,
-} from "./_helpers.js";
+} from "../tool-parsers.js";
 
 // ============================================================================
 // Constants

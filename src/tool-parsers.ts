@@ -37,4 +37,20 @@ export {
   summarizeBpfJsonResponse,
   getCategoryEmoji,
   buildToolResult,
+  generateSecureToken,
+  logToolInvocation,
 } from "./parsers/response.js";
+export {
+  getTrimmedString,
+  requireTrimmedString,
+  parsePortString,
+  assertValidServerAddr,
+} from "./parsers/mac.js";
+export {
+  getXfrpcTcpServicesFromResponse,
+  getXfrpcTcpServiceRemotePort,
+  getXfrpcCommonConfigFromResponse,
+  getFrpsStatusToken,
+  getFrpsStatusPort,
+  getFrpsStatusPublicIp,
+} from "./parsers/xfrpc.js";
