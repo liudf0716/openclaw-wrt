@@ -88,6 +88,34 @@ function formatEventTime(time?: number): string {
   return `🕒 ${isoText} · `;
 }
 
+function parseConnectDurationMs(data: Record<string, unknown>): number | null {
+  const raw = data.connect_duration_ms;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.max(0, Math.round(raw));
+  }
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.round(parsed));
+    }
+  }
+  return null;
+}
+
+function parseDisconnectDurationMs(data: Record<string, unknown>): number | null {
+  const raw = data.disconnect_duration_ms;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.max(0, Math.round(raw));
+  }
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.round(parsed));
+    }
+  }
+  return null;
+}
+
 /** Format a device push event as a human-readable notification message. */
 export function formatDeviceEventMessage(
   deviceId: string,
@@ -101,7 +129,9 @@ export function formatDeviceEventMessage(
   switch (op) {
     case "client_connected": {
       const mac = typeof data.mac === "string" ? data.mac : (typeof data.client_mac === "string" ? data.client_mac : "unknown");
-      return `${timePrefix}📶 设备 \`${deviceId}\`${aliasSuffix} 上有新的 WiFi 客户端接入：MAC \`${mac}\``;
+      const durationMs = parseConnectDurationMs(data);
+      const durationSuffix = durationMs === null ? "" : `，连接耗时 ${durationMs}ms`;
+      return `${timePrefix}📶 设备 \`${deviceId}\`${aliasSuffix} 上有新的 WiFi 客户端接入：MAC \`${mac}\`${durationSuffix}`;
     }
     case "client_ip_assigned": {
       const mac = typeof data.mac === "string" ? data.mac : (typeof data.client_mac === "string" ? data.client_mac : "unknown");
@@ -111,7 +141,9 @@ export function formatDeviceEventMessage(
     }
     case "client_disconnected": {
       const mac = typeof data.mac === "string" ? data.mac : (typeof data.client_mac === "string" ? data.client_mac : "unknown");
-      return `${timePrefix}🔌 设备 \`${deviceId}\`${aliasSuffix} 上的 WiFi 客户端已断开：MAC \`${mac}\``;
+      const durationMs = parseDisconnectDurationMs(data);
+      const durationSuffix = durationMs === null ? "" : `，断开耗时 ${durationMs}ms`;
+      return `${timePrefix}🔌 设备 \`${deviceId}\`${aliasSuffix} 上的 WiFi 客户端已断开：MAC \`${mac}\`${durationSuffix}`;
     }
     case "net_link_up": {
       const iface = typeof data.interface === "string" ? data.interface : (typeof data.iface === "string" ? data.iface : "unknown");
