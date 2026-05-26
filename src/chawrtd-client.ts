@@ -18,11 +18,28 @@ import type {
   Logger,
 } from "./tool-types.js";
 import {
-  asObject,
   parseChawrtdDeviceSnapshot,
 } from "./tool-parsers.js";
 
 const DEFAULT_CHAWRTD_BASE_URL = "http://127.0.0.1:8001";
+
+/**
+ * Extract the data payload from a chawrtd API response.
+ * Handles both standard envelope { ok, data, error } and legacy flat responses.
+ * Throws if the response indicates an error.
+ */
+function extractChawrtdData(response: ChawrtdToolResult): JsonRecord {
+  if (response.error) {
+    throw new Error(response.error);
+  }
+  // Standard envelope: { ok: true, data: {...} }
+  if (response.data !== undefined) {
+    return response.data as JsonRecord;
+  }
+  // Flat response (backward compat): treat the whole payload as data.
+  const { ok: _ok, error: _err, ...rest } = response;
+  return rest as JsonRecord;
+}
 
 /**
  * Redact sensitive fields (keys, tokens, passwords) from a payload object for safe logging.
@@ -77,6 +94,7 @@ export class ChawrtdClient {
     path: string;
     method?: "GET" | "POST";
     body?: unknown;
+    headers?: Record<string, string>;
     timeoutMs?: number;
     signal?: AbortSignal;
   }): Promise<ChawrtdToolResult> {
@@ -96,7 +114,10 @@ export class ChawrtdClient {
     try {
       const response = await fetch(`${this.baseUrl}${params.path}`, {
         method: params.method ?? "GET",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...params.headers,
+        },
         body: params.body ? JSON.stringify(params.body) : undefined,
         signal: controller.signal,
       });
@@ -108,6 +129,10 @@ export class ChawrtdClient {
             ? payload.error
             : `chawrtd request failed (${response.status})`;
         throw new Error(message);
+      }
+      // Handle standard envelope { ok, data, error } from chawrtd.
+      if (payload.ok === false && typeof payload.error === "string") {
+        throw new Error(payload.error);
       }
       return payload;
     } catch (error) {
@@ -125,12 +150,7 @@ export class ChawrtdClient {
   // ==========================================================================
 
   async listDevices(): Promise<DeviceSnapshot[]> {
-    const bridge = this.bridge as
-      | {
-          listDevices?: () => Array<{ deviceId?: string } & Partial<DeviceSnapshot>>;
-          getDevice?: (deviceId: string) => DeviceSnapshot | null;
-        }
-      | undefined;
+    const bridge = this.bridge;
 
     if (!this.config && typeof bridge?.listDevices === "function") {
       const listedDevices = bridge.listDevices();
@@ -150,13 +170,10 @@ export class ChawrtdClient {
 
     try {
       const response = await this.call({ path: "/v1/devices", method: "GET" });
-      const dataWrapped = asObject(response.data);
-      const topLevel = asObject(response);
-      const devices = Array.isArray(dataWrapped?.devices)
-        ? dataWrapped.devices
-        : Array.isArray(topLevel?.devices)
-          ? topLevel.devices
-          : [];
+      const data = extractChawrtdData(response);
+      const devices = Array.isArray(data.devices)
+        ? data.devices
+        : [];
       return devices
         .map((entry) => parseChawrtdDeviceSnapshot(entry))
         .filter((entry): entry is DeviceSnapshot => entry !== null);
@@ -167,15 +184,14 @@ export class ChawrtdClient {
   }
 
   async getDevice(deviceId: string): Promise<DeviceSnapshot | null> {
-    const bridge = this.bridge as
-      | { getDevice?: (deviceId: string) => DeviceSnapshot | null }
-      | undefined;
+    const bridge = this.bridge;
     if (!this.config && typeof bridge?.getDevice === "function") {
       return bridge.getDevice(deviceId);
     }
     try {
       const response = await this.call({ path: `/v1/device/${deviceId}`, method: "GET" });
-      return parseChawrtdDeviceSnapshot(response.data ?? response);
+      const data = extractChawrtdData(response);
+      return parseChawrtdDeviceSnapshot(data);
     } catch (error) {
       this.logger?.warn?.(`Failed to get device ${deviceId} from chawrtd: ${String(error)}`);
       return null;
@@ -204,17 +220,7 @@ export class ChawrtdClient {
       `openclaw-wrt: tool invoked name=callDeviceOp rawParams=${JSON.stringify({ deviceId: params.deviceId, op: params.op, payload: redactSensitiveFields(params.payload) })}`,
     );
 
-    const bridge = this.bridge as
-      | {
-          callDevice?: (input: {
-            deviceId: string;
-            op: string;
-            payload?: JsonRecord;
-            timeoutMs?: number;
-            expectResponse?: boolean;
-          }) => Promise<JsonRecord>;
-        }
-      | undefined;
+    const bridge = this.bridge;
 
     if (!this.config && typeof bridge?.callDevice === "function") {
       return await bridge.callDevice({
@@ -236,16 +242,7 @@ export class ChawrtdClient {
     timeoutMs?: number;
     signal?: AbortSignal;
   }): Promise<JsonRecord> {
-    const bridge = this.bridge as
-      | {
-          callDeviceDiagnose?: (input: {
-            deviceId: string;
-            kind: "dhcp" | "dns" | "http" | "https";
-            payload?: JsonRecord;
-            timeoutMs?: number;
-          }) => Promise<JsonRecord>;
-        }
-      | undefined;
+    const bridge = this.bridge;
 
     if (!this.config && typeof bridge?.callDeviceDiagnose === "function") {
       return await bridge.callDeviceDiagnose({
@@ -264,8 +261,7 @@ export class ChawrtdClient {
       signal: params.signal,
     });
 
-    if (response.error) throw new Error(response.error);
-    return response.data ?? response;
+    return extractChawrtdData(response);
   }
 
   async callDeviceOpViaChawrtd(params: {
@@ -283,20 +279,23 @@ export class ChawrtdClient {
     const body: JsonRecord = {
       ...(params.payload ?? {}),
     };
+
+    // Control response expectation via header instead of magic body field.
+    const extraHeaders: Record<string, string> = {};
     if (params.expectResponse === false) {
-      body.__expect_response = false;
+      extraHeaders["X-Expect-Response"] = "false";
     }
 
     const response = await this.call({
       path: `/v1/device/${params.deviceId}/${params.op}`,
       method: "POST",
       body,
+      headers: extraHeaders,
       timeoutMs: params.timeoutMs,
       signal: params.signal,
     });
 
-    if (response.error) throw new Error(response.error);
-    return response.data ?? response;
+    return extractChawrtdData(response);
   }
 
   // ==========================================================================
@@ -327,10 +326,6 @@ export function getDefaultChawrtdClient(): ChawrtdClient {
   return _defaultClient;
 }
 
-function setDefaultChawrtdClient(client: ChawrtdClient): void {
-  _defaultClient = client;
-}
-
 // Backward-compatible wrapper functions (delegate to default client)
 // These allow domain files to import functions instead of using the class directly.
 
@@ -353,19 +348,11 @@ export function setActiveClawWRTConfig(config: ResolvedClawWRTConfig | undefined
   });
 }
 
-function setActiveToolLogger(logger: Logger | undefined): void {
-  const existing = _defaultClient;
-  _defaultClient = new ChawrtdClient({
-    logger,
-    config: existing?.['config'] as ResolvedClawWRTConfig | undefined,
-    bridge: existing?.['bridge'] as ClawWRTBridge | undefined,
-  });
-}
-
 export async function callChawrtd(params: {
   path: string;
   method?: "GET" | "POST";
   body?: unknown;
+  headers?: Record<string, string>;
   timeoutMs?: number;
   signal?: AbortSignal;
 }): Promise<ChawrtdToolResult> {
@@ -432,9 +419,4 @@ async function callDeviceOpViaChawrtd(params: {
   expectResponse?: boolean;
 }): Promise<JsonRecord> {
   return getDefaultChawrtdClient().callDeviceOpViaChawrtd(params);
-}
-
-function getChawrtdBaseUrl(config?: ResolvedClawWRTConfig): string {
-  const base = config?.chawrtdEventStream?.baseUrl ?? "http://127.0.0.1:8001";
-  return base.replace(/\/+$/, "");
 }

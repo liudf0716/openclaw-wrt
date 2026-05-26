@@ -70,7 +70,35 @@ export type ExecFileSyncRunner = (
 // Bridge and Device types
 // ============================================================================
 
-export type ClawWRTBridge = unknown;
+/**
+ * Bridge interface for direct in-process device communication.
+ * When chawrtd runs inside the same process (no HTTP needed),
+ * the bridge bypasses HTTP and calls device methods directly.
+ */
+export interface ClawWRTBridge {
+  /** List all connected devices. */
+  listDevices?: () => Array<{ deviceId?: string } & Partial<DeviceSnapshot>>;
+
+  /** Get a single device by ID. */
+  getDevice?: (deviceId: string) => DeviceSnapshot | null;
+
+  /** Send a command to a device and wait for response. */
+  callDevice?: (input: {
+    deviceId: string;
+    op: string;
+    payload?: JsonRecord;
+    timeoutMs?: number;
+    expectResponse?: boolean;
+  }) => Promise<JsonRecord>;
+
+  /** Run a diagnostic probe against a device. */
+  callDeviceDiagnose?: (input: {
+    deviceId: string;
+    kind: "dhcp" | "dns" | "http" | "https";
+    payload?: JsonRecord;
+    timeoutMs?: number;
+  }) => Promise<JsonRecord>;
+}
 
 export type DeviceSnapshot = {
   deviceId: string;
@@ -95,6 +123,7 @@ export type ChawrtdDeviceSnapshot = {
 };
 
 export type ChawrtdToolResult = {
+  ok?: boolean;
   summary?: string;
   output?: string;
   data?: JsonRecord;
