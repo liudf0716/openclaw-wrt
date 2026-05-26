@@ -234,6 +234,7 @@ export class ChawrtdClient {
     kind: "dhcp" | "dns" | "http" | "https";
     payload?: JsonRecord;
     timeoutMs?: number;
+    signal?: AbortSignal;
   }): Promise<JsonRecord> {
     const bridge = this.bridge as
       | {
@@ -260,6 +261,7 @@ export class ChawrtdClient {
       method: "POST",
       body: params.payload ?? {},
       timeoutMs: params.timeoutMs,
+      signal: params.signal,
     });
 
     if (response.error) throw new Error(response.error);
@@ -411,12 +413,14 @@ export async function callDeviceDiagnose(params: {
   kind: "dhcp" | "dns" | "http" | "https";
   payload?: JsonRecord;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }): Promise<JsonRecord> {
   return getDefaultChawrtdClient().callDeviceDiagnose({
     deviceId: params.deviceId,
     kind: params.kind,
     payload: params.payload,
     timeoutMs: params.timeoutMs,
+    signal: params.signal,
   });
 }
 

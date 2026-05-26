@@ -489,10 +489,15 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
       description:
         "Reset router-side WireGuard VPN configuration (default interface wg0), including peer definitions and tunnel routes. After reset succeeds, this tool can optionally trigger reload_network_async.",
       parameters: SharedSchemas.ResetWireguardVpnSchema,
-      execute: async (_toolCallId: string, rawParams: unknown) => {
+      execute: async (_toolCallId: string, rawParams: unknown, signal?: AbortSignal, onUpdate?: (partial: { content: Array<{ type: "text"; text: string }>; details: unknown }) => void) => {
         logToolInvocation(deps.logger, "clawwrt_reset_wireguard_vpn", rawParams);
         const args = rawParams as ResetWireguardVpnParams;
         const deviceId = args.deviceId.trim();
+
+        onUpdate?.({
+          content: [{ type: "text", text: `🔄 正在重置 ${deviceId} 的 WireGuard VPN 配置...` }],
+          details: { phase: "resetting" },
+        });
 
         const payload: JsonRecord = {};
         if (typeof args.interface === "string") {
@@ -507,6 +512,7 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           op: "reset_wireguard_vpn",
           payload,
           timeoutMs: args.timeoutMs,
+          signal,
         });
 
         const triggerReloadNetworkAsync = args.reloadNetworkAsync !== false;
@@ -515,12 +521,17 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         let reloadNetworkAsyncError: string | null = null;
 
         if (triggerReloadNetworkAsync) {
+          onUpdate?.({
+            content: [{ type: "text", text: `🔄 正在触发网络重载...` }],
+            details: { phase: "reloading" },
+          });
           try {
             reloadNetworkAsyncResponse = await callDeviceOp({
               deviceId,
               op: "reload_network_async",
               timeoutMs: args.timeoutMs,
               expectResponse: false,
+              signal,
             });
             reloadNetworkAsyncScheduled = true;
           } catch (error) {
