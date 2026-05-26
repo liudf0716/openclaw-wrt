@@ -481,18 +481,19 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
     }),
 
     // ---------------------------------------------------------------------------
-    // clawwrt_reset_wireguard_vpn — simple op with payload builder
+    // clawwrt_reset_wireguard_vpn — orchestrated op
     // ---------------------------------------------------------------------------
-    createSimpleOperationTool({
-      ...deps,
+  {
       name: "clawwrt_reset_wireguard_vpn",
       label: "OpenClaw WRT Reset WireGuard VPN",
       description:
-        "Reset router-side WireGuard VPN configuration (default interface wg0), including peer definitions and tunnel routes.",
-      op: "reset_wireguard_vpn",
+        "Reset router-side WireGuard VPN configuration (default interface wg0), including peer definitions and tunnel routes. After reset succeeds, this tool can optionally trigger reload_network_async.",
       parameters: SharedSchemas.ResetWireguardVpnSchema,
-      buildPayload: (rawParams) => {
+      execute: async (_toolCallId: string, rawParams: unknown) => {
+        logToolInvocation(deps.logger, "clawwrt_reset_wireguard_vpn", rawParams);
         const args = rawParams as ResetWireguardVpnParams;
+        const deviceId = args.deviceId.trim();
+
         const payload: JsonRecord = {};
         if (typeof args.interface === "string") {
           payload.interface = args.interface;
@@ -500,17 +501,57 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
         if (typeof args.flushRoutes === "boolean") {
           payload.flush_routes = args.flushRoutes;
         }
-        return {
-          deviceId: args.deviceId.trim(),
+
+        const resetResponse = await callDeviceOp({
+          deviceId,
+          op: "reset_wireguard_vpn",
           payload,
           timeoutMs: args.timeoutMs,
-        };
+        });
+
+        const triggerReloadNetworkAsync = args.reloadNetworkAsync !== false;
+        let reloadNetworkAsyncScheduled = false;
+        let reloadNetworkAsyncResponse: JsonRecord | null = null;
+        let reloadNetworkAsyncError: string | null = null;
+
+        if (triggerReloadNetworkAsync) {
+          try {
+            reloadNetworkAsyncResponse = await callDeviceOp({
+              deviceId,
+              op: "reload_network_async",
+              timeoutMs: args.timeoutMs,
+              expectResponse: false,
+            });
+            reloadNetworkAsyncScheduled = true;
+          } catch (error) {
+            reloadNetworkAsyncError = error instanceof Error ? error.message : String(error);
+          }
+        }
+
+        const summary = `Reset WireGuard VPN config on ${deviceId}.`;
+        const resetJson = JSON.stringify(resetResponse);
+        let text = `${summary}\n\nDevice response data:\n${resetJson}`;
+        if (triggerReloadNetworkAsync) {
+          if (reloadNetworkAsyncScheduled) {
+            text += "\n\nTriggered reload_network_async after reset.";
+          } else {
+            text += `\n\nWARNING: reset succeeded but reload_network_async scheduling failed: ${reloadNetworkAsyncError ?? "unknown error"}`;
+          }
+        } else {
+          text += "\n\nSkipped reload_network_async because reloadNetworkAsync=false.";
+        }
+
+        return buildToolResult(text, {
+          response: resetResponse,
+          reloadNetworkAsync: {
+            requested: triggerReloadNetworkAsync,
+            scheduled: reloadNetworkAsyncScheduled,
+            response: reloadNetworkAsyncResponse,
+            error: reloadNetworkAsyncError,
+          },
+        });
       },
-      summarize: (_response, rawParams) => {
-        const args = rawParams as ResetWireguardVpnParams;
-        return `Reset WireGuard VPN config on ${args.deviceId}.`;
-      },
-    }),
+    },
 
     // ---------------------------------------------------------------------------
     // clawwrt_get_wireguard_vpn_status — custom (router + server status)

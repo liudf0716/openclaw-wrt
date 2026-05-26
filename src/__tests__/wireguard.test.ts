@@ -340,6 +340,95 @@ describe("wireguard tools", () => {
     });
   });
 
+  it("wireguard reset tool triggers reload_network_async after reset", async () => {
+    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+      async callDevice(params: {
+        deviceId: string;
+        op: string;
+        payload?: Record<string, unknown>;
+      }) {
+        calls.push(params);
+        if (params.op === "reset_wireguard_vpn") {
+          return { type: "reset_wireguard_vpn_response", status: "success" };
+        }
+        if (params.op === "reload_network_async") {
+          return { scheduled: true, async: true, op: "reload_network_async" };
+        }
+        return { type: `${params.op}_response`, status: "success" };
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "clawwrt_reset_wireguard_vpn",
+    );
+
+    await tool?.execute?.("tool-wg-reset", {
+      deviceId: "dev-wg",
+      interface: "wg0",
+      flushRoutes: true,
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toMatchObject({
+      deviceId: "dev-wg",
+      op: "reset_wireguard_vpn",
+      payload: {
+        interface: "wg0",
+        flush_routes: true,
+      },
+    });
+    expect(calls[1]).toMatchObject({
+      deviceId: "dev-wg",
+      op: "reload_network_async",
+    });
+  });
+
+  it("wireguard reset tool skips reload_network_async when reloadNetworkAsync=false", async () => {
+    const calls: Array<{ deviceId: string; op: string; payload?: Record<string, unknown> }> = [];
+    const bridge = {
+      listDevices() {
+        return [];
+      },
+      getDevice() {
+        return null;
+      },
+      async callDevice(params: {
+        deviceId: string;
+        op: string;
+        payload?: Record<string, unknown>;
+      }) {
+        calls.push(params);
+        return { type: `${params.op}_response`, status: "success" };
+      },
+    };
+
+    const tool = createClawWRTTools({ bridge: bridge as never }).find(
+      (entry) => entry.name === "clawwrt_reset_wireguard_vpn",
+    );
+
+    await tool?.execute?.("tool-wg-reset-no-reload", {
+      deviceId: "dev-wg",
+      interface: "wg0",
+      reloadNetworkAsync: false,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      deviceId: "dev-wg",
+      op: "reset_wireguard_vpn",
+      payload: {
+        interface: "wg0",
+      },
+    });
+  });
+
   it("wireguard server public key tool reads chawrtd status response", async () => {
     fetchMock.mockResolvedValue(
       new Response(

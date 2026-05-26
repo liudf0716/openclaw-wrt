@@ -28,6 +28,12 @@ export const ResetWireguardVpnSchema = Type.Object(
         description: "Whether to flush static routes bound to the WireGuard interface. Defaults to true.",
       }),
     ),
+    reloadNetworkAsync: Type.Optional(
+      Type.Boolean({
+        description:
+          "Whether to trigger reload_network_async after reset succeeds. Defaults to true.",
+      }),
+    ),
     timeoutMs: TimeoutField,
   },
   { additionalProperties: false },
