@@ -82,6 +82,10 @@ export function createNetworkSystemTools(deps: ToolFactoryDeps): AnyAgentTool[] 
           timeoutMs: args.timeoutMs ?? 120_000,
         };
       },
+      onStart: (rawParams) => {
+        const args = rawParams as { deviceId: string };
+        return `🚀 正在对 ${args.deviceId} 执行测速，预计需要 30-60 秒...`;
+      },
       summarize: (_response, rawParams) => {
         const args = rawParams as { deviceId: string };
         return `Completed speedtest on ${args.deviceId}.`;

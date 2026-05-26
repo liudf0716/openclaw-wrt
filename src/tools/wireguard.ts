@@ -748,7 +748,7 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
       description:
         "Collect each router's br-lan CIDR, combine all peer LAN CIDRs with the shared wg0 tunnel subnet, and save the resulting per-device route plan to a JSON file for clawwrt_set_vpn_routes.",
       parameters: SharedSchemas.CollectWireguardProtectedRoutesSchema,
-      execute: async (_toolCallId: string, rawParams: unknown) => {
+      execute: async (_toolCallId: string, rawParams: unknown, signal?: AbortSignal, onUpdate?: (partial: { content: Array<{ type: "text"; text: string }>; details: unknown }) => void) => {
         logToolInvocation(deps.logger, "clawwrt_collect_wireguard_protected_routes", rawParams);
         const args = rawParams as {
           deviceIds: string[];
@@ -756,12 +756,22 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           timeoutMs?: number;
         };
 
+        onUpdate?.({
+          content: [{ type: "text", text: `📡 正在收集 ${args.deviceIds.length} 台设备的 LAN CIDR...` }],
+          details: { phase: "collecting", deviceCount: args.deviceIds.length },
+        });
+
         const routePlanFile = WIREGUARD_PROTECTED_ROUTE_PLAN_FILE;
         const routePlanFileData = await collectWireguardProtectedRoutePlans({
           deviceIds: args.deviceIds,
           serverTunnelIp: args.serverTunnelIp,
           timeoutMs: args.timeoutMs,
         }) as { hasConflict: boolean; routePlans: Array<{ deviceId: string }>; [key: string]: unknown };
+
+        onUpdate?.({
+          content: [{ type: "text", text: `✅ 路由计划已生成，正在保存...` }],
+          details: { phase: "saving", routePlanFile },
+        });
 
         await fs.writeFile(routePlanFile, JSON.stringify(routePlanFileData, null, 2), "utf8");
 
@@ -785,7 +795,7 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
       description:
         "Batch-verify WireGuard connectivity across all (or specified) online routers. For each device, fetches router-side handshake/traffic status, validates key consistency against the VPS-side peer config when possible, and checks server-side wg/NAT/forwarding state. Optionally pings tunnel IPs from the VPS to confirm end-to-end reachability. Returns a consolidated report.",
       parameters: SharedSchemas.VerifyWireguardConnectivitySchema,
-      execute: async (_toolCallId: string, rawParams: unknown) => {
+      execute: async (_toolCallId: string, rawParams: unknown, signal?: AbortSignal, onUpdate?: (partial: { content: Array<{ type: "text"; text: string }>; details: unknown }) => void) => {
         logToolInvocation(deps.logger, "clawwrt_verify_wireguard_connectivity", rawParams);
         const args = rawParams as {
           deviceIds?: string[];
@@ -803,12 +813,36 @@ export function createWireguardTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           throw new Error("No online devices found. Ensure routers are connected to OpenClaw.");
         }
 
+        // Emit initial progress
+        onUpdate?.({
+          content: [{ type: "text", text: `🔍 正在验证 VPS 侧 WireGuard 状态...` }],
+          details: { phase: "server", progress: { current: 0, total: deviceIds.length } },
+        });
+
         // Server-side verification (single call)
         const server = await verifyServerSide(args.pingTargets ?? [], args.timeoutMs);
 
         // Per-device router-side verification (sequential to avoid overloading devices)
         const deviceResults: DeviceVerifyResult[] = [];
-        for (const deviceId of deviceIds) {
+        for (let i = 0; i < deviceIds.length; i++) {
+          if (signal?.aborted) throw new Error("aborted");
+          const deviceId = deviceIds[i];
+
+          onUpdate?.({
+            content: [{
+              type: "text",
+              text: `⏳ 正在验证设备 ${i + 1}/${deviceIds.length}: ${deviceId}...`,
+            }],
+            details: {
+              phase: "device",
+              progress: { current: i + 1, total: deviceIds.length, deviceId },
+              completed: deviceResults.map((r) => ({
+                deviceId: r.deviceId,
+                ok: !r.error,
+              })),
+            },
+          });
+
           try {
             const result = await verifyDeviceRouterSide(
               deviceId,

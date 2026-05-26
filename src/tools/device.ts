@@ -147,6 +147,10 @@ export function createDeviceTools(deps: ToolFactoryDeps): AnyAgentTool[] {
       description:
         "Request a router reboot. The device should respond before rebooting, but it may disconnect immediately.",
       op: "reboot_device",
+      onStart: (rawParams) => {
+        const args = rawParams as DeviceOnlyParams;
+        return `🔄 正在重启设备 ${args.deviceId}...`;
+      },
       summarize: (_response, rawParams) => {
         const args = rawParams as DeviceOnlyParams;
         return `Reboot request sent to ${args.deviceId}. Treat this as best-effort and expect disconnect.`;
@@ -170,6 +174,10 @@ export function createDeviceTools(deps: ToolFactoryDeps): AnyAgentTool[] {
       description: "Trigger a firmware upgrade (OTA) on the router using a URL.",
       op: "firmware_upgrade",
       parameters: SharedSchemas.FirmwareUpgradeSchema,
+      onStart: (rawParams) => {
+        const args = rawParams as Static<typeof SharedSchemas.FirmwareUpgradeSchema>;
+        return `⬆️ 正在为 ${args.deviceId} 触发固件升级...`;
+      },
       summarize: (_response, rawParams) => {
         const args = rawParams as Static<typeof SharedSchemas.FirmwareUpgradeSchema>;
         return `Firmware upgrade requested for ${args.deviceId} from ${args.url}.`;

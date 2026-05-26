@@ -78,10 +78,20 @@ export class ChawrtdClient {
     method?: "GET" | "POST";
     body?: unknown;
     timeoutMs?: number;
+    signal?: AbortSignal;
   }): Promise<ChawrtdToolResult> {
     const controller = new AbortController();
     const timeoutMs = params.timeoutMs ?? 180_000;
     const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+
+    // Forward external abort signal to internal controller
+    if (params.signal) {
+      if (params.signal.aborted) {
+        clearTimeout(timeoutHandle);
+        throw new Error("aborted");
+      }
+      params.signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
 
     try {
       const response = await fetch(`${this.baseUrl}${params.path}`, {
@@ -188,6 +198,7 @@ export class ChawrtdClient {
     payload?: JsonRecord;
     timeoutMs?: number;
     expectResponse?: boolean;
+    signal?: AbortSignal;
   }): Promise<JsonRecord> {
     this.logger?.info?.(
       `openclaw-wrt: tool invoked name=callDeviceOp rawParams=${JSON.stringify({ deviceId: params.deviceId, op: params.op, payload: redactSensitiveFields(params.payload) })}`,
@@ -215,7 +226,7 @@ export class ChawrtdClient {
       });
     }
 
-    return this.callDeviceOpViaChawrtd(params);
+    return this.callDeviceOpViaChawrtd({ ...params, signal: params.signal });
   }
 
   async callDeviceDiagnose(params: {
@@ -260,6 +271,7 @@ export class ChawrtdClient {
     op: string;
     payload?: JsonRecord;
     timeoutMs?: number;
+    signal?: AbortSignal;
   }): Promise<JsonRecord> {
     this.logger?.info?.(
       `openclaw-wrt: tool invoked name=callDeviceOpViaChawrtd rawParams=${JSON.stringify({ deviceId: params.deviceId, op: params.op })}`,
@@ -270,6 +282,7 @@ export class ChawrtdClient {
       method: "POST",
       body: params.payload ?? {},
       timeoutMs: params.timeoutMs,
+      signal: params.signal,
     });
 
     if (response.error) throw new Error(response.error);
@@ -344,6 +357,7 @@ export async function callChawrtd(params: {
   method?: "GET" | "POST";
   body?: unknown;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }): Promise<ChawrtdToolResult> {
   return getDefaultChawrtdClient().call(params);
 }
@@ -372,6 +386,7 @@ export async function callDeviceOp(params: {
   payload?: JsonRecord;
   timeoutMs?: number;
   expectResponse?: boolean;
+  signal?: AbortSignal;
 }): Promise<JsonRecord> {
   return getDefaultChawrtdClient().callDeviceOp({
     deviceId: params.deviceId,
@@ -379,6 +394,7 @@ export async function callDeviceOp(params: {
     payload: params.payload,
     timeoutMs: params.timeoutMs,
     expectResponse: params.expectResponse,
+    signal: params.signal,
   });
 }
 

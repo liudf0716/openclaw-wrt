@@ -48,25 +48,36 @@ export function createSimpleOperationTool(params: {
     expectResponse?: boolean;
   };
   summarize?: (response: JsonRecord, rawParams: unknown) => string;
+  /** Optional progress message emitted before the device op call. */
+  onStart?: (rawParams: unknown) => string;
 }): AnyAgentTool {
   return {
     name: params.name,
     label: params.label,
     description: params.description,
     parameters: params.parameters ?? SharedSchemas.DeviceOnlySchema,
-    execute: async (_toolCallId, rawParams) => {
+    execute: async (_toolCallId, rawParams, signal, onUpdate) => {
       logToolInvocation(params.logger, params.name, rawParams);
       const fallbackArgs = rawParams as DeviceOnlyParams;
       const built = params.buildPayload?.(rawParams) ?? {
         deviceId: fallbackArgs.deviceId ? fallbackArgs.deviceId.trim() : "",
         timeoutMs: fallbackArgs.timeoutMs,
       };
+      // Emit optional progress message before the call
+      if (params.onStart && onUpdate) {
+        const msg = params.onStart(rawParams);
+        onUpdate({
+          content: [{ type: "text", text: msg }],
+          details: { phase: "starting" },
+        });
+      }
       const response = await callDeviceOp({
         deviceId: built.deviceId,
         op: params.op,
         payload: built.payload,
         timeoutMs: built.timeoutMs,
         expectResponse: built.expectResponse ?? params.expectResponse,
+        signal,
       });
       const summary =
         params.summarize?.(response, rawParams) ??

@@ -43,10 +43,16 @@ export function createFrpsTools(deps: ToolFactoryDeps): AnyAgentTool[] {
       description:
         "Deploy intranet-penetration server: fetch latest version from GitHub, install as /usr/bin/nwct-server, configure systemd autostart. Token is auto-generated when omitted, and the tool performs a post-deploy status check with one retry if the returned token is empty.",
       parameters: SharedSchemas.DeployFrpsSchema,
-      execute: async (_toolCallId: string, rawParams: unknown) => {
+      execute: async (_toolCallId: string, rawParams: unknown, signal?: AbortSignal, onUpdate?: (partial: { content: Array<{ type: "text"; text: string }>; details: unknown }) => void) => {
         logToolInvocation(deps.logger, "openclaw_deploy_frps", rawParams);
         const args = rawParams as Static<typeof SharedSchemas.DeployFrpsSchema>;
         const deployPort = args.port;
+
+        onUpdate?.({
+          content: [{ type: "text", text: `📦 正在部署 FRPS 服务 (端口 ${deployPort})...` }],
+          details: { phase: "deploying" },
+        });
+
         let token = getTrimmedString(args.token) ?? generateSecureToken();
         let response = await callChawrtd({
           path: "/v1/frps/deploy",
@@ -55,8 +61,15 @@ export function createFrpsTools(deps: ToolFactoryDeps): AnyAgentTool[] {
             port: deployPort,
             token,
           },
+          signal,
         });
-        let statusResponse = await callChawrtd({ path: "/v1/frps/status", method: "GET" });
+
+        onUpdate?.({
+          content: [{ type: "text", text: `🔍 正在检查 FRPS 状态...` }],
+          details: { phase: "verifying" },
+        });
+
+        let statusResponse = await callChawrtd({ path: "/v1/frps/status", method: "GET", signal });
         let effectiveToken = getFrpsStatusToken(statusResponse);
         if (!effectiveToken) {
           token = generateSecureToken();
@@ -67,8 +80,9 @@ export function createFrpsTools(deps: ToolFactoryDeps): AnyAgentTool[] {
               port: deployPort,
               token,
             },
+            signal,
           });
-          statusResponse = await callChawrtd({ path: "/v1/frps/status", method: "GET" });
+          statusResponse = await callChawrtd({ path: "/v1/frps/status", method: "GET", signal });
           effectiveToken = getFrpsStatusToken(statusResponse);
         }
 
@@ -298,7 +312,7 @@ export function createFrpsTools(deps: ToolFactoryDeps): AnyAgentTool[] {
       description:
         "Automatically install WireGuard, enable IP forwarding, generate server keys, and configure wg0 with NAT on the VPS host. When peerBindings are provided, write all peer AllowedIPs into wg0.conf in the same deployment pass.",
       parameters: SharedSchemas.DeployWgServerSchema,
-      execute: async (_toolCallId: string, rawParams: unknown) => {
+      execute: async (_toolCallId: string, rawParams: unknown, signal?: AbortSignal, onUpdate?: (partial: { content: Array<{ type: "text"; text: string }>; details: unknown }) => void) => {
         const executionMarker = `openclaw_deploy_wg_server:${Date.now()}`;
         logToolInvocation(deps.logger, "openclaw_deploy_wg_server", { executionMarker, rawParams });
         const args = rawParams as {
@@ -327,6 +341,11 @@ export function createFrpsTools(deps: ToolFactoryDeps): AnyAgentTool[] {
           );
         }
 
+        onUpdate?.({
+          content: [{ type: "text", text: `🔐 正在部署 WireGuard VPN 服务 (端口 ${port})，包含 ${args.peerBindings.length} 个节点...` }],
+          details: { phase: "deploying", peerCount: args.peerBindings.length },
+        });
+
         const response = await callChawrtd({
           path: "/v1/wg/deploy",
           method: "POST",
@@ -336,6 +355,7 @@ export function createFrpsTools(deps: ToolFactoryDeps): AnyAgentTool[] {
             egressInterface: args.egressInterface,
             peerBindings: args.peerBindings,
           },
+          signal,
         });
 
         return buildToolResult(
