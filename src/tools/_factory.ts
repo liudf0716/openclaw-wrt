@@ -82,8 +82,14 @@ export function createSimpleOperationTool(params: {
       const summary =
         params.summarize?.(response, rawParams) ??
         `Device ${built.deviceId} responded to ${params.op}.`;
+      // Truncate large responses to avoid excessive JSON.stringify cost.
       const responseJson = JSON.stringify(response);
-      const text = `${summary}\n\nDevice response data:\n${responseJson}`;
+      const MAX_RESPONSE_CHARS = 8192;
+      const truncatedJson =
+        responseJson.length > MAX_RESPONSE_CHARS
+          ? responseJson.slice(0, MAX_RESPONSE_CHARS) + `... [truncated, ${responseJson.length} chars total]`
+          : responseJson;
+      const text = `${summary}\n\nDevice response data:\n${truncatedJson}`;
       return buildToolResult(text, { response });
     },
   };

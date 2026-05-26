@@ -60,161 +60,19 @@ function pickPortalText(...values: unknown[]): string {
   return "";
 }
 
-function isSafePortalColor(value: string): boolean {
-  return (
-    /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6,8})$/.test(value) ||
-    /^(?:rgb|rgba|hsl|hsla)\(\s*[-+0-9.%\s/,]+\)$/.test(value) ||
-    /^[a-zA-Z][a-zA-Z-]*$/.test(value)
-  );
-}
-
-function portalColor(template?: PortalTemplate, accentColor?: string): string {
-  const candidate = readPortalText(accentColor);
-  if (candidate && isSafePortalColor(candidate)) {
-    return candidate;
-  }
-  // template-specific professional defaults
-  switch (template) {
-    case "business":
-      return "#1e40af"; // Deep blue
-    case "cafe":
-      return "#d97706"; // Warm amber
-    case "hotel":
-      return "#059669"; // Sophisticated emerald
-    case "event":
-      return "#7c3aed"; // Vibrant violet
-    case "welcome":
-      return "#db2777"; // Friendly pink
-    default:
-      return "#3182ce"; // Standard blue
-  }
-}
-
-function buildPortalContext(params: {
-  deviceId: string;
-  template?: PortalTemplate;
-  content?: PortalContent;
-}) {
-  const content = params.content ?? {};
-  const networkName = pickPortalText(content.networkName, content.brandName, "访客网络");
-  const venueName = pickPortalText(content.venueName, content.brandName, networkName);
-  const title = pickPortalText(content.title);
-  const body = pickPortalText(content.body, content.supportText);
-  const buttonText = pickPortalText(content.buttonText);
-  const footerText = pickPortalText(content.footerText);
-  const accentColor = portalColor(params.template, content.accentColor);
-
-  return {
-    template: params.template ?? "default",
-    deviceId: params.deviceId,
-    networkName,
-    venueName,
-    title,
-    body,
-    buttonText,
-    footerText,
-    supportText: readPortalText(content.supportText),
-    voucherLabel: pickPortalText(content.voucherLabel, "接入券码"),
-    voucherHint: pickPortalText(content.voucherHint, "请输入现场提供的券码"),
-    rules: Array.isArray(content.rules)
-      ? content.rules.map((rule) => rule.trim()).filter(Boolean)
-      : [],
-    accentColor,
-  };
-}
-
-export function renderPortalPageHtml(params: {
-  deviceId: string;
-  template?: PortalTemplate;
-  content?: PortalContent;
-}): string {
-  const ctx = buildPortalContext(params);
-  const escapedNetwork = escapeHtml(ctx.networkName);
-
-  const templateIconKey = ctx.template === "default" ? "wifi" : ctx.template;
-  const iconSvg = ICONS[templateIconKey] || ICONS.wifi;
-
-  const escapedTitle = escapeHtml(
-    ctx.title ||
-      (ctx.template === "welcome"
-        ? `欢迎来到 ${ctx.venueName}`
-        : ctx.template === "business"
-          ? "企业访客网络"
-          : ctx.template === "cafe"
-            ? "轻松浏览"
-            : ctx.template === "hotel"
-              ? "宾客网络"
-              : ctx.template === "terms"
-                ? "请先阅读并同意使用条款"
-                : ctx.template === "voucher"
-                  ? "请输入接入券码"
-                  : ctx.template === "event"
-                    ? "欢迎参与本次活动"
-                    : `欢迎使用 ${ctx.networkName}`),
-  );
-  const escapedBody = escapeHtml(
-    ctx.body ||
-      (ctx.template === "welcome"
-        ? "页面已打开，继续浏览即可。"
-        : ctx.template === "business"
-          ? "这是安全尊享的访客网络。"
-          : ctx.template === "cafe"
-            ? "点杯饮品，畅享在线时光。"
-            : ctx.template === "hotel"
-              ? "宾客网络已就绪，欢迎使用。"
-              : ctx.template === "terms"
-                ? "为确保公平使用，请先查看规则。"
-                : ctx.template === "voucher"
-                  ? "请输入现场提供的专用接入券码。"
-                  : ctx.template === "event"
-                    ? "活动详情已准备好，点击继续查看。"
-                    : `您已成功接入 ${ctx.networkName}。`),
-  );
-  const buttonText = escapeHtml(
-    ctx.buttonText ||
-      (ctx.template === "terms"
-        ? "同意并继续"
-        : ctx.template === "voucher"
-          ? "提交并接入"
-          : ctx.template === "business"
-            ? "开始使用"
-            : ctx.template === "hotel"
-              ? "即刻接入"
-              : ctx.template === "event"
-                ? "进入活动"
-                : "开始上网"),
-  );
-  const footerText = escapeHtml(
-    ctx.footerText ||
-      (ctx.template === "terms"
-        ? "继续使用即表示您接受以上条款。"
-        : ctx.template === "voucher"
-          ? "如券码无效，请咨询现场服务人员。"
-          : ctx.template === "business"
-            ? "如需技术支持，请联系 IT 部门。"
-            : ctx.template === "cafe"
-              ? "品味咖啡，畅享网络。"
-              : ctx.template === "hotel"
-                ? "如有疑问，请咨询前台。"
-                : ctx.template === "event"
-                  ? "感谢您的参与。"
-                  : "由 OpenClaw 提供安全驱动."),
-  );
-  const supportText = escapeHtml(ctx.supportText);
-  const rules =
-    ctx.rules.length > 0
-      ? ctx.rules
-      : ["请遵守当地法律法规 and 网络使用守则。", "请勿分发违法违规内容。"];
-  const rulesHtml = rules.map((rule) => `<li>${escapeHtml(rule)}</li>`).join("");
-
-  const sharedStyles = `
+/**
+ * Build the shared CSS for portal pages. The only dynamic value is accentColor.
+ * Defined at module level to avoid re-creating ~200 lines of CSS per render.
+ */
+function buildSharedStyles(accentColor: string): string {
+  return `
     :root {
       color-scheme: light dark;
       --bg-h: 222;
       --bg-s: 47%;
       --bg-dark: hsl(var(--bg-h), var(--bg-s), 8%);
       --bg-light: hsl(var(--bg-h), var(--bg-s), 97%);
-      --accent: ${ctx.accentColor};
+      --accent: ${accentColor};
       --accent-glow: color-mix(in srgb, var(--accent) 50%, transparent);
       --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
       --glass-bg: rgba(255, 255, 255, 0.7);
@@ -528,6 +386,156 @@ export function renderPortalPageHtml(params: {
       h1 { font-size: 24px; }
     }
   `;
+}
+
+function isSafePortalColor(value: string): boolean {
+  return (
+    /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6,8})$/.test(value) ||
+    /^(?:rgb|rgba|hsl|hsla)\(\s*[-+0-9.%\s/,]+\)$/.test(value) ||
+    /^[a-zA-Z][a-zA-Z-]*$/.test(value)
+  );
+}
+
+function portalColor(template?: PortalTemplate, accentColor?: string): string {
+  const candidate = readPortalText(accentColor);
+  if (candidate && isSafePortalColor(candidate)) {
+    return candidate;
+  }
+  // template-specific professional defaults
+  switch (template) {
+    case "business":
+      return "#1e40af"; // Deep blue
+    case "cafe":
+      return "#d97706"; // Warm amber
+    case "hotel":
+      return "#059669"; // Sophisticated emerald
+    case "event":
+      return "#7c3aed"; // Vibrant violet
+    case "welcome":
+      return "#db2777"; // Friendly pink
+    default:
+      return "#3182ce"; // Standard blue
+  }
+}
+
+function buildPortalContext(params: {
+  deviceId: string;
+  template?: PortalTemplate;
+  content?: PortalContent;
+}) {
+  const content = params.content ?? {};
+  const networkName = pickPortalText(content.networkName, content.brandName, "访客网络");
+  const venueName = pickPortalText(content.venueName, content.brandName, networkName);
+  const title = pickPortalText(content.title);
+  const body = pickPortalText(content.body, content.supportText);
+  const buttonText = pickPortalText(content.buttonText);
+  const footerText = pickPortalText(content.footerText);
+  const accentColor = portalColor(params.template, content.accentColor);
+
+  return {
+    template: params.template ?? "default",
+    deviceId: params.deviceId,
+    networkName,
+    venueName,
+    title,
+    body,
+    buttonText,
+    footerText,
+    supportText: readPortalText(content.supportText),
+    voucherLabel: pickPortalText(content.voucherLabel, "接入券码"),
+    voucherHint: pickPortalText(content.voucherHint, "请输入现场提供的券码"),
+    rules: Array.isArray(content.rules)
+      ? content.rules.map((rule) => rule.trim()).filter(Boolean)
+      : [],
+    accentColor,
+  };
+}
+
+export function renderPortalPageHtml(params: {
+  deviceId: string;
+  template?: PortalTemplate;
+  content?: PortalContent;
+}): string {
+  const ctx = buildPortalContext(params);
+  const escapedNetwork = escapeHtml(ctx.networkName);
+
+  const templateIconKey = ctx.template === "default" ? "wifi" : ctx.template;
+  const iconSvg = ICONS[templateIconKey] || ICONS.wifi;
+
+  const escapedTitle = escapeHtml(
+    ctx.title ||
+      (ctx.template === "welcome"
+        ? `欢迎来到 ${ctx.venueName}`
+        : ctx.template === "business"
+          ? "企业访客网络"
+          : ctx.template === "cafe"
+            ? "轻松浏览"
+            : ctx.template === "hotel"
+              ? "宾客网络"
+              : ctx.template === "terms"
+                ? "请先阅读并同意使用条款"
+                : ctx.template === "voucher"
+                  ? "请输入接入券码"
+                  : ctx.template === "event"
+                    ? "欢迎参与本次活动"
+                    : `欢迎使用 ${ctx.networkName}`),
+  );
+  const escapedBody = escapeHtml(
+    ctx.body ||
+      (ctx.template === "welcome"
+        ? "页面已打开，继续浏览即可。"
+        : ctx.template === "business"
+          ? "这是安全尊享的访客网络。"
+          : ctx.template === "cafe"
+            ? "点杯饮品，畅享在线时光。"
+            : ctx.template === "hotel"
+              ? "宾客网络已就绪，欢迎使用。"
+              : ctx.template === "terms"
+                ? "为确保公平使用，请先查看规则。"
+                : ctx.template === "voucher"
+                  ? "请输入现场提供的专用接入券码。"
+                  : ctx.template === "event"
+                    ? "活动详情已准备好，点击继续查看。"
+                    : `您已成功接入 ${ctx.networkName}。`),
+  );
+  const buttonText = escapeHtml(
+    ctx.buttonText ||
+      (ctx.template === "terms"
+        ? "同意并继续"
+        : ctx.template === "voucher"
+          ? "提交并接入"
+          : ctx.template === "business"
+            ? "开始使用"
+            : ctx.template === "hotel"
+              ? "即刻接入"
+              : ctx.template === "event"
+                ? "进入活动"
+                : "开始上网"),
+  );
+  const footerText = escapeHtml(
+    ctx.footerText ||
+      (ctx.template === "terms"
+        ? "继续使用即表示您接受以上条款。"
+        : ctx.template === "voucher"
+          ? "如券码无效，请咨询现场服务人员。"
+          : ctx.template === "business"
+            ? "如需技术支持，请联系 IT 部门。"
+            : ctx.template === "cafe"
+              ? "品味咖啡，畅享网络。"
+              : ctx.template === "hotel"
+                ? "如有疑问，请咨询前台。"
+                : ctx.template === "event"
+                  ? "感谢您的参与。"
+                  : "由 OpenClaw 提供安全驱动."),
+  );
+  const supportText = escapeHtml(ctx.supportText);
+  const rules =
+    ctx.rules.length > 0
+      ? ctx.rules
+      : ["请遵守当地法律法规 and 网络使用守则。", "请勿分发违法违规内容。"];
+  const rulesHtml = rules.map((rule) => `<li>${escapeHtml(rule)}</li>`).join("");
+
+  const sharedStyles = buildSharedStyles(ctx.accentColor);
 
   const metaHtml =
     ctx.template === "terms"

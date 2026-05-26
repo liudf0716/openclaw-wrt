@@ -23,6 +23,9 @@ import {
 
 const DEFAULT_CHAWRTD_BASE_URL = "http://127.0.0.1:8001";
 
+// Pre-compiled regex for sensitive field detection (avoids re-compilation per call).
+const SENSITIVE_KEYS_RE = /key|token|password|secret|private/i;
+
 /**
  * Extract the data payload from a chawrtd API response.
  * Handles both standard envelope { ok, data, error } and legacy flat responses.
@@ -47,14 +50,17 @@ function extractChawrtdData(response: ChawrtdToolResult): JsonRecord {
  */
 function redactSensitiveFields(payload?: JsonRecord): JsonRecord | undefined {
   if (!payload) return undefined;
-  const SENSITIVE_KEYS = /key|token|password|secret|private/i;
+  let hasSensitive = false;
+  for (const k of Object.keys(payload)) {
+    if (SENSITIVE_KEYS_RE.test(k)) {
+      hasSensitive = true;
+      break;
+    }
+  }
+  if (!hasSensitive) return payload; // No redaction needed, return original.
   const redacted: JsonRecord = {};
   for (const [k, v] of Object.entries(payload)) {
-    if (typeof v === "string" && SENSITIVE_KEYS.test(k)) {
-      redacted[k] = "[REDACTED]";
-    } else {
-      redacted[k] = v;
-    }
+    redacted[k] = typeof v === "string" && SENSITIVE_KEYS_RE.test(k) ? "[REDACTED]" : v;
   }
   return redacted;
 }

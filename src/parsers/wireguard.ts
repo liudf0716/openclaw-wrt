@@ -17,25 +17,8 @@ function asObject(value: unknown): JsonRecord | null {
 // ============================================================================
 
 /**
- * Recursively collect all nested JSON objects up to a maximum depth.
- */
-export function collectNestedJsonObjects(value: unknown, depth = 0): JsonRecord[] {
-  if (!value || typeof value !== "object" || depth > 6) {
-    return [];
-  }
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => collectNestedJsonObjects(entry, depth + 1));
-  }
-
-  const objectValue = value as JsonRecord;
-  return [
-    objectValue,
-    ...Object.values(objectValue).flatMap((entry) => collectNestedJsonObjects(entry, depth + 1)),
-  ];
-}
-
-/**
  * Extract WireGuard configuration snapshot from nested response data.
+ * Uses iterative depth-first traversal to avoid collecting all objects upfront.
  */
 export function extractWireguardConfigSnapshot(response: JsonRecord): {
   privateKey?: string;
@@ -45,8 +28,6 @@ export function extractWireguardConfigSnapshot(response: JsonRecord): {
   peerEndpoint?: string;
   peerPresharedKey?: string;
 } {
-  const objects = collectNestedJsonObjects(response);
-
   let privateKey: string | undefined;
   let addresses: string[] = [];
   let peerPublicKey: string | undefined;
@@ -54,13 +35,36 @@ export function extractWireguardConfigSnapshot(response: JsonRecord): {
   let peerEndpoint: string | undefined;
   let peerPresharedKey: string | undefined;
 
-  for (const entry of objects) {
+  const MAX_DEPTH = 6;
+
+  // Iterative depth-first traversal using an explicit stack.
+  // Each entry is [value, depth].
+  const stack: Array<[unknown, number]> = [[response, 0]];
+
+  while (stack.length > 0) {
+    const [current, depth] = stack.pop()!;
+
+    if (!current || typeof current !== "object" || depth > MAX_DEPTH) {
+      continue;
+    }
+
+    // Process arrays by pushing elements onto the stack.
+    if (Array.isArray(current)) {
+      for (let i = current.length - 1; i >= 0; i--) {
+        stack.push([current[i], depth + 1]);
+      }
+      continue;
+    }
+
+    const obj = current as JsonRecord;
+
+    // Extract fields from this object.
     if (!privateKey) {
       const candidate =
-        typeof entry.private_key === "string"
-          ? entry.private_key
-          : typeof entry.privateKey === "string"
-            ? entry.privateKey
+        typeof obj.private_key === "string"
+          ? obj.private_key
+          : typeof obj.privateKey === "string"
+            ? obj.privateKey
             : undefined;
       if (candidate?.trim()) {
         privateKey = candidate.trim();
@@ -69,12 +73,12 @@ export function extractWireguardConfigSnapshot(response: JsonRecord): {
 
     if (addresses.length === 0) {
       const rawAddresses =
-        Array.isArray(entry.addresses)
-          ? entry.addresses
-          : typeof entry.address === "string"
-            ? [entry.address]
-            : Array.isArray(entry.address)
-              ? entry.address
+        Array.isArray(obj.addresses)
+          ? obj.addresses
+          : typeof obj.address === "string"
+            ? [obj.address]
+            : Array.isArray(obj.address)
+              ? obj.address
               : [];
       const normalizedAddresses = rawAddresses
         .filter((candidate): candidate is string => typeof candidate === "string")
@@ -85,8 +89,8 @@ export function extractWireguardConfigSnapshot(response: JsonRecord): {
       }
     }
 
-    if (!peerPublicKey && Array.isArray(entry.peers) && entry.peers.length > 0) {
-      for (const peer of entry.peers) {
+    if (!peerPublicKey && Array.isArray(obj.peers) && obj.peers.length > 0) {
+      for (const peer of obj.peers) {
         const peerObject = asObject(peer);
         if (!peerObject) {
           continue;
@@ -118,12 +122,37 @@ export function extractWireguardConfigSnapshot(response: JsonRecord): {
       }
     }
 
+    // Early exit: all fields found.
     if (privateKey && addresses.length > 0 && peerPublicKey) {
       break;
+    }
+
+    // Push child objects onto the stack (reversed for correct DFS order).
+    const keys = Object.keys(obj);
+    for (let i = keys.length - 1; i >= 0; i--) {
+      stack.push([obj[keys[i]], depth + 1]);
     }
   }
 
   return { privateKey, addresses, peerPublicKey, peerAllowedIps, peerEndpoint, peerPresharedKey };
+}
+
+/**
+ * @deprecated Use extractWireguardConfigSnapshot directly for better performance.
+ * Kept for backward compatibility. Recursively collects all nested objects.
+ */
+export function collectNestedJsonObjects(value: unknown, depth = 0): JsonRecord[] {
+  if (!value || typeof value !== "object" || depth > 6) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => collectNestedJsonObjects(entry, depth + 1));
+  }
+  const objectValue = value as JsonRecord;
+  return [
+    objectValue,
+    ...Object.values(objectValue).flatMap((entry) => collectNestedJsonObjects(entry, depth + 1)),
+  ];
 }
 
 /**

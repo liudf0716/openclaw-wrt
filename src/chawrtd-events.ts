@@ -63,25 +63,35 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 function parseEventBlock(block: string): ChawrtdDeviceEvent | null {
-  const dataLines: string[] = [];
-  for (const line of block.split(/\r?\n/)) {
-    if (!line || line.startsWith(":")) {
+  // Fast path: find "data:" fields using indexOf to avoid split/join allocation.
+  let dataPayload = "";
+  let pos = 0;
+  while (pos < block.length) {
+    const lineStart = pos;
+    const lineEnd = block.indexOf("\n", pos);
+    pos = lineEnd >= 0 ? lineEnd + 1 : block.length;
+    const line = lineEnd >= 0 ? block.slice(lineStart, lineEnd) : block.slice(lineStart);
+    if (!line || line.charCodeAt(0) === 58 /* ':' */) {
       continue;
     }
-    const separator = line.indexOf(":");
-    const field = separator >= 0 ? line.slice(0, separator) : line;
-    const rawValue = separator >= 0 ? line.slice(separator + 1) : "";
-    const value = rawValue.startsWith(" ") ? rawValue.slice(1) : rawValue;
+    const sep = line.indexOf(":");
+    const field = sep >= 0 ? line.slice(0, sep) : line;
     if (field === "data") {
-      dataLines.push(value);
+      const rawValue = sep >= 0 ? line.slice(sep + 1) : "";
+      const value = rawValue.charCodeAt(0) === 32 /* ' ' */ ? rawValue.slice(1) : rawValue;
+      if (dataPayload) {
+        dataPayload += "\n" + value;
+      } else {
+        dataPayload = value;
+      }
     }
   }
 
-  if (dataLines.length === 0) {
+  if (!dataPayload) {
     return null;
   }
 
-  const payloadText = dataLines.join("\n");
+  const payloadText = dataPayload;
   try {
     const parsed = JSON.parse(payloadText) as Record<string, unknown>;
     if (!parsed || typeof parsed !== "object") {
@@ -107,6 +117,8 @@ export class ChawrtdEventStreamClient {
   private readonly config: ResolvedClawWRTConfig;
   // Keep SSE reads alive indefinitely; default undici body timeout is too short for quiet streams.
   private readonly streamDispatcher = createSseDispatcher();
+  // TextDecoder is stateless; reuse across reconnects.
+  private readonly decoder = new TextDecoder();
   private controller: AbortController | null = null;
   private running = false;
 
@@ -163,7 +175,6 @@ export class ChawrtdEventStreamClient {
         backoffMs = this.config.chawrtdEventStream.reconnectMinMs;
 
         const reader = response.body.getReader();
-        const decoder = new TextDecoder();
         let buffer = "";
 
         while (this.running && !signal.aborted) {
@@ -172,7 +183,7 @@ export class ChawrtdEventStreamClient {
             break;
           }
 
-          buffer += decoder.decode(value, { stream: true });
+          buffer += this.decoder.decode(value, { stream: true });
           let boundary = buffer.indexOf("\n\n");
           while (boundary >= 0) {
             const block = buffer.slice(0, boundary);

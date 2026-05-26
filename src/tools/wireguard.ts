@@ -19,7 +19,9 @@ import type {
 import {
   parseIPv4Cidr,
   deriveWireGuardPublicKeyFromPrivateKey,
+  cidrOverlaps,
 } from "../tool-validators.js";
+import { execFileSync } from "node:child_process";
 import {
   callDeviceOp,
   callChawrtd,
@@ -31,6 +33,7 @@ import {
   asObject,
   extractWireguardConfigSnapshot,
   findServerPeerPublicKeyForTunnelIp,
+  getSnapshotDisplayName,
   mapWireguardInterfacePayload,
   mapWireguardPeerPayload,
 } from "../tool-parsers.js";
@@ -69,8 +72,6 @@ async function collectWireguardProtectedRoutePlans(params: {
   serverTunnelIp: string;
   timeoutMs?: number;
 }): Promise<JsonRecord> {
-  const { cidrOverlaps } = await import("../tool-validators.js");
-  const { getSnapshotDisplayName } = await import("../tool-parsers.js");
   const client = getDefaultChawrtdClient();
 
   const deviceIds = [...new Set(params.deviceIds.map((id) => id.trim()).filter(Boolean))];
@@ -324,7 +325,7 @@ async function verifyDeviceRouterSide(
   serverConfiguredPublicKey: string | undefined,
   timeoutMs?: number,
 ): Promise<DeviceVerifyResult> {
-  const { execFileSync } = await import("node:child_process");
+  // execFileSync is imported at module level
 
   const status = await callDeviceOp({ deviceId, op: "get_wireguard_vpn_status", timeoutMs });
   const peer = (status as JsonRecord)?.peers as JsonRecord[] | undefined;
