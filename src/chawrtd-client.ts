@@ -272,15 +272,23 @@ export class ChawrtdClient {
     payload?: JsonRecord;
     timeoutMs?: number;
     signal?: AbortSignal;
+    expectResponse?: boolean;
   }): Promise<JsonRecord> {
     this.logger?.info?.(
       `openclaw-wrt: tool invoked name=callDeviceOpViaChawrtd rawParams=${JSON.stringify({ deviceId: params.deviceId, op: params.op })}`,
     );
 
+    const body: JsonRecord = {
+      ...(params.payload ?? {}),
+    };
+    if (params.expectResponse === false) {
+      body.__expect_response = false;
+    }
+
     const response = await this.call({
       path: `/v1/device/${params.deviceId}/${params.op}`,
       method: "POST",
-      body: params.payload ?? {},
+      body,
       timeoutMs: params.timeoutMs,
       signal: params.signal,
     });
@@ -417,17 +425,10 @@ async function callDeviceOpViaChawrtd(params: {
   op: string;
   payload?: JsonRecord;
   timeoutMs?: number;
+  expectResponse?: boolean;
 }): Promise<JsonRecord> {
   return getDefaultChawrtdClient().callDeviceOpViaChawrtd(params);
 }
-
-
-
-
-
-
-
-
 
 function getChawrtdBaseUrl(config?: ResolvedClawWRTConfig): string {
   const base = config?.chawrtdEventStream?.baseUrl ?? "http://127.0.0.1:8001";
