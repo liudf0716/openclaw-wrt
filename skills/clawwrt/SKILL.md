@@ -24,7 +24,7 @@ Prefer the specific `clawwrt_*` tools over the low-level `clawwrt` tool for rout
 |---------|-----------|--------|
 | 内网穿透 / 穿透 / 映射端口 / 远程访问路由器 / xfrpc 配置 | `frps-deployment` | 优先调用 `openclaw_frps_full_status`；若不可用，再调用 `openclaw_get_frps_status`，禁止先列设备 |
 | WireGuard VPN 部署 / 组网 / VPN 隧道 | `wireguard-deployment` | 遵循该 Skill 的入口步骤 |
-| 认证网络慢 / portal 慢 / 用户上网认证慢 / DHCP-DNS-Portal 性能排障 | `network-performance-diagnosis` | 固定采集 `clawwrt_dhcp_diagnose`、`clawwrt_dns_diagnose`、`clawwrt_http_service_diagnose`、`clawwrt_https_service_diagnose`、`clawwrt_scan_wifi` |
+| 认证网络慢 / portal 慢 / 用户上网认证慢 / DHCP-DNS-Portal 性能排障 / 网络优化诊断 / 网络卡顿排查 | `network-performance-diagnosis` | 固定采集 `clawwrt_dhcp_diagnose`、`clawwrt_dns_diagnose`、`clawwrt_http_service_diagnose`、`clawwrt_https_service_diagnose`、`clawwrt_scan_wifi` |
 
 ❌ **禁止**：收到上述任务请求时先调用 `clawwrt_list_devices` 或询问路由器信息。必须先执行专属 Skill 指定的服务端检查步骤。
 
