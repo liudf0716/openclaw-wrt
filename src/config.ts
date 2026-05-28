@@ -90,13 +90,17 @@ function readIntegerInRange(value: unknown, minimum: number, maximum: number): n
 
 function resolveChawrtdEventStreamConfig(value: unknown): ResolvedChawrtdEventStreamConfig {
   const parsed = Value.Check(ChawrtdEventStreamConfigSchema, value) ? value : asConfigObject(value);
+
+  const reconnectMinMs =
+    readIntegerInRange(parsed?.reconnectMinMs, 250, 60_000) ?? DEFAULT_CHAWRTD_EVENT_STREAM_RECONNECT_MIN_MS;
+  const reconnectMaxMs =
+    readIntegerInRange(parsed?.reconnectMaxMs, 1000, 120_000) ?? DEFAULT_CHAWRTD_EVENT_STREAM_RECONNECT_MAX_MS;
+
   return {
     baseUrl: normalizeBaseUrl(readNonEmptyString(parsed?.baseUrl)),
     path: normalizePath(readNonEmptyString(parsed?.path)),
-    reconnectMinMs:
-      readIntegerInRange(parsed?.reconnectMinMs, 250, 60_000) ?? DEFAULT_CHAWRTD_EVENT_STREAM_RECONNECT_MIN_MS,
-    reconnectMaxMs:
-      readIntegerInRange(parsed?.reconnectMaxMs, 1000, 120_000) ?? DEFAULT_CHAWRTD_EVENT_STREAM_RECONNECT_MAX_MS,
+    reconnectMinMs: Math.min(reconnectMinMs, reconnectMaxMs),
+    reconnectMaxMs,
   };
 }
 

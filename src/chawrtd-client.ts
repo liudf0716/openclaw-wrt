@@ -354,6 +354,19 @@ export function setActiveClawWRTConfig(config: ResolvedClawWRTConfig | undefined
   });
 }
 
+function getClientForConfig(config?: ResolvedClawWRTConfig): ChawrtdClient {
+  if (config === undefined) {
+    return getDefaultChawrtdClient();
+  }
+
+  const existing = getDefaultChawrtdClient();
+  return new ChawrtdClient({
+    config,
+    bridge: existing['bridge'] as ClawWRTBridge | undefined,
+    logger: existing['logger'] as Logger | undefined,
+  });
+}
+
 export async function callChawrtd(params: {
   path: string;
   method?: "GET" | "POST";
@@ -366,21 +379,21 @@ export async function callChawrtd(params: {
 }
 
 export async function getDevicesListViaChawrtd(config?: ResolvedClawWRTConfig): Promise<DeviceSnapshot[]> {
-  return getDefaultChawrtdClient().listDevices();
+  return getClientForConfig(config).listDevices();
 }
 
 export async function getDeviceViaChawrtd(
   deviceId: string,
   config?: ResolvedClawWRTConfig,
 ): Promise<DeviceSnapshot | null> {
-  return getDefaultChawrtdClient().getDevice(deviceId);
+  return getClientForConfig(config).getDevice(deviceId);
 }
 
 export async function ensureDevice(
   deviceId: string,
   config?: ResolvedClawWRTConfig,
 ): Promise<DeviceSnapshot> {
-  return getDefaultChawrtdClient().ensureDevice(deviceId);
+  return getClientForConfig(config).ensureDevice(deviceId);
 }
 
 export async function callDeviceOp(params: {

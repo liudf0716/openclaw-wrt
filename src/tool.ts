@@ -32,7 +32,7 @@ export type CreateClawWRTToolsParams = {
 export function createClawWRTTools(params: CreateClawWRTToolsParams): AnyAgentTool[] {
   // Set module-level bridge fallback so chawrtd-client.js callDeviceOp works
   setActiveBridgeFallback(params.bridge);
-  if (params.config) setActiveClawWRTConfig(params.config);
+  setActiveClawWRTConfig(params.config);
 
   const deps = { bridge: params.bridge, logger: params.logger };
   return [

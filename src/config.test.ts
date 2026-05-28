@@ -47,6 +47,18 @@ describe("resolveClawWRTConfig", () => {
     expect(resolved.chawrtdEventStream.reconnectMaxMs).toBe(9000);
   });
 
+  it("clamps reconnectMinMs to reconnectMaxMs when min is greater than max", () => {
+    const resolved = resolveClawWRTConfig({
+      chawrtdEventStream: {
+        reconnectMinMs: 12_000,
+        reconnectMaxMs: 3_000,
+      },
+    });
+
+    expect(resolved.chawrtdEventStream.reconnectMinMs).toBe(3_000);
+    expect(resolved.chawrtdEventStream.reconnectMaxMs).toBe(3_000);
+  });
+
   it("accepts notificationTarget in the runtime config schema", () => {
     const schema = createClawWRTPluginConfigSchema();
     const parsed = schema.safeParse({

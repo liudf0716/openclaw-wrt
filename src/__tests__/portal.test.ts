@@ -193,29 +193,43 @@ describe("portal tools", () => {
       },
     };
 
-    const tool = createClawWRTTools({ bridge: bridge as never }).find(
-      (entry) => entry.name === "clawwrt_generate_portal_page",
-    );
-    expect(tool).toBeTruthy();
+    const webRoot = await mkdtemp(path.join(os.tmpdir(), "openclaw-wrt-portal-"));
+    const previousWebRootEnv = process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT;
+    process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT = webRoot;
+    nginxState.failConfigRead = true;
+    try {
+      const tool = createClawWRTTools({ bridge: bridge as never }).find(
+        (entry) => entry.name === "clawwrt_generate_portal_page",
+      );
+      expect(tool).toBeTruthy();
 
-    const result = await tool?.execute?.("tool-generate", {
-      deviceId: "dev-generate",
-      template: "terms",
-      content: {
-        brandName: "龙虾网络",
-        rules: ["请遵守现场规则。", "如需帮助，请联系工作人员。"],
-        buttonText: "同意并继续",
-      },
-    });
+      const result = await tool?.execute?.("tool-generate", {
+        deviceId: "dev-generate",
+        template: "terms",
+        content: {
+          brandName: "龙虾网络",
+          rules: ["请遵守现场规则。", "如需帮助，请联系工作人员。"],
+          buttonText: "同意并继续",
+        },
+      });
 
-    expect(calls).toHaveLength(0);
-    const details = (result as { details?: Record<string, unknown> }).details;
-    expect(details?.pageName).toBe("portal-dev-generate.html");
-    expect(typeof details?.filePath).toBe("string");
-    const writtenHtml = await readFile(String(details?.filePath), "utf8");
-    expect(writtenHtml).toContain("请先阅读并同意使用条款");
-    expect(writtenHtml).toContain("请遵守现场规则。");
-    expect(writtenHtml).toContain("同意并继续");
+      expect(calls).toHaveLength(0);
+      const details = (result as { details?: Record<string, unknown> }).details;
+      expect(details?.pageName).toBe("portal-dev-generate.html");
+      expect(typeof details?.filePath).toBe("string");
+      const writtenHtml = await readFile(String(details?.filePath), "utf8");
+      expect(writtenHtml).toContain("请先阅读并同意使用条款");
+      expect(writtenHtml).toContain("请遵守现场规则。");
+      expect(writtenHtml).toContain("同意并继续");
+    } finally {
+      nginxState.failConfigRead = false;
+      if (previousWebRootEnv === undefined) {
+        delete process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT;
+      } else {
+        process.env.OPENCLAW_WRT_PORTAL_WEB_ROOT = previousWebRootEnv;
+      }
+      await rm(webRoot, { recursive: true, force: true });
+    }
   });
 
   it("publishes a portal page with an explicit filename when provided", async () => {
