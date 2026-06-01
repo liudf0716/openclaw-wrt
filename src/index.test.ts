@@ -5,12 +5,21 @@ describe("formatDeviceEventMessage", () => {
   it("formats a client connected event in Chinese", () => {
     const message = formatDeviceEventMessage("dev-1", "client_connected", {
       mac: "aa:bb:cc:dd:ee:ff",
-      connect_duration_ms: 187,
+      connect_duration_us: 187000,
     }, "WiFi101", 1716336000000);
 
     expect(message).toContain("🕒 2024-05-22 00:00:00 UTC ·");
     expect(message).toContain("设备 `dev-1`（WiFi101） 上有新的 WiFi 客户端接入");
     expect(message).toContain("MAC `aa:bb:cc:dd:ee:ff`");
+    expect(message).toContain("连接耗时 187000us");
+  });
+
+  it("falls back to millisecond duration when microseconds are missing", () => {
+    const message = formatDeviceEventMessage("dev-1", "client_connected", {
+      mac: "aa:bb:cc:dd:ee:ff",
+      connect_duration_ms: 187,
+    });
+
     expect(message).toContain("连接耗时 187ms");
   });
 

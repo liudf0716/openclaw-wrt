@@ -88,6 +88,20 @@ function formatEventTime(time?: number): string {
   return `🕒 ${isoText} · `;
 }
 
+function parseConnectDurationUs(data: Record<string, unknown>): number | null {
+  const raw = data.connect_duration_us;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.max(0, Math.round(raw));
+  }
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.round(parsed));
+    }
+  }
+  return null;
+}
+
 function parseConnectDurationMs(data: Record<string, unknown>): number | null {
   const raw = data.connect_duration_ms;
   if (typeof raw === "number" && Number.isFinite(raw)) {
@@ -129,8 +143,13 @@ export function formatDeviceEventMessage(
   switch (op) {
     case "client_connected": {
       const mac = typeof data.mac === "string" ? data.mac : (typeof data.client_mac === "string" ? data.client_mac : "unknown");
-      const durationMs = parseConnectDurationMs(data);
-      const durationSuffix = durationMs === null ? "" : `，连接耗时 ${durationMs}ms`;
+      const durationUs = parseConnectDurationUs(data);
+      const durationSuffix = durationUs !== null
+        ? `，连接耗时 ${durationUs}us`
+        : (() => {
+            const durationMs = parseConnectDurationMs(data);
+            return durationMs === null ? "" : `，连接耗时 ${durationMs}ms`;
+          })();
       return `${timePrefix}📶 设备 \`${deviceId}\`${aliasSuffix} 上有新的 WiFi 客户端接入：MAC \`${mac}\`${durationSuffix}`;
     }
     case "client_ip_assigned": {
