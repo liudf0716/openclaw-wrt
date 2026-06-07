@@ -23,6 +23,34 @@ describe("formatDeviceEventMessage", () => {
     expect(message).toContain("连接耗时 187ms");
   });
 
+  it("includes WiFi SSID and band for client connected events", () => {
+    const message = formatDeviceEventMessage("dev-1", "client_connected", {
+      mac: "aa:bb:cc:dd:ee:ff",
+      ssid: "ClawWiFi-5G",
+      band: "5g",
+    });
+
+    expect(message).toContain("SSID `ClawWiFi-5G`");
+    expect(message).toContain("频段 `5G`");
+  });
+
+  it("formats 2.4G band and derives band from frequency when needed", () => {
+    const explicit = formatDeviceEventMessage("dev-1", "client_connected", {
+      mac: "aa:bb:cc:dd:ee:ff",
+      ssid: "ClawWiFi",
+      band: "2g",
+    });
+    const inferred = formatDeviceEventMessage("dev-1", "client_connected", {
+      mac: "aa:bb:cc:dd:ee:ff",
+      wifi_ssid: "ClawWiFi-Alt",
+      frequency: 2412,
+    });
+
+    expect(explicit).toContain("频段 `2.4G`");
+    expect(inferred).toContain("SSID `ClawWiFi-Alt`");
+    expect(inferred).toContain("频段 `2.4G`");
+  });
+
   it("omits connection duration text when missing", () => {
     const message = formatDeviceEventMessage("dev-1", "client_connected", {
       mac: "aa:bb:cc:dd:ee:ff",

@@ -130,6 +130,58 @@ function parseDisconnectDurationMs(data: Record<string, unknown>): number | null
   return null;
 }
 
+function firstStringField(data: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function formatWifiBand(data: Record<string, unknown>): string {
+  const rawBand = firstStringField(data, ["band", "wifi_band", "radio_band"]);
+  const normalized = rawBand.toLowerCase().replace(/\s+/g, "");
+  if (normalized === "2g" || normalized === "2.4g" || normalized === "2.4ghz" || normalized === "24g") {
+    return "2.4G";
+  }
+  if (normalized === "5g" || normalized === "5ghz") {
+    return "5G";
+  }
+  if (rawBand) {
+    return rawBand;
+  }
+
+  const frequency = data.frequency ?? data.freq;
+  const parsedFrequency =
+    typeof frequency === "number"
+      ? frequency
+      : typeof frequency === "string" && frequency.trim()
+        ? Number(frequency)
+        : NaN;
+  if (!Number.isFinite(parsedFrequency)) {
+    return "";
+  }
+  if (parsedFrequency >= 2400 && parsedFrequency < 2500) {
+    return "2.4G";
+  }
+  if (parsedFrequency >= 4900 && parsedFrequency < 5925) {
+    return "5G";
+  }
+  return "";
+}
+
+function formatWifiApSuffix(data: Record<string, unknown>): string {
+  const ssid = firstStringField(data, ["ssid", "ap_ssid", "wifi_ssid"]);
+  const band = formatWifiBand(data);
+  const parts = [
+    ssid ? `SSID \`${ssid}\`` : "",
+    band ? `频段 \`${band}\`` : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? `，${parts.join("，")}` : "";
+}
+
 /** Format a device push event as a human-readable notification message. */
 export function formatDeviceEventMessage(
   deviceId: string,
@@ -143,6 +195,7 @@ export function formatDeviceEventMessage(
   switch (op) {
     case "client_connected": {
       const mac = typeof data.mac === "string" ? data.mac : (typeof data.client_mac === "string" ? data.client_mac : "unknown");
+      const apSuffix = formatWifiApSuffix(data);
       const durationUs = parseConnectDurationUs(data);
       const durationSuffix = durationUs !== null
         ? `，连接耗时 ${durationUs}us`
@@ -150,7 +203,7 @@ export function formatDeviceEventMessage(
             const durationMs = parseConnectDurationMs(data);
             return durationMs === null ? "" : `，连接耗时 ${durationMs}ms`;
           })();
-      return `${timePrefix}📶 设备 \`${deviceId}\`${aliasSuffix} 上有新的 WiFi 客户端接入：MAC \`${mac}\`${durationSuffix}`;
+      return `${timePrefix}📶 设备 \`${deviceId}\`${aliasSuffix} 上有新的 WiFi 客户端接入：MAC \`${mac}\`${apSuffix}${durationSuffix}`;
     }
     case "client_ip_assigned": {
       const mac = typeof data.mac === "string" ? data.mac : (typeof data.client_mac === "string" ? data.client_mac : "unknown");
